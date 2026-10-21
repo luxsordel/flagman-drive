@@ -1,0 +1,27 @@
+name: Баг
+description: Что-то работает не так
+labels: ["bug"]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидалось / получилось
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Где
+      multiple: true
+      options: [api, mobile-ios, mobile-android, mobile-web, admin, emulator, infra]
+  - type: textarea
+    id: env
+    attributes:
+      label: Окружение, логи, скриншоты
+      description: Не вставляйте реальные персональные данные и секреты.

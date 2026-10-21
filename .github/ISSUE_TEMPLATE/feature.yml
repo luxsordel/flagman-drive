@@ -1,0 +1,31 @@
+name: Задача / фича
+description: Новая функциональность или улучшение
+labels: ["feature"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Что и зачем
+      description: Какую проблему пользователя или бизнеса решаем.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Критерии приёмки
+      description: Проверяемые условия «готово».
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      multiple: true
+      options: [api, mobile, admin, emulator, infra, docs]
+  - type: textarea
+    id: notes
+    attributes:
+      label: Заметки, ссылки, макеты

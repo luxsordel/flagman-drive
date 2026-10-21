@@ -1,0 +1,42 @@
+# Secrets
+.env
+.env.local
+.env.production
+*.pem
+*.key
+secrets/
+
+# Claude Code — personal settings
+.claude/settings.local.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node / Expo
+node_modules/
+dist/
+build/
+.expo/
+web-build/
+*.tsbuildinfo
+android/
+ios/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Local data
+infra/data/
+*.log
