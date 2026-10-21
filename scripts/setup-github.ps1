@@ -5,8 +5,19 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+# gh is a native command: PowerShell does not throw on its failures, so check the exit code and retry
+# transient network errors.
+function Invoke-Gh {
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+        gh @args | Out-Null
+        if ($LASTEXITCODE -eq 0) { return }
+        Start-Sleep -Seconds (2 * $attempt)
+    }
+    throw "gh $($args -join ' ') failed"
+}
+
 Write-Host "== Repository settings: squash-only merges, auto-delete branches, discussions"
-gh repo edit $Repo --enable-squash-merge --enable-merge-commit=false --enable-rebase-merge=false `
+Invoke-Gh repo edit $Repo --enable-squash-merge --enable-merge-commit=false --enable-rebase-merge=false `
     --delete-branch-on-merge --enable-discussions --enable-wiki=false
 
 Write-Host "== Labels"
@@ -26,7 +37,7 @@ $labels = @(
     @{ name = 'good first issue'; color = '7057FF'; description = 'Good for onboarding' }
 )
 foreach ($l in $labels) {
-    gh label create $l.name --repo $Repo --color $l.color --description $l.description --force | Out-Null
+    Invoke-Gh label create $l.name --repo $Repo --color $l.color --description $l.description --force
 }
 
 Write-Host "== Branch protection for main"
@@ -44,10 +55,10 @@ $tmp = New-TemporaryFile
 # No BOM: gh rejects JSON input that starts with one (Set-Content -Encoding utf8 adds it in PowerShell 5.1)
 [IO.File]::WriteAllText($tmp, $protection, (New-Object System.Text.UTF8Encoding $false))
 try {
-    gh api -X PUT "repos/$Repo/branches/main/protection" --input $tmp | Out-Null
+    Invoke-Gh api -X PUT "repos/$Repo/branches/main/protection" --input $tmp
     Write-Host "   main is protected"
 } catch {
-    Write-Warning "Branch protection failed. Private repos need GitHub Pro (free with Student Pack) on the owner account."
+    Write-Warning "Branch protection failed: $_. Private repos need GitHub Pro (free with Student Pack) on the owner account."
 } finally {
     Remove-Item $tmp
 }
