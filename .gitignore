@@ -6,8 +6,9 @@
 *.key
 secrets/
 
-# Claude Code — personal settings
+# Claude Code — personal settings and per-session worktrees
 .claude/settings.local.json
+.claude/worktrees/
 
 # Python
 __pycache__/
