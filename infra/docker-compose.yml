@@ -1,0 +1,97 @@
+# Local infrastructure for the API. Run from the repository root:
+#   docker compose --env-file .env -f infra/docker-compose.yml up -d
+# The env file is passed explicitly because Compose otherwise looks for .env next to this file.
+
+name: flagman
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.6
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    # Bound to localhost only: the database must not be reachable from the LAN.
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.11-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+    # Password comes from the environment so it does not appear in the compose file.
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  # S3-compatible object storage, see docs/adr/0005-object-storage-seaweedfs.md.
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.48
+    # Without these credentials SeaweedFS serves S3 anonymously, so they are mandatory.
+    environment:
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+    # A fixed -ip keeps the volume server address stable across container restarts.
+    command:
+      - server
+      - -dir=/data
+      - -ip=seaweedfs
+      - -ip.bind=0.0.0.0
+      - -s3
+      - -s3.port=8333
+      - -master.telemetry=false
+    ports:
+      - "127.0.0.1:${S3_PORT:-8333}:8333"
+    volumes:
+      - seaweedfsdata:/data
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://localhost:8333/healthz"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    restart: unless-stopped
+
+  # One-shot job: creates the private bucket if it does not exist yet.
+  seaweedfs-init:
+    image: chrislusf/seaweedfs:4.48
+    depends_on:
+      seaweedfs:
+        condition: service_healthy
+    environment:
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        list_buckets() { echo "s3.bucket.list" | weed shell -master=seaweedfs:9333 2>/dev/null; }
+        if list_buckets | awk '{print $$1}' | grep -qxF "$$S3_BUCKET"; then
+          echo "bucket $$S3_BUCKET already exists"
+        else
+          echo "s3.bucket.create -name $$S3_BUCKET" | weed shell -master=seaweedfs:9333
+          list_buckets | awk '{print $$1}' | grep -qxF "$$S3_BUCKET"
+          echo "bucket $$S3_BUCKET created"
+        fi
+    restart: "no"
+
+volumes:
+  pgdata:
+  redisdata:
+  seaweedfsdata:

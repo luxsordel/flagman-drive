@@ -53,14 +53,64 @@ gh auth login --web --scopes "project,read:org,workflow"
 
 ## 3. Запустить
 
-Команды появятся после этапа 0 и будут описаны здесь. Ориентировочно:
+### Инфраструктура: PostgreSQL + PostGIS, Redis, SeaweedFS (S3)
+
+Docker Desktop должен быть запущен. Все команды — из корня репозитория, одинаково в PowerShell и Git Bash
+(кроме копирования `.env`).
+
+1. Создать `.env` из шаблона:
+
+   ```powershell
+   Copy-Item .env.example .env   # PowerShell
+   ```
+
+   ```bash
+   cp .env.example .env          # Git Bash
+   ```
+
+2. Заполнить в `.env` пустые значения: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`.
+   Для локальной разработки придумайте их сами, например `openssl rand -hex 24` в Git Bash.
+   Пустое значение — ошибка запуска, это сделано специально (SeaweedFS без ключей открыт анонимно).
+
+3. Поднять:
+
+   ```bash
+   docker compose --env-file .env -f infra/docker-compose.yml up -d
+   ```
+
+   `--env-file .env` обязателен: без него Compose ищет `.env` в папке `infra/`.
+
+4. Проверить — через 10–20 секунд:
+
+   ```bash
+   docker compose --env-file .env -f infra/docker-compose.yml ps -a
+   ```
+
+   `postgres`, `redis`, `seaweedfs` — `Up (healthy)`; `seaweedfs-init` — `Exited (0)`
+   (это одноразовая задача, которая создаёт приватный бакет `S3_BUCKET`).
+
+| Сервис | Адрес | Доступ |
+|---|---|---|
+| PostgreSQL 16 + PostGIS | `127.0.0.1:5432` | `POSTGRES_USER` / `POSTGRES_PASSWORD`, база `POSTGRES_DB` |
+| Redis 7 | `127.0.0.1:6379` | пароль `REDIS_PASSWORD` |
+| SeaweedFS (S3 API) | `http://127.0.0.1:8333` | ключи `S3_ACCESS_KEY` / `S3_SECRET_KEY` |
+
+Порты открыты только на `127.0.0.1` — из локальной сети сервисы не видны. Если порт занят, поменяйте
+`*_PORT` в `.env`. Почему SeaweedFS, а не MinIO — [ADR-0005](adr/0005-object-storage-seaweedfs.md).
+
+Остановить (данные сохраняются в Docker volumes):
 
 ```bash
-gh repo clone luxsordel/flagman-drive
-cd flagman-drive
-cp .env.example .env
-docker compose -f infra/docker-compose.yml up -d
+docker compose --env-file .env -f infra/docker-compose.yml down
 ```
+
+Сбросить всё с нуля (**удаляет** базу, Redis и файлы хранилища):
+
+```bash
+docker compose --env-file .env -f infra/docker-compose.yml down -v
+```
+
+Если не стартует: `docker compose --env-file .env -f infra/docker-compose.yml logs <сервис>`.
 
 ## 4. Прочитать
 

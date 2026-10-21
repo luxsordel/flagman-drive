@@ -8,7 +8,7 @@
 Цель: пустое, но правильно устроенное приложение, которое собирается, тестируется и запускается одной командой.
 
 - [ ] Репозиторий на GitHub, защита `main`, доска Projects, метки, шаблоны
-- [ ] `infra/docker-compose.yml`: PostgreSQL+PostGIS, Redis, MinIO
+- [ ] `infra/docker-compose.yml`: PostgreSQL+PostGIS, Redis, SeaweedFS (S3)
 - [ ] `apps/api`: каркас FastAPI (модули, конфиг, БД, Alembic, обработка ошибок, логи, health-check)
 - [ ] `apps/mobile`: каркас Expo (навигация, i18n ru/en, темы, дизайн-токены FLAGMAN)
 - [ ] `apps/admin`: каркас React + Vite (вход, макет, дизайн-токены)
