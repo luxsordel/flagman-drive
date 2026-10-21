@@ -15,7 +15,7 @@
                 └─┬────┬────┬──┘
      ┌────────────┘    │    └─────────────┐
 ┌────▼─────┐     ┌─────▼────┐      ┌──────▼──────┐
-│PostgreSQL│     │  Redis   │      │ S3 (MinIO)  │ фото документов
+│PostgreSQL│     │  Redis   │      │S3 SeaweedFS │ фото документов
 │ +PostGIS │     │кэш, очер.│      │ приватный   │ и осмотров
 └──────────┘     └──────────┘      └─────────────┘
         ▲  адаптеры (интерфейсы в домене)
@@ -114,7 +114,7 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - React + Vite + TypeScript, TanStack Query, MapLibre (редактор зон), тот же API-клиент
 
 ### Инфраструктура
-- Локально: **Docker Compose** (Postgres/PostGIS, Redis, MinIO, API, worker, эмулятор)
+- Локально: **Docker Compose** (Postgres/PostGIS, Redis, SeaweedFS (S3), API, worker, эмулятор)
 - CI: **GitHub Actions** — линт, типы, тесты, сканеры безопасности, сборка образов
 - Хостинг демо: облако вне РФ (кредиты GitHub Student Pack: DigitalOcean / Azure for Students), регион ЕС.
   См. [ADR-0004](adr/0004-hosting.md)
@@ -125,3 +125,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0002](adr/0002-modular-monolith.md) — модульный монолит
 - [ADR-0003](adr/0003-maps.md) — MapLibre + OSM вместо Яндекс/Google
 - [ADR-0004](adr/0004-hosting.md) — хостинг
+- [ADR-0005](adr/0005-object-storage-seaweedfs.md) — объектное хранилище SeaweedFS вместо MinIO
