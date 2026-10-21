@@ -32,14 +32,14 @@ Python отдельно ставить не нужно — `uv` сам скач�
 git config --global user.name "Ваше Имя"
 git config --global user.email "почта@из-github"
 git config --global core.autocrlf false   # окончания строк управляются .gitattributes
-gh auth login --web --scopes "project,read:org"
+gh auth login --web --scopes "project,read:org,workflow"
 ```
 
 `gh auth login` откроет браузер — войдите в GitHub там. Пароли и токены в чат с Claude не вставляйте.
 
 ### Claude Code
 
-1. Склонируйте репозиторий (`gh repo clone <owner>/flagman-drive`) в удобную папку, например `Documents\flagman-drive`.
+1. Склонируйте репозиторий (`gh repo clone luxsordel/flagman-drive`) в удобную папку, например `Documents\flagman-drive`.
 2. В приложении Claude → вкладка **Code** → выберите эту папку.
 3. Claude Code сам подхватит общие правила: `CLAUDE.md`, `.claude/settings.json` и команды из `.claude/skills/`.
 4. Личные настройки (если нужны) — в `.claude/settings.local.json`, он не коммитится.
@@ -47,7 +47,7 @@ gh auth login --web --scopes "project,read:org"
 
 ## 2. Получить доступы
 
-- Репозиторий GitHub (приглашение в организацию)
+- Репозиторий GitHub — приглашение соавтором приходит на почту / в уведомления GitHub, его нужно принять
 - Аккаунт Expo (для облачных сборок)
 - Файл `.env` — **не** через мессенджер; через менеджер паролей. Шаблон — `.env.example`.
 
@@ -56,7 +56,7 @@ gh auth login --web --scopes "project,read:org"
 Команды появятся после этапа 0 и будут описаны здесь. Ориентировочно:
 
 ```bash
-git clone <repo-url>
+gh repo clone luxsordel/flagman-drive
 cd flagman-drive
 cp .env.example .env
 docker compose -f infra/docker-compose.yml up -d
