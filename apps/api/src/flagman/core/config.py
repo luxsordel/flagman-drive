@@ -31,6 +31,8 @@ class Settings(BaseSettings):
     redis_host: str = "localhost"
     redis_port: int = 6379
     redis_password: SecretStr
+    # For every call of the process-wide client; /ready has its own, shorter limit.
+    redis_timeout_seconds: float = Field(default=5.0, gt=0)
 
     readiness_timeout_seconds: float = Field(default=2.0, gt=0)
 
