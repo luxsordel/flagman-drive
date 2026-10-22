@@ -5,6 +5,8 @@ description: Draft the weekly async team update from GitHub activity. Use when t
 
 # Weekly update
 
+Talk to the user in Russian (see «Язык» in CLAUDE.md), even though this skill is written in English.
+
 1. Collect activity for the last 7 days:
    - merged PRs: `gh pr list --state merged --search "merged:>=<date>" --json number,title,author,url`
    - open PRs waiting for review: `gh pr list --state open --json number,title,author,reviewDecision,url`

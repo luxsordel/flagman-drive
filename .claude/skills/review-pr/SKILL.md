@@ -5,6 +5,8 @@ description: Review a teammate's pull request against the project rules and help
 
 # Review a pull request
 
+Talk to the user in Russian (see «Язык» in CLAUDE.md), even though this skill is written in English.
+
 Argument: PR number. If none is given, list open PRs where the current user is a requested reviewer
 (`gh pr list --search "review-requested:@me"`) and ask which one. The human makes the final decision; you prepare it.
 

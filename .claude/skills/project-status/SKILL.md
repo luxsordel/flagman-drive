@@ -6,7 +6,7 @@ description: Report the project status from GitHub (milestone progress, who work
 # Project status
 
 GitHub calls can fail on a flaky network: retry a failed `gh` call a few times before reporting an error.
-Answer in Russian, plain language, short.
+Talk to the user in Russian (see «Язык» in CLAUDE.md), plain language, short.
 
 1. Collect:
    - `git fetch --prune origin`; local branch, uncommitted changes, how far local `main` is behind `origin/main`.

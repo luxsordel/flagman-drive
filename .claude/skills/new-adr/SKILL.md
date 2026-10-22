@@ -5,6 +5,8 @@ description: Record an architecture decision as a new ADR in docs/adr. Use when 
 
 # New ADR
 
+Talk to the user in Russian (see «Язык» in CLAUDE.md), even though this skill is written in English.
+
 1. Find the next number: highest `docs/adr/NNNN-*.md` + 1.
 2. Copy the structure of `docs/adr/0000-template.md`. Write in Russian. Status "предложено" unless the user
    says the decision is accepted; date — today.

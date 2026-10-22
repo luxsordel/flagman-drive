@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "admin",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace", "@flagman/admin"],
+      "port": 5173,
+      "url": "http://127.0.0.1:5173"
+    },
+    {
+      "name": "mobile",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start", "--workspace", "@flagman/mobile"],
+      "port": 8081
+    }
+  ]
+}
