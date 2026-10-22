@@ -8,10 +8,13 @@ export interface ButtonProps {
   title: string;
   onPress: () => void;
   disabled?: boolean;
+  /** `secondary` for the less important action next to a primary one. */
+  variant?: 'primary' | 'secondary';
 }
 
-export function Button({ title, onPress, disabled = false }: ButtonProps) {
+export function Button({ title, onPress, disabled = false, variant = 'primary' }: ButtonProps) {
   const { colors } = useTheme();
+  const primary = variant === 'primary';
   return (
     <Pressable
       accessibilityRole="button"
@@ -20,11 +23,15 @@ export function Button({ title, onPress, disabled = false }: ButtonProps) {
       onPress={onPress}
       style={({ pressed }) => [
         styles.base,
-        { backgroundColor: pressed ? colors.primaryStrong : colors.primary },
+        primary
+          ? { backgroundColor: pressed ? colors.primaryStrong : colors.primary }
+          : { borderWidth: 1, borderColor: pressed ? colors.primary : colors.border },
         disabled && styles.disabled,
       ]}
     >
-      <Text style={[styles.title, { color: colors.onPrimary }]}>{title}</Text>
+      <Text style={[styles.title, { color: primary ? colors.onPrimary : colors.primary }]}>
+        {title}
+      </Text>
     </Pressable>
   );
 }

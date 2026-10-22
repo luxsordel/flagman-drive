@@ -2,39 +2,72 @@ import { screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import ru from './i18n/ru.json';
-import { sections } from './navigation';
+import { sections, sectionsFor } from './navigation';
+import { testStaff } from './test/auth';
 import { renderAt } from './test/render';
 
 describe('routes', () => {
   it('shows the staff sign-in page at /login', () => {
-    renderAt('/login');
+    renderAt('/login', null);
 
     expect(screen.getByRole('heading', { name: ru.login.title })).toBeDefined();
     expect(screen.queryByRole('navigation')).toBeNull();
   });
 
-  it('shows the layout with every section in the side menu', () => {
+  it('sends a visitor without a session to the sign-in page', async () => {
+    renderAt('/fleet', null);
+
+    expect(await screen.findByRole('heading', { name: ru.login.title })).toBeDefined();
+  });
+
+  it('shows the layout with every section to an admin', async () => {
     renderAt('/');
 
-    const menu = screen.getByRole('navigation', { name: ru.layout.menu });
+    const menu = await screen.findByRole('navigation', { name: ru.layout.menu });
     for (const section of sections) {
       expect(within(menu).getByRole('link', { name: ru.nav[section.key] })).toBeDefined();
     }
     expect(screen.getByRole('banner')).toBeDefined();
   });
 
-  it('opens a section page from its path', () => {
+  it('opens a section page from its path', async () => {
     renderAt('/fleet');
 
-    expect(screen.getByRole('heading', { level: 1, name: ru.nav.fleet })).toBeDefined();
+    expect(await screen.findByRole('heading', { level: 1, name: ru.nav.fleet })).toBeDefined();
     expect(screen.getByRole('link', { name: ru.nav.fleet }).getAttribute('aria-current')).toBe(
       'page',
     );
   });
 
-  it('shows the not-found page for an unknown path', () => {
+  it('shows the not-found page for an unknown path', async () => {
     renderAt('/no-such-page');
 
-    expect(screen.getByRole('heading', { name: ru.notFound.title })).toBeDefined();
+    expect(await screen.findByRole('heading', { name: ru.notFound.title })).toBeDefined();
+  });
+});
+
+describe('sections by role', () => {
+  it('gives each role its own menu', () => {
+    const keys = (role: Parameters<typeof sectionsFor>[0]) =>
+      sectionsFor(role).map((section) => section.key);
+
+    expect(keys('technician')).toEqual(['dashboard', 'fleet']);
+    expect(keys('operator')).toEqual(['dashboard', 'kyc', 'fleet', 'rentals', 'clients']);
+    expect(keys('admin')).toEqual(sections.map((section) => section.key));
+  });
+
+  it('shows only the sections of the role in the menu', async () => {
+    renderAt('/', testStaff('technician'));
+
+    const menu = await screen.findByRole('navigation', { name: ru.layout.menu });
+    expect(within(menu).getByRole('link', { name: ru.nav.fleet })).toBeDefined();
+    expect(within(menu).queryByRole('link', { name: ru.nav.kyc })).toBeNull();
+  });
+
+  it('closes a section of another role opened by its address', async () => {
+    renderAt('/audit', testStaff('operator'));
+
+    expect(await screen.findByRole('heading', { name: ru.forbidden.title })).toBeDefined();
+    expect(screen.queryByRole('heading', { name: ru.nav.audit })).toBeNull();
   });
 });

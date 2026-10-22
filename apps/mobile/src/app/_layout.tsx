@@ -2,9 +2,10 @@ import { ThemeProvider, Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { AuthProvider, createAppAuthSession } from '../features/auth/session/AuthProvider';
 import { initI18n } from '../i18n';
 import { fontAssets } from '../theme/fonts';
 import { navigationTheme, useTheme } from '../theme/theme';
@@ -14,9 +15,16 @@ void SplashScreen.preventAutoHideAsync();
 
 export default function RootLayout() {
   const theme = useTheme();
+  const [session] = useState(createAppAuthSession);
+  const status = useSyncExternalStore(session.subscribe, session.getStatus);
   const [fontsLoaded, fontError] = useFonts(fontAssets);
   // A failed font load falls back to system fonts rather than leaving the splash up forever.
-  const ready = fontsLoaded || fontError !== null;
+  // The splash also covers session restore, so a signed-in user never flashes the sign-in screen.
+  const ready = (fontsLoaded || fontError !== null) && status !== 'restoring';
+
+  useEffect(() => {
+    void session.restore();
+  }, [session]);
 
   useEffect(() => {
     if (ready) void SplashScreen.hideAsync();
@@ -24,11 +32,22 @@ export default function RootLayout() {
 
   if (!ready) return null;
 
+  const signedIn = status === 'signedIn';
   return (
     <SafeAreaProvider>
       <ThemeProvider value={navigationTheme(theme)}>
-        <StatusBar style="auto" />
-        <Stack screenOptions={{ headerShown: false }} />
+        <AuthProvider session={session}>
+          <StatusBar style="auto" />
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Protected guard={signedIn}>
+              <Stack.Screen name="index" />
+            </Stack.Protected>
+            <Stack.Protected guard={!signedIn}>
+              <Stack.Screen name="sign-in" />
+              <Stack.Screen name="code" />
+            </Stack.Protected>
+          </Stack>
+        </AuthProvider>
       </ThemeProvider>
     </SafeAreaProvider>
   );
