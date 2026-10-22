@@ -1,7 +1,7 @@
 from http import HTTPStatus
-from typing import NoReturn
+from typing import Annotated, NoReturn
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Cookie, HTTPException
 
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.identity.schemas import (
@@ -14,6 +14,19 @@ from flagman.identity.schemas import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# Set HttpOnly, Secure, SameSite=Strict, Path=/auth (see refresh_token_transport in schemas).
+REFRESH_COOKIE = "flagman_refresh"
+RefreshCookie = Annotated[
+    str | None,
+    Cookie(
+        alias=REFRESH_COOKIE,
+        description="Web client only; used when the body has no `refresh_token`.",
+    ),
+]
+# The body stays required even when the token is in the cookie: a cross-site HTML form
+# cannot send JSON, so it cannot make the browser refresh or end a session.
+_COOKIE_BODY_NOTE = "The web client sends `{}` as the body and the refresh token in the cookie."
 
 
 def _not_implemented() -> NoReturn:
@@ -52,6 +65,7 @@ async def verify_otp(body: OtpVerifyRequest) -> TokenPair:
 @router.post(
     "/token/refresh",
     summary="Rotate the refresh token and get a new access token",
+    description=f"The new refresh token comes back the way the old one came. {_COOKIE_BODY_NOTE}",
     responses={
         HTTPStatus.UNAUTHORIZED: {
             "model": Problem,
@@ -59,15 +73,18 @@ async def verify_otp(body: OtpVerifyRequest) -> TokenPair:
         },
     },
 )
-async def refresh_tokens(body: RefreshRequest) -> TokenPair:
+async def refresh_tokens(body: RefreshRequest, refresh_cookie: RefreshCookie = None) -> TokenPair:
     _not_implemented()
 
 
 @router.post(
     "/logout",
     summary="End the session of this refresh token",
-    description="Idempotent: an unknown or already revoked token also gives 204.",
+    description=(
+        "Idempotent: an unknown or already revoked token also gives 204. "
+        f"Clears the cookie. {_COOKIE_BODY_NOTE}"
+    ),
     status_code=HTTPStatus.NO_CONTENT,
 )
-async def logout(body: LogoutRequest) -> None:
+async def logout(body: LogoutRequest, refresh_cookie: RefreshCookie = None) -> None:
     _not_implemented()

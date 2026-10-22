@@ -15,7 +15,7 @@ export interface paths {
     put?: never;
     /**
      * End the session of this refresh token
-     * @description Idempotent: an unknown or already revoked token also gives 204.
+     * @description Idempotent: an unknown or already revoked token also gives 204. Clears the cookie. The web client sends `{}` as the body and the refresh token in the cookie.
      */
     post: operations['logout_auth_logout_post'];
     delete?: never;
@@ -67,7 +67,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Rotate the refresh token and get a new access token */
+    /**
+     * Rotate the refresh token and get a new access token
+     * @description The new refresh token comes back the way the old one came. The web client sends `{}` as the body and the refresh token in the cookie.
+     */
     post: operations['refresh_tokens_auth_token_refresh_post'];
     delete?: never;
     options?: never;
@@ -135,9 +138,9 @@ export interface components {
     LogoutRequest: {
       /**
        * Refresh Token
-       * @description Opaque refresh token.
+       * @description Left out by the web client, which sends the cookie instead.
        */
-      refresh_token: string;
+      refresh_token?: string | null;
     };
     /** OtpRequest */
     OtpRequest: {
@@ -186,6 +189,13 @@ export interface components {
        * @example +375291234567
        */
       phone: string;
+      /**
+       * Refresh Token Transport
+       * @description `cookie` for the web client: the refresh token is set as an HttpOnly cookie and left out of the response body.
+       * @default body
+       * @enum {string}
+       */
+      refresh_token_transport: 'body' | 'cookie';
     };
     /**
      * Problem
@@ -220,9 +230,9 @@ export interface components {
     RefreshRequest: {
       /**
        * Refresh Token
-       * @description Opaque refresh token.
+       * @description Left out by the web client, which sends the cookie instead.
        */
-      refresh_token: string;
+      refresh_token?: string | null;
     };
     /** TokenPair */
     TokenPair: {
@@ -239,9 +249,9 @@ export interface components {
       expires_in: number;
       /**
        * Refresh Token
-       * @description Single-use: every refresh returns a new one and invalidates this one.
+       * @description Single-use: every refresh returns a new one and invalidates this one. Absent when the refresh token travels in the cookie.
        */
-      refresh_token: string;
+      refresh_token?: string | null;
       /**
        * Token Type
        * @default Bearer
@@ -263,7 +273,10 @@ export interface operations {
       query?: never;
       header?: never;
       path?: never;
-      cookie?: never;
+      cookie?: {
+        /** @description Web client only; used when the body has no `refresh_token`. */
+        flagman_refresh?: string | null;
+      };
     };
     requestBody: {
       content: {
@@ -418,7 +431,10 @@ export interface operations {
       query?: never;
       header?: never;
       path?: never;
-      cookie?: never;
+      cookie?: {
+        /** @description Web client only; used when the body has no `refresh_token`. */
+        flagman_refresh?: string | null;
+      };
     };
     requestBody: {
       content: {

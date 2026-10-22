@@ -51,14 +51,21 @@
         "additionalProperties": false,
         "properties": {
           "refresh_token": {
-            "description": "Opaque refresh token.",
-            "maxLength": 256,
-            "minLength": 32,
-            "title": "Refresh Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "description": "Opaque refresh token.",
+                "maxLength": 256,
+                "minLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Left out by the web client, which sends the cookie instead.",
+            "title": "Refresh Token"
           }
         },
-        "required": ["refresh_token"],
         "title": "LogoutRequest",
         "type": "object"
       },
@@ -119,6 +126,13 @@
             "examples": ["+375291234567"],
             "pattern": "^\\+375(25|29|33|44)[0-9]{7}$",
             "title": "Phone",
+            "type": "string"
+          },
+          "refresh_token_transport": {
+            "default": "body",
+            "description": "`cookie` for the web client: the refresh token is set as an HttpOnly cookie and left out of the response body.",
+            "enum": ["body", "cookie"],
+            "title": "Refresh Token Transport",
             "type": "string"
           }
         },
@@ -206,14 +220,21 @@
         "additionalProperties": false,
         "properties": {
           "refresh_token": {
-            "description": "Opaque refresh token.",
-            "maxLength": 256,
-            "minLength": 32,
-            "title": "Refresh Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "description": "Opaque refresh token.",
+                "maxLength": 256,
+                "minLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Left out by the web client, which sends the cookie instead.",
+            "title": "Refresh Token"
           }
         },
-        "required": ["refresh_token"],
         "title": "RefreshRequest",
         "type": "object"
       },
@@ -232,9 +253,16 @@
             "type": "integer"
           },
           "refresh_token": {
-            "description": "Single-use: every refresh returns a new one and invalidates this one.",
-            "title": "Refresh Token",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Single-use: every refresh returns a new one and invalidates this one. Absent when the refresh token travels in the cookie.",
+            "title": "Refresh Token"
           },
           "token_type": {
             "const": "Bearer",
@@ -243,7 +271,7 @@
             "type": "string"
           }
         },
-        "required": ["access_token", "expires_in", "refresh_token"],
+        "required": ["access_token", "expires_in"],
         "title": "TokenPair",
         "type": "object"
       }
@@ -257,8 +285,28 @@
   "paths": {
     "/auth/logout": {
       "post": {
-        "description": "Idempotent: an unknown or already revoked token also gives 204.",
+        "description": "Idempotent: an unknown or already revoked token also gives 204. Clears the cookie. The web client sends `{}` as the body and the refresh token in the cookie.",
         "operationId": "logout_auth_logout_post",
+        "parameters": [
+          {
+            "description": "Web client only; used when the body has no `refresh_token`.",
+            "in": "cookie",
+            "name": "flagman_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Web client only; used when the body has no `refresh_token`.",
+              "title": "Flagman Refresh"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -446,7 +494,28 @@
     },
     "/auth/token/refresh": {
       "post": {
+        "description": "The new refresh token comes back the way the old one came. The web client sends `{}` as the body and the refresh token in the cookie.",
         "operationId": "refresh_tokens_auth_token_refresh_post",
+        "parameters": [
+          {
+            "description": "Web client only; used when the body has no `refresh_token`.",
+            "in": "cookie",
+            "name": "flagman_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Web client only; used when the body has no `refresh_token`.",
+              "title": "Flagman Refresh"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

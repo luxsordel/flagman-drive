@@ -58,6 +58,7 @@ describe('createApiClient', () => {
       phone: '+375291234567',
       code: '123456',
       device_id: '7b6f0a54-3c1e-4d2a-9f5e-2b8c1d0e4f6a',
+      refresh_token_transport: 'body' as const,
     };
 
     const { data } = await api.POST('/auth/otp/verify', { body });
