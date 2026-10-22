@@ -11,7 +11,7 @@ from car_emulator.signing import (
     verify,
 )
 
-SECRET = b"test-secret-0123456789abcdef0123456789"
+SECRET = b"s" * 40
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
 METHOD = "POST"
 TARGET = b"/cars/1/commands"
@@ -83,7 +83,7 @@ def test_other_method_fails() -> None:
 
 def test_wrong_secret_fails() -> None:
     with pytest.raises(SignatureError):
-        _verify(*_headers(secret=b"another-secret-0123456789abcdef0123"))
+        _verify(*_headers(secret=b"o" * 40))
 
 
 @pytest.mark.parametrize(

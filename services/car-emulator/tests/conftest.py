@@ -11,8 +11,8 @@ from car_emulator.main import create_app
 from car_emulator.signing import signed_headers
 
 # Test-only values, never used outside the test suite.
-COMMAND_SECRET = "test-command-secret-0123456789abcdef"
-TELEMETRY_SECRET = "test-telemetry-secret-0123456789abcdef"
+COMMAND_SECRET = "c" * 40
+TELEMETRY_SECRET = "t" * 40
 BASE_URL = "http://emulator.test"
 
 
