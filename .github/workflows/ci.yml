@@ -131,6 +131,12 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # Expo pins native module versions per SDK; a mismatch passes the checks above but crashes
+      # on a device. Bundling catches what Jest cannot: Metro resolution, platform files, assets.
+      - name: Expo SDK compatibility
+        run: npm run check:deps --workspaces --if-present
+      - name: Bundle for every platform
+        run: npm run check:bundle --workspaces --if-present
       - name: Dependency audit (high and above)
         run: npm audit --audit-level=high
 

@@ -10,7 +10,7 @@
 - [ ] Репозиторий на GitHub, защита `main`, доска Projects, метки, шаблоны
 - [ ] `infra/docker-compose.yml`: PostgreSQL+PostGIS, Redis, SeaweedFS (S3)
 - [ ] `apps/api`: каркас FastAPI (модули, конфиг, БД, Alembic, обработка ошибок, логи, health-check)
-- [ ] `apps/mobile`: каркас Expo (навигация, i18n ru/en, темы, дизайн-токены FLAGMAN)
+- [x] `apps/mobile`: каркас Expo (навигация, i18n ru/en, темы, дизайн-токены FLAGMAN)
 - [ ] `apps/admin`: каркас React + Vite (вход, макет, дизайн-токены)
 - [x] `packages/api-client`: генерация клиента из OpenAPI; `packages/design-tokens`: токены для мобилки и админки
 - [ ] `services/car-emulator`: каркас

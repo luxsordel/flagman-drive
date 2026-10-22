@@ -2,6 +2,7 @@
 export const colorNames = [
   'primary',
   'primaryStrong',
+  'onPrimary',
   'ink',
   'inkMuted',
   'surface',
@@ -19,6 +20,7 @@ export type Palette = Readonly<Record<ColorName, string>>;
 export const lightPalette: Palette = {
   primary: '#174B9B',
   primaryStrong: '#073F82',
+  onPrimary: '#FFFFFF',
   ink: '#172236',
   inkMuted: '#8D96A5',
   surface: '#FFFFFF',
@@ -32,6 +34,7 @@ export const lightPalette: Palette = {
 export const darkPalette: Palette = {
   primary: '#4C7FD0',
   primaryStrong: '#6B97DD',
+  onPrimary: '#0B1424',
   ink: '#E8EDF5',
   inkMuted: '#8D96A5',
   surface: '#111D30',
