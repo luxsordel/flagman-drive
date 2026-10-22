@@ -1,6 +1,7 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from redis.asyncio import Redis
 from starlette.middleware.cors import CORSMiddleware
@@ -22,6 +23,8 @@ from flagman.core.resources import Resources
 from flagman.health.api import router as health_router
 from flagman.identity.api import router as identity_router
 
+logger = structlog.get_logger(__name__)
+
 DOCS_URL = "/docs"
 SWAGGER_OAUTH_REDIRECT_URL = "/docs/oauth2-redirect"
 
@@ -29,6 +32,13 @@ SWAGGER_OAUTH_REDIRECT_URL = "/docs/oauth2-redirect"
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     configure_logging(settings.api_log_level)
+    if not settings.is_prod:
+        # Loud on purpose: a server started without API_ENV=prod works, but without these.
+        logger.warning(
+            "api_not_in_prod_mode",
+            api_env=settings.api_env,
+            disabled_protections=["hsts", "hidden_api_docs"],
+        )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

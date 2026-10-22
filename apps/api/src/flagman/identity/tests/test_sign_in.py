@@ -17,7 +17,7 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine
 from flagman.identity.api import get_sms_sender
 from flagman.identity.dependencies import CurrentClient, get_current_client
-from flagman.identity.domain import REFRESH_REUSE_GRACE, hash_refresh_token
+from flagman.identity.domain import REFRESH_REUSE_GRACE, generate_otp_code, hash_refresh_token
 
 pytestmark = pytest.mark.integration
 
@@ -25,6 +25,9 @@ pytestmark = pytest.mark.integration
 class FakeSms:
     def __init__(self) -> None:
         self.sent: list[tuple[str, str]] = []
+
+    def choose_code(self, phone: str) -> str:
+        return generate_otp_code()
 
     async def send_otp(self, phone: str, code: str) -> None:
         self.sent.append((phone, code))
