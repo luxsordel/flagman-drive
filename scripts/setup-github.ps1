@@ -42,7 +42,7 @@ foreach ($l in $labels) {
 
 Write-Host "== Branch protection for main"
 $protection = @{
-    required_status_checks        = @{ strict = $true; contexts = @('Secrets scan (gitleaks)', 'PR title follows Conventional Commits') }
+    required_status_checks        = @{ strict = $true; contexts = @('Secrets scan (gitleaks)', 'PR title follows Conventional Commits', 'CI gate') }
     enforce_admins                = $false
     required_pull_request_reviews = @{ required_approving_review_count = 1; dismiss_stale_reviews = $true }
     restrictions                  = $null
