@@ -1,6 +1,6 @@
 ---
-name: status
-description: Report the project status from GitHub (milestone progress, who works on what, PRs waiting for review or blocked, CI, Dependabot) and fix board columns that drifted. Use when the user asks "статус проекта", "what's the status", "/status".
+name: project-status
+description: Report the project status from GitHub (milestone progress, who works on what, PRs waiting for review or blocked, CI, Dependabot) and fix board columns that drifted. Use when the user asks "статус проекта", "what's the status", "/project-status".
 ---
 
 # Project status
