@@ -5,9 +5,14 @@ description: Review a teammate's pull request against the project rules and help
 
 # Review a pull request
 
-Argument: PR number. The human makes the final decision; you prepare it.
+Argument: PR number. If none is given, list open PRs where the current user is a requested reviewer
+(`gh pr list --search "review-requested:@me"`) and ask which one. The human makes the final decision; you prepare it.
 
 1. `gh pr view <n> --comments`, `gh pr diff <n>`, `gh pr checks <n>`. Read the linked issue.
+   If the diff is dominated by generated files (lock files, generated API client), review the hand-written
+   files and only sanity-check the generated ones (they must match their generator).
+   For a Dependabot PR: check the changelog for breaking changes and whether the bump crosses a version the
+   project pins on purpose (Python 3.12, ADR-0001).
 2. Check, in this order:
    - Acceptance criteria of the issue are actually met.
    - Correctness: edge cases, error handling, state transitions of rentals, money in integer kopecks, timezones.
@@ -20,4 +25,7 @@ Argument: PR number. The human makes the final decision; you prepare it.
 3. Report findings to the user grouped as **must fix / should fix / nit**, each with file:line and a concrete
    suggestion. Say explicitly if you found nothing serious.
 4. Only if the user asks: post the review with `gh pr review <n> --comment|--request-changes|--approve -b "..."`.
-   Never approve on your own initiative.
+   Never approve on your own initiative. Post must-fix and should-fix items as inline comments on the
+   relevant lines when the user agrees, so the author can resolve them one by one.
+5. After an approval, tell the user what happens next: if the author turned on auto-merge, the PR merges
+   itself once CI is green; otherwise someone presses "Squash and merge". If the PR is behind main, say so.

@@ -16,9 +16,9 @@ function Invoke-Gh {
     throw "gh $($args -join ' ') failed"
 }
 
-Write-Host "== Repository settings: squash-only merges, auto-delete branches, discussions"
+Write-Host "== Repository settings: squash-only merges, auto-merge, update-branch button, auto-delete branches, discussions"
 Invoke-Gh repo edit $Repo --enable-squash-merge --enable-merge-commit=false --enable-rebase-merge=false `
-    --delete-branch-on-merge --enable-discussions --enable-wiki=false
+    --enable-auto-merge --allow-update-branch --delete-branch-on-merge --enable-discussions --enable-wiki=false
 
 Write-Host "== Labels"
 $labels = @(
