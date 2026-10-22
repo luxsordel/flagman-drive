@@ -112,11 +112,11 @@ def test_cookie_endpoints_still_require_a_json_body(client: TestClient, path: st
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
-def test_refresh_rejects_tokens_of_absurd_length(client: TestClient) -> None:
-    for token in ("short", "x" * 1000):
-        response = client.post("/auth/token/refresh", json={"refresh_token": token})
+@pytest.mark.parametrize("token", ["short", "x" * 1000], ids=["too-short", "too-long"])
+def test_refresh_rejects_tokens_of_absurd_length(client: TestClient, token: str) -> None:
+    response = client.post("/auth/token/refresh", json={"refresh_token": token})
 
-        assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
 def test_openapi_documents_the_error_responses(client: TestClient) -> None:
