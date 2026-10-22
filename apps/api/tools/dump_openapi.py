@@ -21,6 +21,8 @@ _PLACEHOLDER_SETTINGS = Settings(
     postgres_password=SecretStr("openapi"),
     postgres_db="openapi",
     redis_password=SecretStr("openapi"),
+    api_jwt_secret=SecretStr("openapi-jwt-" + "j" * 32),
+    api_otp_pepper=SecretStr("openapi-pepper-" + "p" * 32),
 )
 
 

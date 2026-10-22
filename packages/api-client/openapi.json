@@ -360,6 +360,16 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:sign-in-unavailable`: no SMS gateway configured."
           }
         },
         "summary": "Send a one-time sign-in code by SMS",

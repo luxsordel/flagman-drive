@@ -129,4 +129,5 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0005](adr/0005-object-storage-seaweedfs.md) — объектное хранилище SeaweedFS вместо MinIO
 - [ADR-0006](adr/0006-api-error-format.md) — единый формат ошибок API (RFC 9457)
 - [ADR-0007](adr/0007-telematics-hmac-signing.md) — подпись запросов телематики HMAC + метка времени
+- [ADR-0009](adr/0009-client-auth-jwt-and-sessions.md) — вход клиента: PyJWT (HS256), сессии в Postgres, лимиты в Redis
 - [ADR-0008](adr/0008-expo-sdk-dependency-policy.md) — версии зависимостей мобилки задаёт Expo SDK, одна версия React в репозитории
