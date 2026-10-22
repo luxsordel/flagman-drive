@@ -27,6 +27,7 @@ Expo SDK — согласованный набор версий: `expo-*`, `reac
 4. Dependabot собирает Expo-пакеты в одну группу `expo-sdk`; мажорные версии `expo`/`jest-expo` и любые
    обновления `react`, `react-dom`, `react-native` он не предлагает — они меняются только вместе с SDK.
 5. TypeScript в `apps/mobile` — версия из SDK (сейчас `~6.0.3`). В `packages/*` остаётся своя версия.
+   Мажорные версии `typescript` Dependabot не предлагает: в `packages/*` их переводят вручную.
 6. Линт мобилки не использует `eslint-config-expo`: он тянет `eslint-plugin-react` и
    `eslint-plugin-import`, которые не поддерживают ESLint 10. Вместо него — `typescript-eslint`
    (как в `packages/*`), `eslint-plugin-react-hooks` и `eslint-plugin-expo`.
