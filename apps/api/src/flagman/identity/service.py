@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.config import Settings
 from flagman.core.ratelimit import Limit, RateLimiter
+from flagman.core.security import keyed_hash
 from flagman.identity import repository
 from flagman.identity.domain import (
     ACCESS_TOKEN_TTL,
@@ -23,7 +24,6 @@ from flagman.identity.domain import (
     hash_otp_code,
     hash_refresh_token,
     issue_access_token,
-    keyed_hash,
 )
 from flagman.identity.ports import SmsSender
 from flagman.identity.schemas import OtpRequestAccepted, TokenPair

@@ -4,6 +4,23 @@
  */
 
 export interface paths {
+  '/admin/audit-events': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** List audit events, newest first */
+    get: operations['list_audit_events_admin_audit_events_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/logout': {
     parameters: {
       query?: never;
@@ -116,6 +133,78 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
+    /**
+     * ActorType
+     * @enum {string}
+     */
+    ActorType: 'staff' | 'client' | 'system';
+    /**
+     * AuditAction
+     * @description Every recorded action is listed here, so filtering by action is reliable.
+     *
+     *     Values are stored as is: renaming one breaks filtering of older events.
+     * @enum {string}
+     */
+    AuditAction: 'staff.signed_in' | 'staff.sign_in_failed';
+    /** AuditEventOut */
+    AuditEventOut: {
+      /**
+       * Action
+       * @example staff.signed_in
+       */
+      action: string;
+      /**
+       * Actor Id
+       * @description Absent for `system`.
+       */
+      actor_id: string | null;
+      actor_type: components['schemas']['ActorType'];
+      /** Details */
+      details: {
+        [key: string]: string | number | boolean | null;
+      };
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Ip Hash
+       * @description Keyed hash of the client IP: equal values mean the same address.
+       */
+      ip_hash: string | null;
+      /**
+       * Occurred At
+       * Format: date-time
+       */
+      occurred_at: string;
+      /** Request Id */
+      request_id: string | null;
+      target: components['schemas']['AuditEventTarget'] | null;
+    };
+    /** AuditEventPage */
+    AuditEventPage: {
+      /** Items */
+      items: components['schemas']['AuditEventOut'][];
+      /**
+       * Next Cursor
+       * @description Absent on the last page.
+       */
+      next_cursor: string | null;
+    };
+    /** AuditEventTarget */
+    AuditEventTarget: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Type
+       * @example kyc_document
+       */
+      type: string;
+    };
     /**
      * CheckStatus
      * @enum {string}
@@ -268,6 +357,73 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  list_audit_events_admin_audit_events_get: {
+    parameters: {
+      query?: {
+        /** @description Only events of this staff member. */
+        actor_id?: string | null;
+        action?: components['schemas']['AuditAction'] | null;
+        /** @description Inclusive. */
+        occurred_from?: string | null;
+        /** @description Exclusive. */
+        occurred_to?: string | null;
+        /** @description `next_cursor` of the previous page. */
+        cursor?: string | null;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['AuditEventPage'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `admin` reads the audit log. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
   logout_auth_logout_post: {
     parameters: {
       query?: never;

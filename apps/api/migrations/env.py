@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 # ORM models register themselves on Base.metadata when imported: import each module's
 # `models` here as modules get tables, otherwise autogenerate will not see them.
+import flagman.audit.models
 import flagman.identity.models  # noqa: F401
 from flagman.core.config import load_settings
 from flagman.core.db import Base
