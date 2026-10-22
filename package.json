@@ -1,0 +1,18 @@
+{
+  "name": "flagman-drive",
+  "private": true,
+  "description": "FLAGMAN Drive monorepo: JS/TS workspaces (the Python parts are managed by uv)",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "gen:api": "npm run gen --workspace @flagman/api-client",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
