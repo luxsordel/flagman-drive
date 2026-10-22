@@ -40,7 +40,7 @@ Workflow `.github/workflows/ci.yml` запускается на каждый PR 
 | Часть | Проверки |
 |---|---|
 | `apps/api`, `services/car-emulator` | `ruff check`, `ruff format --check`, `mypy`, `lint-imports` (только api), `pytest` (Postgres/Redis через testcontainers), `pip-audit` |
-| npm workspaces: `apps/mobile`, `apps/admin`, `packages/*` | из корня: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `npm audit --audit-level=high` |
+| npm workspaces: `apps/mobile`, `apps/admin`, `packages/*` | из корня: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `check:deps` и `check:bundle` (мобилка), `node scripts/npm-audit.mjs` |
 | `packages/api-client` | сгенерированный клиент актуален: `npm run gen:api` не меняет файлы |
 | весь репозиторий | Semgrep (SAST), gitleaks и проверка заголовка PR (`repo-checks.yml`) |
 
