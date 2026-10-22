@@ -721,6 +721,15 @@ export interface operations {
           'application/json': components['schemas']['OtpRequestAccepted'];
         };
       };
+      /** @description `urn:flagman:problem:sign-in-not-allowed`: the pilot runs without SMS and only its test phones can sign in. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
       /** @description Unprocessable Entity */
       422: {
         headers: {

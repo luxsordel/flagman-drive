@@ -75,6 +75,73 @@ def test_sms_codes_in_the_log_are_refused_in_prod(make_settings: SettingsFactory
         make_settings(api_env="prod", sms_backend="log")
 
 
+FIXED_PHONES = ["+375291111111", "+375442222222"]
+
+
+def test_fixed_sms_phones_are_parsed_from_a_comma_separated_env_var(
+    monkeypatch: pytest.MonkeyPatch, make_settings: SettingsFactory
+) -> None:
+    monkeypatch.setenv("SMS_FIXED_PHONES", "+375291111111, +375442222222 ,")
+
+    settings = make_settings(sms_backend="fixed", sms_fixed_code="482913")
+
+    assert settings.sms_fixed_phones == FIXED_PHONES
+
+
+def test_fixed_sms_is_allowed_in_prod(make_settings: SettingsFactory) -> None:
+    settings = make_settings(
+        api_env="prod", sms_backend="fixed", sms_fixed_code="482913", sms_fixed_phones=FIXED_PHONES
+    )
+
+    assert settings.is_prod
+    assert settings.sms_backend == "fixed"
+
+
+@pytest.mark.parametrize("code", [None, "12345", "1234567", "12345a", "１２３４５６"])  # noqa: RUF001
+def test_fixed_sms_needs_a_six_digit_code(make_settings: SettingsFactory, code: str | None) -> None:
+    with pytest.raises(ValidationError, match="SMS_FIXED_CODE"):
+        make_settings(sms_backend="fixed", sms_fixed_code=code, sms_fixed_phones=FIXED_PHONES)
+
+
+@pytest.mark.parametrize(
+    "code", ["000000", "111111", "999999", "012345", "123456", "456789", "987654", "543210"]
+)
+def test_fixed_sms_refuses_guessable_codes(make_settings: SettingsFactory, code: str) -> None:
+    with pytest.raises(ValidationError, match="too easy to guess"):
+        make_settings(sms_backend="fixed", sms_fixed_code=code, sms_fixed_phones=FIXED_PHONES)
+
+
+def test_fixed_sms_needs_at_least_one_phone(make_settings: SettingsFactory) -> None:
+    with pytest.raises(ValidationError, match="SMS_FIXED_PHONES"):
+        make_settings(sms_backend="fixed", sms_fixed_code="482913")
+
+
+@pytest.mark.parametrize(
+    "phone",
+    ["375291111111", "+375 29 111 11 11", "+375171111111", "+79161111111", "+375２９1111111"],  # noqa: RUF001
+)
+def test_fixed_sms_phones_must_be_accepted_by_the_api(
+    make_settings: SettingsFactory, phone: str
+) -> None:
+    with pytest.raises(ValidationError, match="SMS_FIXED_PHONES"):
+        make_settings(
+            sms_backend="fixed", sms_fixed_code="482913", sms_fixed_phones=[*FIXED_PHONES, phone]
+        )
+
+
+def test_fixed_sms_settings_are_ignored_by_other_backends(make_settings: SettingsFactory) -> None:
+    assert make_settings(sms_backend="log", sms_fixed_phones=["garbage"]).sms_backend == "log"
+
+
+def test_validation_errors_do_not_show_the_input(make_settings: SettingsFactory) -> None:
+    # The last field in the input is the one a truncated repr would end with.
+    with pytest.raises(ValidationError) as error:
+        make_settings(sms_backend="fixed", sms_fixed_phones=FIXED_PHONES, sms_fixed_code="99999")
+
+    assert "99999" not in str(error.value)
+    assert "375442222222" not in str(error.value)
+
+
 def test_sign_in_secrets_are_not_shown_in_repr(make_settings: SettingsFactory) -> None:
     settings = make_settings(api_jwt_secret="jwt-" + "a" * 32, api_otp_pepper="pep-" + "b" * 32)
 

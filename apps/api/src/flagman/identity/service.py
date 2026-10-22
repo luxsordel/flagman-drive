@@ -51,7 +51,6 @@ from flagman.identity.domain import (
     decrypt_totp_secret,
     dummy_password_hash,
     encrypt_totp_secret,
-    generate_otp_code,
     generate_refresh_token,
     generate_totp_secret,
     hash_otp_code,
@@ -122,7 +121,8 @@ class SignInService:
         await self.limiter.hit(OTP_RESEND_LIMIT, phone_key)
         await self.limiter.hit(OTP_PHONE_LIMIT, phone_key)
 
-        code = generate_otp_code()
+        # After the limits: probing which phones may sign in is counted like any other request.
+        code = sms.choose_code(phone)
         code_hash = hash_otp_code(phone, code, self._pepper)
         async with self.db.begin():
             await repository.save_pending_otp(self.db, phone, code_hash, now + OTP_TTL, now)

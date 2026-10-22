@@ -3,8 +3,10 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
+from pydantic import TypeAdapter
 from structlog.testing import capture_logs
 
+from flagman.core.config import OTP_CODE_RE, PILOT_PHONE_RE
 from flagman.identity.domain import (
     ACCESS_TOKEN_TTL,
     CLIENT_AUDIENCE,
@@ -26,7 +28,13 @@ from flagman.identity.domain import (
     issue_access_token,
     read_access_token,
 )
-from flagman.identity.ports import LogSmsSender, mask_phone
+from flagman.identity.ports import (
+    FixedCodeSmsSender,
+    LogSmsSender,
+    SignInNotAllowedError,
+    mask_phone,
+)
+from flagman.identity.schemas import OtpCode, Phone
 
 NOW = datetime(2026, 10, 22, 12, 0, tzinfo=UTC)
 PHONE = "+375291234567"
@@ -224,3 +232,35 @@ async def test_log_sms_sender_never_logs_the_full_phone() -> None:
             "log_level": "info",
         }
     ]
+
+
+def test_log_sms_sender_chooses_a_fresh_random_code() -> None:
+    sender = LogSmsSender()
+
+    codes = {sender.choose_code(PHONE) for _ in range(50)}
+
+    assert len(codes) > 1
+    assert all(len(code) == 6 and code.isdigit() for code in codes)
+
+
+def test_fixed_sms_sender_gives_the_shared_code_to_test_phones_only() -> None:
+    sender = FixedCodeSmsSender("482913", frozenset({PHONE}))
+
+    assert sender.choose_code(PHONE) == "482913"
+    with pytest.raises(SignInNotAllowedError):
+        sender.choose_code("+375297654321")
+
+
+async def test_fixed_sms_sender_logs_nothing() -> None:
+    sender = FixedCodeSmsSender("482913", frozenset({PHONE}))
+
+    with capture_logs() as logs:
+        await sender.send_otp(PHONE, sender.choose_code(PHONE))
+
+    assert logs == []
+
+
+def test_settings_check_fixed_phones_and_code_by_the_api_rules() -> None:
+    # Settings keep their own copy of the rules, since core does not import identity.
+    assert TypeAdapter(Phone).json_schema()["pattern"] == f"^{PILOT_PHONE_RE.pattern}$"
+    assert TypeAdapter(OtpCode).json_schema()["pattern"] == f"^{OTP_CODE_RE.pattern}$"

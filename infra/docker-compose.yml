@@ -96,13 +96,16 @@ services:
     build:
       context: ../apps/api
     environment:
-      API_ENV: ${API_ENV:-dev}
+      # No default: a server must say prod or dev on purpose (#47).
+      API_ENV: ${API_ENV:?set API_ENV in .env (dev locally, prod on a server)}
       API_LOG_LEVEL: ${API_LOG_LEVEL:-INFO}
       API_CORS_ORIGINS: ${API_CORS_ORIGINS:-}
       API_JWT_SECRET: ${API_JWT_SECRET:?set API_JWT_SECRET in .env}
       API_OTP_PEPPER: ${API_OTP_PEPPER:?set API_OTP_PEPPER in .env}
       API_TOTP_ENCRYPTION_KEY: ${API_TOTP_ENCRYPTION_KEY:?set API_TOTP_ENCRYPTION_KEY in .env}
       SMS_BACKEND: ${SMS_BACKEND:-}
+      SMS_FIXED_CODE: ${SMS_FIXED_CODE:-}
+      SMS_FIXED_PHONES: ${SMS_FIXED_PHONES:-}
       # Read by uvicorn itself; the default is uvicorn's own.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
       POSTGRES_HOST: postgres
