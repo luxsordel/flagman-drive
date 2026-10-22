@@ -1,4 +1,14 @@
-import { parseBelarusMobile } from './phone';
+import { formatBelarusMobile, parseBelarusMobile } from './phone';
+
+describe('formatBelarusMobile', () => {
+  it('groups the digits the usual way', () => {
+    expect(formatBelarusMobile('+375291234567')).toBe('+375 29 123-45-67');
+  });
+
+  it('leaves anything else as it is', () => {
+    expect(formatBelarusMobile('+79123456789')).toBe('+79123456789');
+  });
+});
 
 describe('parseBelarusMobile', () => {
   it.each([
