@@ -24,9 +24,10 @@ from flagman.core.ratelimit import Limit
 from flagman.identity.api import get_sms_sender
 from flagman.identity.domain import generate_otp_code
 from flagman.kyc import service
+from flagman.kyc.api import get_document_storage
 from flagman.kyc.domain import REQUIRED_DOCUMENTS, DocumentKind, KycStatus
 from flagman.kyc.images import MAX_UPLOAD_BYTES
-from flagman.kyc.ports import create_document_storage
+from flagman.kyc.ports import DocumentStorage, create_document_storage
 from flagman.kyc.tests.conftest import S3Endpoint
 
 if TYPE_CHECKING:
@@ -327,6 +328,61 @@ def test_a_new_upload_replaces_the_photo_and_deletes_the_old_one(
     assert new_key != old_key
     prefix = f"kyc/{_application_id(kyc_settings, client.phone)}/"
     assert _stored_keys(seaweedfs, prefix) == {new_key}
+
+
+class SubmitFromAnotherDevice:
+    """Storage that lets the same client submit right before the new photo is written."""
+
+    def __init__(self, inner: DocumentStorage, settings: Settings, phone: str) -> None:
+        self.inner = inner
+        self.settings = settings
+        self.phone = phone
+        self.put_keys: list[str] = []
+
+    async def put(self, key: str, data: bytes, content_type: str) -> None:
+        engine = create_engine(self.settings)
+        try:
+            async with engine.begin() as connection:
+                await connection.execute(
+                    text(
+                        "UPDATE kyc_applications SET status = 'pending', submitted_at = now()"
+                        " WHERE user_id = (SELECT id FROM users WHERE phone = :phone)"
+                    ),
+                    {"phone": self.phone},
+                )
+        finally:
+            await engine.dispose()
+        await self.inner.put(key, data, content_type)
+        self.put_keys.append(key)
+
+    async def delete(self, key: str) -> None:
+        await self.inner.delete(key)
+
+    async def signed_get_url(self, key: str, ttl: timedelta) -> str:
+        return await self.inner.signed_get_url(key, ttl)
+
+
+def test_a_photo_stored_while_the_application_was_submitted_is_rolled_back(
+    person: Callable[[], Person], kyc_settings: Settings, seaweedfs: S3Endpoint
+) -> None:
+    client = person()
+    client.upload_all()
+    keys_before = _keys(kyc_settings, client.phone)
+    prefix = f"kyc/{_application_id(kyc_settings, client.phone)}/"
+    stored_before = _stored_keys(seaweedfs, prefix)
+    racing = SubmitFromAnotherDevice(
+        create_document_storage(kyc_settings), kyc_settings, client.phone
+    )
+    client.client.app.dependency_overrides[get_document_storage] = lambda: racing  # type: ignore[attr-defined]
+
+    response = client.upload(DocumentKind.PASSPORT, _photo("retake"))
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert _problem_type(response) == "kyc-locked"
+    # The photo did reach the storage before the second check, and was deleted after it.
+    assert len(racing.put_keys) == 1
+    assert _stored_keys(seaweedfs, prefix) == stored_before
+    assert _keys(kyc_settings, client.phone) == keys_before
 
 
 def test_submission_needs_every_document(person: Callable[[], Person]) -> None:
