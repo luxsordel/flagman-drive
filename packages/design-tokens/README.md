@@ -80,12 +80,12 @@ export function installTheme(): void {
 
 ## Что внутри
 
-| Экспорт                                                  | Содержимое                                                                                                              |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `themes`, `lightPalette`, `darkPalette`                  | цвета: `primary`, `primaryStrong`, `ink`, `inkMuted`, `surface`, `background`, `border`, `success`, `warning`, `danger` |
-| `fontFamily`, `fontWeight`, `fontSize`, `tabularNumbers` | Oswald (заголовки), Open Sans (текст), шкала 12–32                                                                      |
-| `spacing`, `radius`, `minTapTarget`                      | сетка 4–32, радиусы 8/12/16/24, зона нажатия 44                                                                         |
-| `cssVariables(palette)`, `cssStaticVariables()`          | CSS-переменные `--color-*`, `--space-*`, `--radius-*`, `--font-*`, `--tap-target`                                       |
+| Экспорт                                                  | Содержимое                                                                                                                           |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `themes`, `lightPalette`, `darkPalette`                  | цвета: `primary`, `primaryStrong`, `onPrimary`, `ink`, `inkMuted`, `surface`, `background`, `border`, `success`, `warning`, `danger` |
+| `fontFamily`, `fontWeight`, `fontSize`, `tabularNumbers` | Oswald (заголовки), Open Sans (текст), шкала 12–32                                                                                   |
+| `spacing`, `radius`, `minTapTarget`                      | сетка 4–32, радиусы 8/12/16/24, зона нажатия 44                                                                                      |
+| `cssVariables(palette)`, `cssStaticVariables()`          | CSS-переменные `--color-*`, `--space-*`, `--radius-*`, `--font-*`, `--tap-target`                                                    |
 
 Шрифты Oswald и Open Sans пакет не подключает — их грузит приложение (в Expo — `expo-font`, в админке — `@fontsource`).
 

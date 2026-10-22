@@ -131,8 +131,16 @@ jobs:
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
+      # Expo pins native module versions per SDK; a mismatch passes the checks above but crashes
+      # on a device. Bundling catches what Jest cannot: Metro resolution, platform files, assets.
+      - name: Expo SDK compatibility
+        run: npm run check:deps --workspaces --if-present
+      - name: Bundle for every platform
+        run: npm run check:bundle --workspaces --if-present
+      # Same threshold as `npm audit --audit-level=high`, minus advisories with no fix yet that are
+      # listed with a reason and an expiry date in .github/npm-audit-allowlist.json.
       - name: Dependency audit (high and above)
-        run: npm audit --audit-level=high
+        run: npm run audit
 
   api-client-fresh:
     name: Generated API client is up to date

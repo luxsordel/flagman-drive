@@ -59,6 +59,11 @@ describe('palettes', () => {
       }
     },
   );
+
+  // Button labels sit on `primary`; white fails AA on the lighter dark-theme primary.
+  it.each(Object.entries(themes))('%s: onPrimary is AA on primary', (_name, palette) => {
+    expect(contrast(palette.onPrimary, palette.primary)).toBeGreaterThanOrEqual(4.5);
+  });
 });
 
 describe('layout', () => {

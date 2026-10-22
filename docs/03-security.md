@@ -57,7 +57,10 @@
 
 ### Зависимости и CI
 - Dependabot для pip, npm и GitHub Actions.
-- В CI: `pip-audit`, `npm audit --audit-level=high`, **Semgrep** (SAST), **gitleaks**.
+- В CI: `pip-audit`, `npm audit` (high и critical, `scripts/npm-audit.mjs`), **Semgrep** (SAST), **gitleaks**.
+- Исключение из `npm audit` — только когда исправленной версии нет: запись в `.github/npm-audit-allowlist.json`
+  с идентификатором GHSA, причиной (почему не эксплуатируется у нас) и датой `reviewBy` (не дальше 3 месяцев).
+  После этой даты CI снова падает. В описании PR с исключением — отдельный пункт для ревьюера.
 - Зафиксированные версии: `uv.lock`, `package-lock.json`.
 
 ### Мобильное приложение
