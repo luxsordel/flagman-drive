@@ -7,6 +7,9 @@ export type { components, paths };
 /** Problem Details body that every error response carries (ADR-0006). */
 export type Problem = components['schemas']['Problem'];
 
+/** Access and refresh tokens returned by sign-in and refresh. */
+export type TokenPair = components['schemas']['TokenPair'];
+
 export interface ApiClientOptions {
   /** API origin, e.g. `http://localhost:8000`. */
   baseUrl: string;

@@ -6,7 +6,12 @@ from fastapi.testclient import TestClient
 
 from conftest import SettingsFactory
 from flagman.core.app import create_app
-from flagman.core.errors import PROBLEM_CONTENT_TYPE, VALIDATION_ERROR_TYPE, AppError
+from flagman.core.errors import (
+    PROBLEM_CONTENT_TYPE,
+    VALIDATION_ERROR_TYPE,
+    AppError,
+    RateLimitedError,
+)
 
 
 class CarNotFoundError(AppError):
@@ -22,6 +27,10 @@ def app(make_settings: SettingsFactory) -> FastAPI:
     @app.get("/test/app-error")
     async def raise_app_error() -> None:
         raise CarNotFoundError("No car with this id.")
+
+    @app.get("/test/rate-limited")
+    async def raise_rate_limited() -> None:
+        raise RateLimitedError(retry_after_seconds=42)
 
     @app.get("/test/http-error")
     async def raise_http_error() -> None:
@@ -55,6 +64,15 @@ def test_app_error_is_a_problem_with_its_own_type(client: TestClient) -> None:
         "detail": "No car with this id.",
         "request_id": response.headers["x-request-id"],
     }
+
+
+def test_rate_limited_error_tells_when_to_retry(client: TestClient) -> None:
+    response = client.get("/test/rate-limited")
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+    assert response.headers["content-type"] == PROBLEM_CONTENT_TYPE
+    assert response.headers["retry-after"] == "42"
+    assert response.json()["type"] == "urn:flagman:problem:rate-limited"
 
 
 def test_http_exception_uses_about_blank_and_the_status_phrase(client: TestClient) -> None:

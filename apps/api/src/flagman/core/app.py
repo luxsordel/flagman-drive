@@ -20,6 +20,7 @@ from flagman.core.middleware import (
 )
 from flagman.core.resources import Resources
 from flagman.health.api import router as health_router
+from flagman.identity.api import router as identity_router
 
 DOCS_URL = "/docs"
 SWAGGER_OAUTH_REDIRECT_URL = "/docs/oauth2-redirect"
@@ -83,4 +84,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(identity_router)
     return app
