@@ -5,12 +5,13 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import create_async_engine
 
+# ORM models register themselves on Base.metadata when imported: import each module's
+# `models` here as modules get tables, otherwise autogenerate will not see them.
+import flagman.identity.models  # noqa: F401
 from flagman.core.config import load_settings
 from flagman.core.db import Base
 from flagman.core.logging import configure_logging
 
-# ORM models register themselves on Base.metadata when imported: import each module's
-# `models` here as modules get tables, otherwise autogenerate will not see them.
 target_metadata = Base.metadata
 
 settings = load_settings()

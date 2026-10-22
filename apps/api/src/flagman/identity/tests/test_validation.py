@@ -1,4 +1,5 @@
 import uuid
+from collections.abc import Iterator
 from http import HTTPStatus
 from typing import Any
 
@@ -14,37 +15,26 @@ REFRESH_TOKEN = "r" * 43
 
 
 @pytest.fixture
-def client(make_settings: SettingsFactory) -> TestClient:
-    # Not entered as a context manager: the contract does not need the database or Redis.
-    return TestClient(create_app(make_settings()))
+def client(make_settings: SettingsFactory) -> Iterator[TestClient]:
+    # Nothing listens on these ports: invalid input must be rejected before any I/O.
+    settings = make_settings(postgres_port=1, redis_port=1, sms_backend="log")
+    with TestClient(create_app(settings)) as client:
+        yield client
 
 
-@pytest.mark.parametrize(
-    ("path", "body"),
-    [
-        ("/auth/otp/request", {"phone": PHONE}),
-        ("/auth/otp/verify", {"phone": PHONE, "code": "123456", "device_id": str(uuid.uuid4())}),
-        ("/auth/token/refresh", {"refresh_token": REFRESH_TOKEN}),
-        ("/auth/logout", {"refresh_token": REFRESH_TOKEN}),
-        # The web client: the refresh token travels in the cookie, the body is empty.
-        (
-            "/auth/otp/verify",
-            {
-                "phone": PHONE,
-                "code": "123456",
-                "device_id": str(uuid.uuid4()),
-                "refresh_token_transport": "cookie",
-            },
-        ),
-        ("/auth/token/refresh", {}),
-        ("/auth/logout", {}),
-    ],
-)
-def test_valid_requests_reach_the_stub(client: TestClient, path: str, body: dict[str, Any]) -> None:
-    response = client.post(path, json=body)
+def test_without_an_sms_gateway_only_code_requests_are_unavailable(
+    make_settings: SettingsFactory,
+) -> None:
+    settings = make_settings(postgres_port=1, redis_port=1, sms_backend=None)
 
-    assert response.status_code == HTTPStatus.NOT_IMPLEMENTED
-    assert response.headers["content-type"] == PROBLEM_CONTENT_TYPE
+    with TestClient(create_app(settings)) as client:
+        otp = client.post("/auth/otp/request", json={"phone": PHONE})
+        refresh = client.post("/auth/token/refresh", json={"refresh_token": "short"})
+
+    assert otp.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    assert otp.json()["type"] == "urn:flagman:problem:sign-in-unavailable"
+    # Signed-in clients keep refreshing: this one only fails validation, not with a 503.
+    assert refresh.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
 @pytest.mark.parametrize(

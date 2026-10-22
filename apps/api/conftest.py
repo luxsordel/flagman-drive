@@ -33,6 +33,8 @@ def make_settings() -> SettingsFactory:
             "postgres_password": "test",
             "postgres_db": "test",
             "redis_password": "test",
+            "api_jwt_secret": "test-jwt-secret-" + "j" * 32,
+            "api_otp_pepper": "test-otp-pepper-" + "p" * 32,
             **overrides,
         }
         return Settings(_env_file=None, **values)
@@ -74,6 +76,9 @@ def integration_env(
         "REDIS_HOST": redis_container.get_container_host_ip(),
         "REDIS_PORT": str(redis_container.get_exposed_port(redis_container.port)),
         "REDIS_PASSWORD": str(redis_container.password),
+        "API_JWT_SECRET": secrets.token_hex(32),
+        "API_OTP_PEPPER": secrets.token_hex(32),
+        "SMS_BACKEND": "log",
     }
 
 

@@ -362,6 +362,15 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
+      /** @description `urn:flagman:problem:sign-in-unavailable`: no SMS gateway configured. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
     };
   };
   verify_otp_auth_otp_verify_post: {

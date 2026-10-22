@@ -1,7 +1,7 @@
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -34,6 +34,14 @@ class Settings(BaseSettings):
 
     readiness_timeout_seconds: float = Field(default=2.0, gt=0)
 
+    # Client sign-in, see docs/adr/0009. The pepper keeps OTP hashes and rate limit keys
+    # unreversible even with the database dump: there are only a million codes per phone.
+    api_jwt_secret: Annotated[SecretStr, Field(min_length=32)]
+    api_otp_pepper: Annotated[SecretStr, Field(min_length=32)]
+    # "log" writes codes to the log instead of sending SMS; a real gateway comes after the pilot.
+    # Unset: the API runs, but nobody can request a sign-in code.
+    sms_backend: Literal["log"] | None = None
+
     @field_validator("api_cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
@@ -53,6 +61,15 @@ class Settings(BaseSettings):
             if parts.path or parts.query or parts.fragment:
                 raise ValueError(f"CORS origin must not have a path, got {origin!r}")
         return origins
+
+    @model_validator(mode="after")
+    def _validate_secrets(self) -> Self:
+        if self.api_jwt_secret.get_secret_value() == self.api_otp_pepper.get_secret_value():
+            raise ValueError("API_JWT_SECRET and API_OTP_PEPPER must be different")
+        if self.is_prod and self.sms_backend == "log":
+            # Codes in the log would let anyone with log access sign in as any client.
+            raise ValueError("SMS_BACKEND=log is not allowed when API_ENV=prod")
+        return self
 
     @property
     def is_prod(self) -> bool:
