@@ -44,15 +44,18 @@ export const api = createApiClient({
 
 ## Админка (Vite)
 
-Адрес API — `VITE_API_URL`.
+API вызывается с адреса самой админки: в разработке Vite проксирует `/staff` и `/admin` на API
+(`apps/admin/vite.config.ts`), потому что refresh-cookie с `SameSite=Strict` ходит только на тот же сайт.
+Access-токен хранится только в памяти сессии (`apps/admin/src/auth/session.ts`), не в `sessionStorage`
+и не в `localStorage` ([docs/03-security.md](../../docs/03-security.md)).
 
 ```ts
 // src/api.ts
 import { createApiClient } from '@flagman/api-client';
 
 export const api = createApiClient({
-  baseUrl: import.meta.env.VITE_API_URL ?? 'http://localhost:8000',
-  getAccessToken: () => sessionStorage.getItem('access_token'),
+  baseUrl: window.location.origin,
+  getAccessToken: () => session.accessToken(),
 });
 ```
 

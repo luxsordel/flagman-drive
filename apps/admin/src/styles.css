@@ -108,6 +108,16 @@ a {
   font-size: var(--font-size-sm);
 }
 
+.header-staff {
+  display: flex;
+  flex-direction: column;
+  margin-left: var(--space-md);
+}
+
+.page-status {
+  padding: var(--space-xl);
+}
+
 .content {
   padding: var(--space-xl);
 }
