@@ -5,6 +5,8 @@ description: Finish the current task - run all checks, self-review, commit with 
 
 # Ship the current branch
 
+Talk to the user in Russian (see «Язык» in CLAUDE.md), even though this skill is written in English.
+
 GitHub calls can fail on a flaky network: retry a failed `gh` call a few times before reporting an error.
 
 1. Refuse to ship from `main` — tell the user to create a task branch (`/start-task`).

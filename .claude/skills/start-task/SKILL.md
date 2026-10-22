@@ -5,6 +5,8 @@ description: Start work on a GitHub issue of this repo - read it, assign it, mov
 
 # Start a task
 
+Talk to the user in Russian (see «Язык» in CLAUDE.md), even though this skill is written in English.
+
 GitHub calls can fail on a flaky network: retry a failed `gh` call a few times before reporting an error.
 
 Argument: GitHub issue number (e.g. `123`). If none is given, show the user the open issues assigned to them

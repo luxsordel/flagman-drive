@@ -5,6 +5,8 @@ description: Bring the current branch up to date with fresh main - fetch, merge 
 
 # Sync with main
 
+Talk to the user in Russian (see «Язык» in CLAUDE.md), even though this skill is written in English.
+
 1. `git status` — if there are uncommitted changes, ask whether to commit them first or stop.
 2. `git fetch --prune origin` (retry on network errors).
 3. On `main`: `git pull --ff-only origin main` and report what came in (`git log --oneline <old>..HEAD`). Done.
