@@ -1,9 +1,10 @@
 from http import HTTPStatus
+from typing import Annotated, Literal
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
 
 from conftest import SettingsFactory
@@ -53,6 +54,24 @@ class SignUpRequest(BaseModel):
         return value
 
 
+class CardPayment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["card"]
+
+
+class WalletPayment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["wallet"]
+
+
+class PaymentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Annotated[CardPayment | WalletPayment, Field(discriminator="kind")]
+
+
 @pytest.fixture
 def app(make_settings: SettingsFactory) -> FastAPI:
     app = create_app(make_settings())
@@ -75,6 +94,10 @@ def app(make_settings: SettingsFactory) -> FastAPI:
 
     @app.post("/test/sign-up")
     async def sign_up(body: SignUpRequest) -> None:
+        pass
+
+    @app.post("/test/payment")
+    async def pay(body: PaymentRequest) -> None:
         pass
 
     return app
@@ -160,6 +183,17 @@ def test_validation_error_hides_messages_written_by_our_validators(client: TestC
     ]
     assert PHONE not in response.text
     assert DOCUMENT_NUMBER not in response.text
+
+
+def test_validation_error_hides_the_unknown_tag_of_a_tagged_union(client: TestClient) -> None:
+    # Pydantic's own union_tag_invalid message quotes the tag the client sent.
+    response = client.post("/test/payment", json={"method": {"kind": PHONE}})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"] == [
+        {"loc": ["body", "method"], "message": CUSTOM_ERROR_MESSAGE, "type": "union_tag_invalid"}
+    ]
+    assert PHONE not in response.text
 
 
 def test_unhandled_exception_is_a_generic_500_with_request_id(client: TestClient) -> None:

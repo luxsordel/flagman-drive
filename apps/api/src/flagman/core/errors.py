@@ -18,10 +18,20 @@ PROBLEM_TYPE_PREFIX = "urn:flagman:problem:"
 VALIDATION_ERROR_TYPE = f"{PROBLEM_TYPE_PREFIX}validation-error"
 CUSTOM_ERROR_MESSAGE = "Invalid value"
 
-# Pydantic's built-in messages are templates over the schema (expected type, limits), so they are
-# safe to return. Messages of `value_error`, `assertion_error` and custom error types are written
-# by our validators and may contain the input, so only their `type` reaches the client.
-_SAFE_MESSAGE_TYPES = frozenset(get_args(ErrorType)) - {"value_error", "assertion_error"}
+# Most of pydantic's built-in messages are templates over the schema (expected type, limits) or
+# fixed parser texts, so they are safe to return. The excluded ones may carry the input: our own
+# validators write `value_error` and `assertion_error` (custom error types are not listed at all),
+# `union_tag_invalid` quotes the tag the client sent, and the rest embed arbitrary exception text.
+# For those only the `type` reaches the client.
+_SAFE_MESSAGE_TYPES = frozenset(get_args(ErrorType)) - {
+    "value_error",
+    "assertion_error",
+    "union_tag_invalid",
+    "get_attribute_error",
+    "iteration_error",
+    "mapping_type",
+    "datetime_object_invalid",
+}
 
 logger = structlog.get_logger(__name__)
 
