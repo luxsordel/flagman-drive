@@ -1,6 +1,8 @@
 import { useState, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useAuth } from '../auth/context';
+
 /**
  * Staff sign-in form: email, password and a TOTP code (docs/03-security.md).
  * A stub until the identity module exists: it never sends or stores what was typed.
@@ -8,6 +10,7 @@ import { useTranslation } from 'react-i18next';
  */
 export function LoginPage() {
   const { t } = useTranslation();
+  const { state, signOut } = useAuth();
   const [submitted, setSubmitted] = useState(false);
 
   const onSubmit = (event: SyntheticEvent<HTMLFormElement, SubmitEvent>): void => {
@@ -17,6 +20,14 @@ export function LoginPage() {
 
   return (
     <main className="login">
+      {state.status === 'signedOut' && state.logoutFailed && (
+        <div role="alert" className="card login-card login-alert">
+          <p>{t('login.logoutFailed')}</p>
+          <button type="button" className="button" onClick={() => void signOut()}>
+            {t('login.retryLogout')}
+          </button>
+        </div>
+      )}
       <form className="card login-card" noValidate onSubmit={onSubmit}>
         <div className="brand">{t('app.name')}</div>
         <h1>{t('login.title')}</h1>

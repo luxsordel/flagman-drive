@@ -1,3 +1,4 @@
+import type { StaffRole } from './auth/staff';
 import type ru from './i18n/ru.json';
 
 export type SectionKey = keyof typeof ru.nav;
@@ -5,16 +6,26 @@ export type SectionKey = keyof typeof ru.nav;
 export interface Section {
   key: SectionKey;
   path: string;
+  /** Who sees the section; the API enforces the same roles on its endpoints. */
+  roles: readonly StaffRole[];
 }
 
-/** Admin sections from docs/01-vision-and-mvp.md, in menu order. */
+const everyone: readonly StaffRole[] = ['operator', 'technician', 'admin'];
+const support: readonly StaffRole[] = ['operator', 'admin'];
+const adminOnly: readonly StaffRole[] = ['admin'];
+
+/** Admin sections and roles from docs/01-vision-and-mvp.md, in menu order. */
 export const sections: readonly Section[] = [
-  { key: 'dashboard', path: '/' },
-  { key: 'kyc', path: '/kyc' },
-  { key: 'fleet', path: '/fleet' },
-  { key: 'rentals', path: '/rentals' },
-  { key: 'clients', path: '/clients' },
-  { key: 'zones', path: '/zones' },
-  { key: 'tariffs', path: '/tariffs' },
-  { key: 'audit', path: '/audit' },
+  { key: 'dashboard', path: '/', roles: everyone },
+  { key: 'kyc', path: '/kyc', roles: support },
+  { key: 'fleet', path: '/fleet', roles: everyone },
+  { key: 'rentals', path: '/rentals', roles: support },
+  { key: 'clients', path: '/clients', roles: support },
+  { key: 'zones', path: '/zones', roles: adminOnly },
+  { key: 'tariffs', path: '/tariffs', roles: adminOnly },
+  { key: 'audit', path: '/audit', roles: adminOnly },
 ];
+
+export function sectionsFor(role: StaffRole): Section[] {
+  return sections.filter((section) => section.roles.includes(role));
+}

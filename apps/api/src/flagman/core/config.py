@@ -57,6 +57,17 @@ class Settings(BaseSettings):
     sms_fixed_code: SecretStr | None = None
     sms_fixed_phones: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
+    # Private bucket for client documents, see docs/adr/0005 and docs/adr/0012. The API talks to
+    # the endpoint, while signed links point to the public URL: the S3 signature covers the host,
+    # so a link signed for the internal address does not open from a phone.
+    # Without the keys the API runs, but document uploads answer 503.
+    s3_endpoint_url: str = "http://localhost:8333"
+    s3_public_url: str | None = None
+    s3_region: str = "us-east-1"
+    s3_access_key: SecretStr | None = None
+    s3_secret_key: SecretStr | None = None
+    s3_bucket: str = "flagman-private"
+
     @field_validator("api_cors_origins", "sms_fixed_phones", mode="before")
     @classmethod
     def _split_comma_separated(cls, value: object) -> object:
@@ -76,6 +87,31 @@ class Settings(BaseSettings):
             if parts.path or parts.query or parts.fragment:
                 raise ValueError(f"CORS origin must not have a path, got {origin!r}")
         return origins
+
+    @field_validator("s3_endpoint_url", "s3_public_url")
+    @classmethod
+    def _validate_s3_url(cls, url: str | None) -> str | None:
+        if url is None:
+            return url
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            raise ValueError(f"S3 URL must be scheme://host[:port], got {url!r}")
+        if parts.path not in ("", "/") or parts.query or parts.fragment:
+            raise ValueError(f"S3 URL must not have a path, got {url!r}")
+        return url.rstrip("/")
+
+    @model_validator(mode="after")
+    def _validate_storage(self) -> Self:
+        if (self.s3_access_key is None) != (self.s3_secret_key is None):
+            raise ValueError("S3_ACCESS_KEY and S3_SECRET_KEY are set together or not at all")
+        # Signed links carry document photos; over plain http anyone on the way could save them.
+        if (
+            self.is_prod
+            and self.storage_configured
+            and not self.storage_public_url.startswith("https://")
+        ):
+            raise ValueError("S3_PUBLIC_URL must be https when API_ENV=prod")
+        return self
 
     @model_validator(mode="after")
     def _validate_secrets(self) -> Self:
@@ -108,6 +144,14 @@ class Settings(BaseSettings):
     @property
     def is_prod(self) -> bool:
         return self.api_env == "prod"
+
+    @property
+    def storage_configured(self) -> bool:
+        return self.s3_access_key is not None and self.s3_secret_key is not None
+
+    @property
+    def storage_public_url(self) -> str:
+        return self.s3_public_url or self.s3_endpoint_url
 
     @property
     def database_url(self) -> URL:

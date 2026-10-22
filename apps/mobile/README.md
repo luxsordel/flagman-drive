@@ -20,6 +20,27 @@ npm run web --workspace @flagman/mobile
 Телефон и компьютер должны быть в одной сети. Если сеть мешает (VPN, корпоративный Wi-Fi), запустите
 `npx expo start --tunnel` из `apps/mobile`.
 
+## Вход и адрес API
+
+Вход по номеру и коду из SMS работает с настоящим API (`apps/api`), поэтому сначала запустите его
+вместе с Postgres и Redis — см. [docs/06-onboarding.md](../../docs/06-onboarding.md). Код из SMS
+в пилоте пишется в лог API (`SMS_BACKEND=log`).
+
+Адрес API задаёт `EXPO_PUBLIC_API_URL`, по умолчанию `http://localhost:8000`. Чтобы поменять,
+скопируйте `apps/mobile/.env.example` в `apps/mobile/.env.local`: Expo читает его из папки приложения,
+а не из корня репозитория. Значение попадает в бандл, поэтому секретов там быть не может.
+
+- **Веб.** В корневом `.env` для API нужно `API_CORS_ORIGINS=http://localhost:8081`. Открывайте
+  приложение и API оба через `localhost`: refresh-токен приходит в cookie с `SameSite=Strict`, а
+  `127.0.0.1` и `localhost` браузер считает разными сайтами — cookie не дойдёт, и вход не сохранится.
+- **iOS-симулятор** — адрес по умолчанию подходит. **Android-эмулятор** — `http://10.0.2.2:8000`.
+- **Телефон с Expo Go.** API в docker compose слушает только `127.0.0.1`, с телефона он недоступен.
+  Пока проверяйте вход в вебе или в эмуляторе.
+
+Токены: в iOS и Android refresh-токен хранится в `expo-secure-store` (Keychain / Keystore), в вебе —
+в HttpOnly cookie, access-токен везде только в памяти. Правила — `docs/03-security.md` и
+[ADR-0009](../../docs/adr/0009-client-auth-jwt-and-sessions.md).
+
 ## Проверки
 
 ```bash
@@ -49,7 +70,7 @@ npm run check:bundle --workspace @flagman/mobile
 | Путь                | Что там                                                                          |
 | ------------------- | -------------------------------------------------------------------------------- |
 | `src/app/`          | Маршруты Expo Router (файл = экран). Только связывают экраны из `features/`      |
-| `src/features/<x>/` | Экраны и логика по областям: `auth`, позже `map`, `rental`, `documents`          |
+| `src/features/<x>/` | Экраны и логика по областям: `auth`, `home`, позже `map`, `rental`, `documents`  |
 | `src/ui/`           | Базовые компоненты (`AppText`, `Button`, `TextField`) — только на дизайн-токенах |
 | `src/theme/`        | Тема по системной настройке (`useTheme`), шрифты Oswald и Open Sans              |
 | `src/i18n/`         | i18next: `locales/ru.ts` — эталон, `en.ts` обязан иметь те же ключи              |

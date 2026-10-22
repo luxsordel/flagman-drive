@@ -132,3 +132,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0008](adr/0008-expo-sdk-dependency-policy.md) — версии зависимостей мобилки задаёт Expo SDK, одна версия React в репозитории
 - [ADR-0009](adr/0009-client-auth-jwt-and-sessions.md) — вход клиента: PyJWT (HS256), сессии в Postgres, лимиты в Redis
 - [ADR-0010](adr/0010-audit-log.md) — журнал аудита: таблица только на вставку, запрет изменений триггерами
+- [ADR-0012](adr/0012-kyc-document-storage.md) — документы KYC: сырое тело загрузки, перекодирование в JPEG без метаданных, подписанные ссылки на 5 минут

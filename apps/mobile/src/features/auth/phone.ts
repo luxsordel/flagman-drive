@@ -15,3 +15,11 @@ export function parseBelarusMobile(input: string): string | null {
   if (digits.length !== 9 || !mobileOperatorCodes.has(digits.slice(0, 2))) return null;
   return `${belarusCountryCode}${digits}`;
 }
+
+/** `+375291234567` → `+375 29 123-45-67`, the way Belarusian numbers are written. */
+export function formatBelarusMobile(e164: string): string {
+  const match = /^\+375(\d{2})(\d{3})(\d{2})(\d{2})$/.exec(e164);
+  if (match === null) return e164;
+  const [, operator, a, b, c] = match;
+  return `${belarusCountryCode} ${operator ?? ''} ${a ?? ''}-${b ?? ''}-${c ?? ''}`;
+}
