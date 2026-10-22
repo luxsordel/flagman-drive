@@ -145,3 +145,36 @@ def test_sign_in_secrets_are_not_shown_in_repr(make_settings: SettingsFactory) -
 
     assert "a" * 32 not in repr(settings)
     assert "b" * 32 not in repr(settings)
+
+
+def test_storage_is_off_without_keys_and_links_use_the_endpoint(
+    make_settings: SettingsFactory,
+) -> None:
+    settings = make_settings(s3_endpoint_url="http://seaweedfs:8333/")
+
+    assert not settings.storage_configured
+    assert settings.storage_public_url == "http://seaweedfs:8333"
+
+
+def test_storage_keys_come_together(make_settings: SettingsFactory) -> None:
+    with pytest.raises(ValidationError, match="set together"):
+        make_settings(s3_access_key="key")
+
+
+@pytest.mark.parametrize(
+    "url", ["seaweedfs:8333", "ftp://seaweedfs", "http://seaweedfs:8333/bucket", "https://"]
+)
+def test_storage_urls_are_scheme_and_host_only(make_settings: SettingsFactory, url: str) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(s3_public_url=url)
+
+
+def test_document_links_must_be_https_in_prod(make_settings: SettingsFactory) -> None:
+    keys = {"s3_access_key": "key", "s3_secret_key": "secret"}
+
+    with pytest.raises(ValidationError, match="must be https"):
+        make_settings(api_env="prod", s3_public_url="http://files.example.com", **keys)
+    settings = make_settings(api_env="prod", s3_public_url="https://files.example.com", **keys)
+    assert settings.storage_public_url == "https://files.example.com"
+    # Without keys there are no links, so a prod server without storage still starts.
+    assert not make_settings(api_env="prod").storage_configured
