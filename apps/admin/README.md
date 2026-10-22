@@ -20,9 +20,9 @@ npm run dev --workspace @flagman/admin
 ```
 
 Панель открывается на http://127.0.0.1:5173 (только localhost, как и остальной локальный стек).
-Запросы к `/staff/*` и `/admin/*` Vite проксирует на API (http://127.0.0.1:8000 из `infra/docker-compose.yml`):
-refresh-cookie сотрудника с `SameSite=Strict` не уходит на другой сайт, а `127.0.0.1:5173` и `localhost:8000`
-для браузера — разные сайты.
+Запросы к `/staff/*` и `/admin/*` Vite проксирует на API (http://127.0.0.1:8000 из `infra/docker-compose.yml`),
+чтобы у панели и API был один origin: не нужен CORS с передачей cookie, а refresh-cookie сотрудника
+ставится на адрес самой панели.
 
 ## Структура
 

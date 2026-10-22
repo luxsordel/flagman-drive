@@ -33,7 +33,17 @@ export function AuthProvider({
   }, [session]);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ state, signOut: () => session.signOut() }),
+    () => ({
+      state,
+      signOut: async () => {
+        try {
+          await session.signOut();
+        } catch {
+          // On a shared computer the next reload would quietly sign the same person back in.
+          setState({ status: 'signedOut', logoutFailed: true });
+        }
+      },
+    }),
     [state, session],
   );
 

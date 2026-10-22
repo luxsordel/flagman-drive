@@ -96,6 +96,10 @@ export function createStaffSession(api: StaffAuthApi): StaffSession {
     },
 
     async signOut() {
+      // A refresh still in flight would store a fresh token after the session ended and schedule
+      // the next one; let it land first, so endSession below forgets that token too.
+      clearTimeout(timer);
+      await inFlight?.catch(() => false);
       try {
         await api.logout();
       } finally {

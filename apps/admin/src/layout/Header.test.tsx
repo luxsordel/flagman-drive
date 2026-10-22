@@ -46,5 +46,20 @@ describe('header', () => {
 
     expect(await screen.findByRole('heading', { name: ru.login.title })).toBeDefined();
     expect(api.logout).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('warns when the server did not end the session and lets the staff member retry', async () => {
+    const { api } = renderAt('/');
+    api.logout.mockRejectedValueOnce(new Error('network'));
+
+    await userEvent.click(await screen.findByRole('button', { name: ru.header.signOut }));
+
+    expect((await screen.findByRole('alert')).textContent).toContain(ru.login.logoutFailed);
+
+    await userEvent.click(screen.getByRole('button', { name: ru.login.retryLogout }));
+
+    expect(api.logout).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });

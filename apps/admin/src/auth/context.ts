@@ -3,10 +3,14 @@ import { createContext, useContext } from 'react';
 import type { Staff } from './staff';
 
 export type AuthState =
-  { status: 'loading' } | { status: 'signedOut' } | { status: 'signedIn'; staff: Staff };
+  | { status: 'loading' }
+  // logoutFailed: the panel forgot the session, but the server and its refresh cookie may keep it.
+  | { status: 'signedOut'; logoutFailed?: true }
+  | { status: 'signedIn'; staff: Staff };
 
 export interface AuthContextValue {
   state: AuthState;
+  /** Never rejects: a failed server sign-out shows up as `logoutFailed` instead. */
   signOut: () => Promise<void>;
 }
 

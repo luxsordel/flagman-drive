@@ -135,4 +135,28 @@ describe('staff session', () => {
     expect(signedOut).toHaveBeenCalledOnce();
     expect(session.accessToken()).toBeNull();
   });
+
+  it('keeps no token from a background refresh that lands during sign-out', async () => {
+    vi.useFakeTimers();
+    const api = fakeStaffAuthApi(testStaff());
+    let land: (token: string) => void = () => undefined;
+    api.refresh.mockResolvedValueOnce(fresh('access-1')).mockReturnValueOnce(
+      new Promise((resolve) => {
+        land = (token) => {
+          resolve(fresh(token));
+        };
+      }),
+    );
+    const session = createStaffSession(api);
+    await session.restore();
+    await vi.advanceTimersByTimeAsync(840_000);
+
+    const signingOut = session.signOut();
+    land('access-2');
+    await signingOut;
+
+    expect(session.accessToken()).toBeNull();
+    await vi.advanceTimersByTimeAsync(900_000);
+    expect(api.refresh).toHaveBeenCalledTimes(2);
+  });
 });

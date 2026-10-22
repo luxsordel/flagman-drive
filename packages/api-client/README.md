@@ -45,7 +45,7 @@ export const api = createApiClient({
 ## Админка (Vite)
 
 API вызывается с адреса самой админки: в разработке Vite проксирует `/staff` и `/admin` на API
-(`apps/admin/vite.config.ts`), потому что refresh-cookie с `SameSite=Strict` ходит только на тот же сайт.
+(`apps/admin/vite.config.ts`): один origin с API, поэтому не нужен CORS с передачей cookie.
 Access-токен хранится только в памяти сессии (`apps/admin/src/auth/session.ts`), не в `sessionStorage`
 и не в `localStorage` ([docs/03-security.md](../../docs/03-security.md)).
 

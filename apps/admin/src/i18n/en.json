@@ -34,7 +34,9 @@
     "password": "Password",
     "totp": "Code from your 2FA app",
     "submit": "Sign in",
-    "notConnected": "Sign-in is not connected yet: this is a stub that sends nothing to the server."
+    "notConnected": "Sign-in is not connected yet: this is a stub that sends nothing to the server.",
+    "logoutFailed": "Could not end the session on the server: reloading the page may sign you back in. Please sign out again.",
+    "retryLogout": "Sign out again"
   },
   "notFound": {
     "title": "Page not found",
@@ -50,6 +52,7 @@
   },
   "forbidden": {
     "title": "No access",
-    "text": "This section is not available for your role."
+    "text": "This section is not available for your role.",
+    "back": "Back to overview"
   }
 }

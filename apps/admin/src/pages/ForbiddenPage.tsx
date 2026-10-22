@@ -8,7 +8,7 @@ export function ForbiddenPage() {
     <>
       <h1>{t('forbidden.title')}</h1>
       <p className="muted">{t('forbidden.text')}</p>
-      <Link to="/">{t('notFound.back')}</Link>
+      <Link to="/">{t('forbidden.back')}</Link>
     </>
   );
 }

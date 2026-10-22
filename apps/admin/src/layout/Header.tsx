@@ -48,7 +48,7 @@ export function Header() {
           <span>{staff.email}</span>
           <span className="muted">{t(`roles.${staff.role}`)}</span>
         </span>
-        {/* The session ends locally even if the API is unreachable; RequireAuth then opens /login. */}
+        {/* The session ends locally even if the API is unreachable; /login then offers a retry. */}
         <button type="button" className="button" onClick={() => void signOut()}>
           {t('header.signOut')}
         </button>
