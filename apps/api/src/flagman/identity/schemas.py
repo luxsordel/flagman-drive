@@ -20,6 +20,10 @@ OtpCode = Annotated[
     Field(pattern=r"^[0-9]{6}$", description="One-time code from the SMS.", examples=["123456"]),
 ]
 
+# Mobile apps keep the refresh token in the OS keystore. A browser has no such place, so the web
+# client gets it as an HttpOnly cookie that page scripts cannot read (docs/03-security.md).
+RefreshTokenTransport = Literal["body", "cookie"]
+
 # Issued tokens are shorter; the bounds only reject obvious garbage before any lookup.
 RefreshToken = Annotated[
     str,
@@ -56,18 +60,29 @@ class OtpVerifyRequest(BaseModel):
             "Reuse of an old refresh token revokes every session of this device."
         )
     )
+    refresh_token_transport: RefreshTokenTransport = Field(
+        default="body",
+        description=(
+            "`cookie` for the web client: the refresh token is set as an HttpOnly cookie "
+            "and left out of the response body."
+        ),
+    )
 
 
 class RefreshRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    refresh_token: RefreshToken
+    refresh_token: RefreshToken | None = Field(
+        default=None, description="Left out by the web client, which sends the cookie instead."
+    )
 
 
 class LogoutRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    refresh_token: RefreshToken
+    refresh_token: RefreshToken | None = Field(
+        default=None, description="Left out by the web client, which sends the cookie instead."
+    )
 
 
 class TokenPair(BaseModel):
@@ -76,6 +91,10 @@ class TokenPair(BaseModel):
     access_token: str = Field(description="JWT for the `Authorization: Bearer` header.")
     token_type: Literal["Bearer"] = "Bearer"  # noqa: S105 - the RFC 6750 scheme name, not a secret
     expires_in: int = Field(description="Seconds the access token stays valid.", examples=[900])
-    refresh_token: str = Field(
-        description="Single-use: every refresh returns a new one and invalidates this one."
+    refresh_token: str | None = Field(
+        default=None,
+        description=(
+            "Single-use: every refresh returns a new one and invalidates this one. "
+            "Absent when the refresh token travels in the cookie."
+        ),
     )

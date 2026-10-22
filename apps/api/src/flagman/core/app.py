@@ -74,7 +74,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", REQUEST_ID_HEADER],
-        expose_headers=[REQUEST_ID_HEADER],
+        # Retry-After is not CORS-safelisted: without this the web client cannot read 429 timing.
+        expose_headers=[REQUEST_ID_HEADER, "Retry-After"],
     )
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(

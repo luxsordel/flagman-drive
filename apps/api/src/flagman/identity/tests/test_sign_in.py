@@ -60,7 +60,8 @@ def client(
     app.dependency_overrides[get_sms_sender] = lambda: sms
     _add_protected_route(app)
     reset_limits()
-    with TestClient(app) as client:
+    # https: the web client's refresh cookie is Secure, and the cookie jar keeps it off plain http.
+    with TestClient(app, base_url="https://testserver") as client:
         yield client
 
 
@@ -368,6 +369,65 @@ def test_logout_ends_the_session_and_is_idempotent(
     assert _refresh(client, tokens["refresh_token"]).status_code == HTTPStatus.UNAUTHORIZED
     unknown = {"refresh_token": secrets.token_urlsafe(32)}
     assert client.post("/auth/logout", json=unknown).status_code == HTTPStatus.NO_CONTENT
+
+
+def _web_sign_in(client: TestClient, sms: FakeSms, phone: str) -> Any:
+    _request_code(client, phone)
+    body = {
+        "phone": phone,
+        "code": sms.code_for(phone),
+        "device_id": str(uuid.uuid4()),
+        "refresh_token_transport": "cookie",
+    }
+    return client.post("/auth/otp/verify", json=body)
+
+
+def test_web_client_gets_the_refresh_token_only_in_a_cookie(
+    client: TestClient, sms: FakeSms, phone: str
+) -> None:
+    response = _web_sign_in(client, sms, phone)
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["refresh_token"] is None
+    assert _me(client, response.json()["access_token"]).status_code == HTTPStatus.OK
+    cookie = response.headers["set-cookie"]
+    assert cookie.startswith("flagman_refresh=")
+    for attribute in ("HttpOnly", "Secure", "SameSite=strict", "Path=/auth", "Max-Age=2592000"):
+        assert attribute in cookie
+
+
+def test_web_client_refreshes_and_signs_out_with_the_cookie(
+    client: TestClient, sms: FakeSms, phone: str
+) -> None:
+    _web_sign_in(client, sms, phone)
+    first = client.cookies["flagman_refresh"]
+
+    refreshed = client.post("/auth/token/refresh", json={})
+
+    assert refreshed.status_code == HTTPStatus.OK
+    assert refreshed.json()["refresh_token"] is None
+    assert client.cookies["flagman_refresh"] != first
+    assert client.post("/auth/logout", json={}).status_code == HTTPStatus.NO_CONTENT
+    assert "flagman_refresh" not in client.cookies
+    assert client.post("/auth/token/refresh", json={}).status_code == HTTPStatus.UNAUTHORIZED
+
+
+def test_reused_refresh_cookie_revokes_the_device_sessions(
+    client: TestClient, sms: FakeSms, phone: str
+) -> None:
+    _web_sign_in(client, sms, phone)
+    stolen = client.cookies["flagman_refresh"]
+    client.post("/auth/token/refresh", json={})
+
+    assert _refresh(client, stolen).status_code == HTTPStatus.UNAUTHORIZED
+    assert client.post("/auth/token/refresh", json={}).status_code == HTTPStatus.UNAUTHORIZED
+
+
+def test_refresh_without_any_token_is_rejected(client: TestClient) -> None:
+    response = client.post("/auth/token/refresh", json={})
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert response.json()["type"] == "urn:flagman:problem:refresh-token-invalid"
 
 
 @pytest.mark.parametrize(

@@ -90,6 +90,28 @@ def test_unknown_fields_are_rejected(client: TestClient, path: str, body: dict[s
     assert response.json()["errors"][0]["type"] == "extra_forbidden"
 
 
+def test_otp_verify_knows_only_two_refresh_token_transports(client: TestClient) -> None:
+    body = {
+        "phone": PHONE,
+        "code": "123456",
+        "device_id": str(uuid.uuid4()),
+        "refresh_token_transport": "header",
+    }
+
+    response = client.post("/auth/otp/verify", json=body)
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"][0]["loc"] == ["body", "refresh_token_transport"]
+
+
+@pytest.mark.parametrize("path", ["/auth/token/refresh", "/auth/logout"])
+def test_cookie_endpoints_still_require_a_json_body(client: TestClient, path: str) -> None:
+    # A cross-site form can post with the cookie attached, but it cannot send JSON.
+    response = client.post(path, data={"refresh_token": REFRESH_TOKEN})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
 def test_refresh_rejects_tokens_of_absurd_length(client: TestClient) -> None:
     for token in ("short", "x" * 1000):
         response = client.post("/auth/token/refresh", json={"refresh_token": token})
