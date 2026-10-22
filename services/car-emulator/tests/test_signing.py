@@ -45,7 +45,7 @@ def _headers(now: datetime = NOW, secret: bytes = SECRET) -> tuple[str, str]:
 
 def test_known_vector() -> None:
     # Computed with `printf '1700000000\nPOST\n/x\n{}' | openssl dgst -sha256 -hmac secret`;
-    # pins the wire format from ADR-0006 so the API side can be checked against the same vector.
+    # pins the wire format from ADR-0007 so the API side can be checked against the same vector.
     assert sign(b"secret", 1700000000, "post", b"/x", b"{}") == (
         "sha256=c5b469326eae314dd42fab4901a79eb16ee0b61f28902b35f0653c508d1084f4"
     )

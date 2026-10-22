@@ -1,4 +1,4 @@
-"""HMAC request signing shared by commands and telemetry webhooks (see docs/adr/0006)."""
+"""HMAC request signing shared by commands and telemetry webhooks (see docs/adr/0007)."""
 
 import hashlib
 import hmac
