@@ -1,4 +1,7 @@
-"""Sign-in rules: one-time codes, access tokens and refresh token rotation. No I/O here."""
+"""Sign-in rules: one-time codes, passwords, TOTP, access tokens and refresh token rotation.
+
+No I/O here.
+"""
 
 import hashlib
 import hmac
@@ -7,10 +10,16 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
+from functools import cache
 from http import HTTPStatus
+from typing import Any
 from uuid import UUID
 
 import jwt
+import pyotp
+from argon2 import PasswordHasher
+from argon2.exceptions import InvalidHashError, VerificationError
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from flagman.core.errors import AppError
 from flagman.core.security import keyed_hash
@@ -28,8 +37,11 @@ REFRESH_REUSE_GRACE = timedelta(seconds=30)
 
 JWT_ALGORITHM = "HS256"
 JWT_ISSUER = "flagman"
-# Staff tokens (#32) get their own audience, so they are never accepted where a client is expected.
+# Each kind of token has its own audience, so a token of one kind is never accepted as another:
+# a client token does not open the admin panel, and a half-done staff sign-in is not a session.
 CLIENT_AUDIENCE = "client"
+STAFF_AUDIENCE = "staff"
+STAFF_CHALLENGE_AUDIENCE = "staff-challenge"
 
 
 class OtpInvalidError(AppError):
@@ -172,28 +184,264 @@ class AccessClaims:
 
 
 def issue_access_token(claims: AccessClaims, secret: str, now: datetime) -> str:
+    return _encode_jwt(
+        CLIENT_AUDIENCE, claims.user_id, ACCESS_TOKEN_TTL, now, secret, sid=str(claims.session_id)
+    )
+
+
+def read_access_token(token: str, secret: str) -> AccessClaims:
+    payload = _decode_jwt(token, secret, CLIENT_AUDIENCE, ["sid"], AccessTokenInvalidError)
+    try:
+        return AccessClaims(user_id=UUID(payload["sub"]), session_id=UUID(payload["sid"]))
+    except (ValueError, TypeError) as exc:
+        raise AccessTokenInvalidError from exc
+
+
+def _encode_jwt(
+    audience: str, subject: UUID, ttl: timedelta, now: datetime, secret: str, **claims: str
+) -> str:
     payload = {
         "iss": JWT_ISSUER,
-        "aud": CLIENT_AUDIENCE,
-        "sub": str(claims.user_id),
-        "sid": str(claims.session_id),
+        "aud": audience,
+        "sub": str(subject),
         "iat": int(now.timestamp()),
-        "exp": int((now + ACCESS_TOKEN_TTL).timestamp()),
+        "exp": int((now + ttl).timestamp()),
+        **claims,
     }
     return jwt.encode(payload, secret, algorithm=JWT_ALGORITHM)
 
 
-def read_access_token(token: str, secret: str) -> AccessClaims:
+def _decode_jwt(
+    token: str, secret: str, audience: str, claims: list[str], error: type[AppError]
+) -> dict[str, Any]:
     try:
         # The algorithm list is fixed: the token header must never choose it ("none", RS/HS swap).
-        payload = jwt.decode(
+        payload: dict[str, Any] = jwt.decode(
             token,
             secret,
             algorithms=[JWT_ALGORITHM],
-            audience=CLIENT_AUDIENCE,
+            audience=audience,
             issuer=JWT_ISSUER,
-            options={"require": ["iss", "aud", "sub", "sid", "iat", "exp"]},
+            options={"require": ["iss", "aud", "sub", "iat", "exp", *claims]},
         )
-        return AccessClaims(user_id=UUID(payload["sub"]), session_id=UUID(payload["sid"]))
-    except (jwt.InvalidTokenError, ValueError, TypeError) as exc:
+    except jwt.InvalidTokenError as exc:
+        raise error from exc
+    return payload
+
+
+# Staff sign-in (#32, docs/adr/0011): email and password, then a TOTP code.
+
+STAFF_ACCESS_TOKEN_TTL = ACCESS_TOKEN_TTL
+# Sliding like the client's, but a workday instead of a month: the admin panel is the most
+# valuable account to steal, and staff sign in again every morning anyway.
+STAFF_SESSION_TTL = timedelta(hours=12)
+# Between the password step and the TOTP step; enough to open the authenticator app.
+STAFF_CHALLENGE_TTL = timedelta(minutes=5)
+
+EMAIL_MAX_LENGTH = 254  # RFC 5321 path limit
+# The upper bound keeps argon2 from hashing megabytes sent by a caller.
+PASSWORD_MIN_LENGTH = 12
+PASSWORD_MAX_LENGTH = 128
+
+TOTP_DIGITS = 6
+TOTP_INTERVAL_SECONDS = 30
+# One step either side: phones and servers disagree on the time by a few seconds.
+TOTP_VALID_WINDOW = 1
+TOTP_ISSUER = "FLAGMAN Drive"
+_TOTP_NONCE_BYTES = 12
+
+# RFC 9106 low-memory profile (argon2id, 64 MiB, 3 passes): the library default, chosen so that
+# hashing stays well under a second on a small VPS.
+_password_hasher = PasswordHasher()
+
+
+class StaffCredentialsInvalidError(AppError):
+    """Wrong password, unknown email or disabled account: not told apart from each other."""
+
+    status = HTTPStatus.UNAUTHORIZED
+    slug = "staff-credentials-invalid"
+    title = "Invalid email or password"
+
+
+class StaffChallengeInvalidError(AppError):
+    """The password step expired, belongs to another step or was tampered with: start again."""
+
+    status = HTTPStatus.UNAUTHORIZED
+    slug = "staff-challenge-invalid"
+    title = "Sign in again"
+
+
+class TotpInvalidError(AppError):
+    """Wrong, reused or out-of-window code: the user may retry with the same challenge."""
+
+    status = HTTPStatus.BAD_REQUEST
+    slug = "totp-invalid"
+    title = "Invalid code"
+
+
+class TotpEnrollmentNotStartedError(AppError):
+    """A code came for 2FA setup before the QR code was requested."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "totp-enrollment-not-started"
+    title = "Set up two-factor authentication first"
+
+
+class TotpAlreadyEnrolledError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "totp-already-enrolled"
+    title = "Two-factor authentication is already set up"
+
+
+class TotpResetRequiredError(AppError):
+    """The stored secret does not decrypt, e.g. after API_TOTP_ENCRYPTION_KEY was changed."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "totp-reset-required"
+    title = "Ask an administrator to reset two-factor authentication"
+
+
+class PasswordPolicyError(ValueError):
+    pass
+
+
+class StaffEmailTakenError(ValueError):
+    pass
+
+
+class StaffNotFoundError(LookupError):
+    pass
+
+
+def normalize_email(email: str) -> str:
+    # Case-insensitive in practice everywhere, so one person cannot get two accounts.
+    return email.strip().lower()
+
+
+def check_password_policy(password: str) -> None:
+    if not PASSWORD_MIN_LENGTH <= len(password) <= PASSWORD_MAX_LENGTH:
+        raise PasswordPolicyError(
+            f"password must be {PASSWORD_MIN_LENGTH} to {PASSWORD_MAX_LENGTH} characters long"
+        )
+    if not password.strip():
+        raise PasswordPolicyError("password must not be blank")
+
+
+def hash_password(password: str) -> str:
+    return _password_hasher.hash(password)
+
+
+def verify_password(password_hash: str, password: str) -> bool:
+    try:
+        return _password_hasher.verify(password_hash, password)
+    except (VerificationError, InvalidHashError):
+        return False
+
+
+def password_needs_rehash(password_hash: str) -> bool:
+    """True after the hashing parameters change: the hash is upgraded on the next sign-in."""
+    return _password_hasher.check_needs_rehash(password_hash)
+
+
+@cache
+def dummy_password_hash() -> str:
+    """Verified against when the email is unknown, so the answer takes as long as for a real one."""
+    return _password_hasher.hash(secrets.token_urlsafe(16))
+
+
+def generate_totp_secret() -> str:
+    return pyotp.random_base32()  # 160 bits, as RFC 4226 recommends
+
+
+def totp_provisioning_uri(secret: str, email: str) -> str:
+    """`otpauth://` URI for the QR code; authenticator apps show the issuer and the email."""
+    return pyotp.TOTP(secret, digits=TOTP_DIGITS, interval=TOTP_INTERVAL_SECONDS).provisioning_uri(
+        name=email, issuer_name=TOTP_ISSUER
+    )
+
+
+def totp_step(now: datetime) -> int:
+    return int(now.timestamp()) // TOTP_INTERVAL_SECONDS
+
+
+def match_totp(secret: str, code: str, now: datetime, last_used_step: int | None) -> int | None:
+    """Returns the time step the code belongs to, or None if it does not match.
+
+    A step at or before the last accepted one never matches: a code seen over someone's shoulder
+    or replayed from a log cannot be used a second time.
+    """
+    totp = pyotp.TOTP(secret, digits=TOTP_DIGITS, interval=TOTP_INTERVAL_SECONDS)
+    current = totp_step(now)
+    for step in range(current - TOTP_VALID_WINDOW, current + TOTP_VALID_WINDOW + 1):
+        if last_used_step is not None and step <= last_used_step:
+            continue
+        if hmac.compare_digest(totp.generate_otp(step), code):
+            return step
+    return None
+
+
+def encrypt_totp_secret(secret: str, key: bytes, staff_id: UUID) -> bytes:
+    # The staff id is authenticated data: a ciphertext copied to another row does not decrypt.
+    nonce = secrets.token_bytes(_TOTP_NONCE_BYTES)
+    return nonce + AESGCM(key).encrypt(nonce, secret.encode(), staff_id.bytes)
+
+
+def decrypt_totp_secret(ciphertext: bytes, key: bytes, staff_id: UUID) -> str:
+    nonce, sealed = ciphertext[:_TOTP_NONCE_BYTES], ciphertext[_TOTP_NONCE_BYTES:]
+    return AESGCM(key).decrypt(nonce, sealed, staff_id.bytes).decode()
+
+
+class StaffNextStep(StrEnum):
+    """What the admin panel shows after the password: the code field or the QR code first."""
+
+    TOTP = "totp"
+    TOTP_ENROLLMENT = "totp_enrollment"
+
+
+def issue_staff_challenge(staff_id: UUID, secret: str, now: datetime) -> str:
+    """Proof that the password step passed; the TOTP step finishes the sign-in.
+
+    It carries no step: the TOTP step reads the current 2FA state from the database, so two tabs
+    setting up 2FA at once cannot enroll a secret behind each other's back.
+    """
+    return _encode_jwt(STAFF_CHALLENGE_AUDIENCE, staff_id, STAFF_CHALLENGE_TTL, now, secret)
+
+
+def read_staff_challenge(token: str, secret: str) -> UUID:
+    payload = _decode_jwt(token, secret, STAFF_CHALLENGE_AUDIENCE, [], StaffChallengeInvalidError)
+    try:
+        return UUID(payload["sub"])
+    except (ValueError, TypeError) as exc:
+        raise StaffChallengeInvalidError from exc
+
+
+@dataclass(frozen=True)
+class StaffAccessClaims:
+    staff_id: UUID
+    session_id: UUID
+    role: StaffRole
+
+
+def issue_staff_access_token(claims: StaffAccessClaims, secret: str, now: datetime) -> str:
+    # The role travels in the token, so a role change takes effect within STAFF_ACCESS_TOKEN_TTL.
+    return _encode_jwt(
+        STAFF_AUDIENCE,
+        claims.staff_id,
+        STAFF_ACCESS_TOKEN_TTL,
+        now,
+        secret,
+        sid=str(claims.session_id),
+        role=claims.role.value,
+    )
+
+
+def read_staff_access_token(token: str, secret: str) -> StaffAccessClaims:
+    payload = _decode_jwt(token, secret, STAFF_AUDIENCE, ["sid", "role"], AccessTokenInvalidError)
+    try:
+        return StaffAccessClaims(
+            staff_id=UUID(payload["sub"]),
+            session_id=UUID(payload["sid"]),
+            role=StaffRole(payload["role"]),
+        )
+    except (ValueError, TypeError) as exc:
         raise AccessTokenInvalidError from exc

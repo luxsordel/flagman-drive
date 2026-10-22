@@ -129,6 +129,123 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/staff/auth/logout': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * End the staff session of the refresh cookie
+     * @description Idempotent: without a valid cookie it also gives 204. The web client sends `{}` as the body and the refresh token in the cookie.
+     */
+    post: operations['staff_logout_staff_auth_logout_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/staff/auth/password': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Staff sign-in, step 1: check the email and password */
+    post: operations['staff_check_password_staff_auth_password_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/staff/auth/token/refresh': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Rotate the staff refresh cookie and get a new access token
+     * @description The new token carries the current role. The web client sends `{}` as the body and the refresh token in the cookie.
+     */
+    post: operations['staff_refresh_tokens_staff_auth_token_refresh_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/staff/auth/totp': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Staff sign-in, step 2: check the TOTP code and start a session
+     * @description The refresh token is set as an HttpOnly cookie and is not in the body.
+     */
+    post: operations['staff_verify_totp_staff_auth_totp_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/staff/auth/totp/enrollment': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Staff sign-in, first time only: get a new TOTP secret for the QR code
+     * @description Each call replaces the secret that is not confirmed yet. The first accepted code in `POST /staff/auth/totp` finishes the setup.
+     */
+    post: operations['staff_start_totp_enrollment_staff_auth_totp_enrollment_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/staff/me': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The signed-in staff member
+     * @description The admin panel builds its menu from `role` after a page reload.
+     */
+    get: operations['staff_me_staff_me_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -145,7 +262,13 @@ export interface components {
      *     Values are stored as is: renaming one breaks filtering of older events.
      * @enum {string}
      */
-    AuditAction: 'staff.signed_in' | 'staff.sign_in_failed';
+    AuditAction:
+      | 'staff.created'
+      | 'staff.signed_in'
+      | 'staff.sign_in_failed'
+      | 'staff.signed_out'
+      | 'staff.totp_enrolled'
+      | 'staff.totp_reset';
     /** AuditEventOut */
     AuditEventOut: {
       /**
@@ -322,6 +445,115 @@ export interface components {
        * @description Left out by the web client, which sends the cookie instead.
        */
       refresh_token?: string | null;
+    };
+    /** StaffAccessToken */
+    StaffAccessToken: {
+      /**
+       * Access Token
+       * @description JWT for the `Authorization: Bearer` header.
+       */
+      access_token: string;
+      /**
+       * Expires In
+       * @description Seconds the access token stays valid.
+       * @example 900
+       */
+      expires_in: number;
+      /**
+       * Token Type
+       * @default Bearer
+       * @constant
+       */
+      token_type: 'Bearer';
+    };
+    /** StaffChallengeIssued */
+    StaffChallengeIssued: {
+      /**
+       * Challenge Token
+       * @description Send it with the TOTP code; keep it in memory only.
+       */
+      challenge_token: string;
+      /**
+       * Expires In
+       * @description Seconds the challenge stays valid.
+       * @example 300
+       */
+      expires_in: number;
+      /** @description `totp`: ask for the code. `totp_enrollment`: 2FA is not set up yet, call `POST /staff/auth/totp/enrollment` and show the QR code first. */
+      next_step: components['schemas']['StaffNextStep'];
+    };
+    /**
+     * StaffNextStep
+     * @description What the admin panel shows after the password: the code field or the QR code first.
+     * @enum {string}
+     */
+    StaffNextStep: 'totp' | 'totp_enrollment';
+    /** StaffPasswordRequest */
+    StaffPasswordRequest: {
+      /**
+       * Email
+       * @description Work email; compared case-insensitively.
+       * @example operator@flagman.by
+       */
+      email: string;
+      /** Password */
+      password: string;
+    };
+    /** StaffProfile */
+    StaffProfile: {
+      /** Email */
+      email: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      role: components['schemas']['StaffRole'];
+    };
+    /**
+     * StaffRefreshRequest
+     * @description Empty on purpose: the refresh token is in the cookie, and a JSON body is still required.
+     */
+    StaffRefreshRequest: Record<string, never>;
+    /**
+     * StaffRole
+     * @enum {string}
+     */
+    StaffRole: 'operator' | 'technician' | 'admin';
+    /** StaffTotpEnrollment */
+    StaffTotpEnrollment: {
+      /**
+       * Otpauth Uri
+       * @description Show as a QR code for the authenticator app.
+       */
+      otpauth_uri: string;
+      /**
+       * Secret
+       * @description The same secret in base32, for typing it in by hand.
+       */
+      secret: string;
+    };
+    /** StaffTotpEnrollmentRequest */
+    StaffTotpEnrollmentRequest: {
+      /**
+       * Challenge Token
+       * @description From `POST /staff/auth/password`; valid for 5 minutes.
+       */
+      challenge_token: string;
+    };
+    /** StaffTotpRequest */
+    StaffTotpRequest: {
+      /**
+       * Challenge Token
+       * @description From `POST /staff/auth/password`; valid for 5 minutes.
+       */
+      challenge_token: string;
+      /**
+       * Code
+       * @description Six-digit code from the authenticator app.
+       * @example 123456
+       */
+      code: string;
     };
     /** TokenPair */
     TokenPair: {
@@ -726,6 +958,350 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ReadinessResponse'];
+        };
+      };
+    };
+  };
+  staff_logout_staff_auth_logout_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        flagman_staff_refresh?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['StaffRefreshRequest'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  staff_check_password_staff_auth_password_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['StaffPasswordRequest'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffChallengeIssued'];
+        };
+      };
+      /** @description `urn:flagman:problem:staff-credentials-invalid`: wrong email or password, or the account is disabled; the cases are not told apart. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  staff_refresh_tokens_staff_auth_token_refresh_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: {
+        flagman_staff_refresh?: string | null;
+      };
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['StaffRefreshRequest'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffAccessToken'];
+        };
+      };
+      /** @description `urn:flagman:problem:refresh-token-invalid`: sign in again. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  staff_verify_totp_staff_auth_totp_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['StaffTotpRequest'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffAccessToken'];
+        };
+      };
+      /** @description `urn:flagman:problem:totp-invalid`: wrong code, the user may retry. */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:staff-challenge-invalid`: start again with the password. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:totp-enrollment-not-started`: get the QR code first. `urn:flagman:problem:totp-reset-required`: an administrator must reset 2FA. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  staff_start_totp_enrollment_staff_auth_totp_enrollment_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['StaffTotpEnrollmentRequest'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffTotpEnrollment'];
+        };
+      };
+      /** @description `urn:flagman:problem:staff-challenge-invalid`: start again with the password. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:totp-already-enrolled`: only an administrator resets 2FA. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  staff_me_staff_me_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffProfile'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
         };
       };
     };

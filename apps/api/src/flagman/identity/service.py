@@ -1,10 +1,22 @@
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
 import structlog
+from cryptography.exceptions import InvalidTag
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.audit import service as audit
+from flagman.audit.domain import (
+    SYSTEM,
+    Actor,
+    ActorType,
+    AuditAction,
+    AuditEntry,
+    AuditTarget,
+    RequestOrigin,
+)
 from flagman.core.config import Settings
 from flagman.core.ratelimit import Limit, RateLimiter
 from flagman.core.security import keyed_hash
@@ -13,21 +25,57 @@ from flagman.identity.domain import (
     ACCESS_TOKEN_TTL,
     OTP_TTL,
     REFRESH_TOKEN_TTL,
+    STAFF_ACCESS_TOKEN_TTL,
+    STAFF_CHALLENGE_TTL,
+    STAFF_SESSION_TTL,
     AccessClaims,
+    AccessTokenInvalidError,
     OtpExpiredError,
     OtpInvalidError,
     OtpOutcome,
     RefreshDecision,
     RefreshTokenInvalidError,
+    StaffAccessClaims,
+    StaffChallengeInvalidError,
+    StaffCredentialsInvalidError,
+    StaffEmailTakenError,
+    StaffNextStep,
+    StaffNotFoundError,
+    StaffRole,
+    TotpAlreadyEnrolledError,
+    TotpEnrollmentNotStartedError,
+    TotpInvalidError,
+    TotpResetRequiredError,
+    check_password_policy,
     decide_refresh,
+    decrypt_totp_secret,
+    dummy_password_hash,
+    encrypt_totp_secret,
     generate_otp_code,
     generate_refresh_token,
+    generate_totp_secret,
     hash_otp_code,
+    hash_password,
     hash_refresh_token,
     issue_access_token,
+    issue_staff_access_token,
+    issue_staff_challenge,
+    match_totp,
+    normalize_email,
+    password_needs_rehash,
+    read_staff_challenge,
+    totp_provisioning_uri,
+    verify_password,
 )
 from flagman.identity.ports import SmsSender
-from flagman.identity.schemas import OtpRequestAccepted, TokenPair
+from flagman.identity.schemas import (
+    OtpRequestAccepted,
+    StaffAccessToken,
+    StaffChallengeIssued,
+    StaffProfile,
+    StaffTotpEnrollment,
+    TokenPair,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -43,6 +91,17 @@ OTP_VERIFY_LIMIT = Limit("otp-verify-phone", 10, _HOUR)
 # Against guessing spread over many phones. Higher than the request limit: a code may take
 # several tries, and mobile carriers put many clients behind one address.
 OTP_VERIFY_IP_LIMIT = Limit("otp-verify-ip", 50, _HOUR)
+
+# Against password guessing for one account and across many. Every attempt counts, so anyone who
+# knows a staff email can lock that account for an hour; acceptable for a handful of staff
+# (docs/adr/0011).
+STAFF_PASSWORD_EMAIL_LIMIT = Limit("staff-password-email", 10, _HOUR)
+STAFF_PASSWORD_IP_LIMIT = Limit("staff-password-ip", 30, _HOUR)
+# A challenge stays valid for 5 minutes and may be retried: this caps TOTP guessing per account.
+STAFF_TOTP_LIMIT = Limit("staff-totp-staff", 10, _HOUR)
+STAFF_TOTP_IP_LIMIT = Limit("staff-totp-ip", 30, _HOUR)
+
+_UNKNOWN_IP = "unknown"
 
 
 @dataclass(frozen=True)
@@ -166,3 +225,267 @@ class SignInService:
             expires_in=int(ACCESS_TOKEN_TTL.total_seconds()),
             refresh_token=refresh_token,
         )
+
+
+def _verify_password_or_dummy(password_hash: str | None, password: str) -> bool:
+    # An unknown email still costs one argon2 run, so timing does not reveal who has an account.
+    if password_hash is None:
+        verify_password(dummy_password_hash(), password)
+        return False
+    return verify_password(password_hash, password)
+
+
+def _staff_actor(staff_id: UUID) -> Actor:
+    return Actor(ActorType.STAFF, staff_id)
+
+
+def _sign_in_failed(actor: Actor, origin: RequestOrigin, step: str, reason: str) -> AuditEntry:
+    return AuditEntry(
+        actor, AuditAction.STAFF_SIGN_IN_FAILED, origin, details={"step": step, "reason": reason}
+    )
+
+
+@dataclass(frozen=True)
+class StaffTokens:
+    access_token: StaffAccessToken
+    # Always delivered in the HttpOnly cookie: the admin panel is a web app only.
+    refresh_token: str
+
+
+@dataclass(frozen=True)
+class StaffSignInService:
+    db: AsyncSession
+    limiter: RateLimiter
+    settings: Settings
+
+    @property
+    def _pepper(self) -> str:
+        return self.settings.api_otp_pepper.get_secret_value()
+
+    @property
+    def _jwt_secret(self) -> str:
+        return self.settings.api_jwt_secret.get_secret_value()
+
+    async def check_password(
+        self, email: str, password: str, origin: RequestOrigin, now: datetime
+    ) -> StaffChallengeIssued:
+        email = normalize_email(email)
+        await self.limiter.hit(STAFF_PASSWORD_IP_LIMIT, origin.ip_hash or _UNKNOWN_IP)
+        await self.limiter.hit(STAFF_PASSWORD_EMAIL_LIMIT, keyed_hash(email, self._pepper))
+
+        async with self.db.begin():
+            staff = await repository.get_staff_by_email(self.db, email)
+        # argon2 takes tens of milliseconds of CPU: off the event loop, and outside a transaction
+        # so that no database connection is held meanwhile.
+        password_hash = staff.password_hash if staff is not None else None
+        matches = await asyncio.to_thread(_verify_password_or_dummy, password_hash, password)
+
+        async with self.db.begin():
+            if staff is None:
+                # No staff id to put in the event; the IP hash still shows who keeps trying.
+                await audit.record(
+                    self.db, _sign_in_failed(SYSTEM, origin, "password", "unknown_email")
+                )
+            elif not matches or staff.disabled:
+                reason = "disabled" if matches else "wrong_password"
+                await audit.record(
+                    self.db, _sign_in_failed(_staff_actor(staff.id), origin, "password", reason)
+                )
+            elif password_needs_rehash(staff.password_hash):
+                new_hash = await asyncio.to_thread(hash_password, password)
+                await repository.set_staff_password_hash(self.db, staff.id, new_hash)
+        # Raised after the transaction so that the failed attempt is committed, not rolled back.
+        if staff is None or not matches or staff.disabled:
+            raise StaffCredentialsInvalidError
+        return StaffChallengeIssued(
+            challenge_token=issue_staff_challenge(staff.id, self._jwt_secret, now),
+            expires_in=int(STAFF_CHALLENGE_TTL.total_seconds()),
+            next_step=StaffNextStep.TOTP if staff.totp_enrolled else StaffNextStep.TOTP_ENROLLMENT,
+        )
+
+    async def start_totp_enrollment(self, challenge_token: str) -> StaffTotpEnrollment:
+        staff_id = read_staff_challenge(challenge_token, self._jwt_secret)
+        async with self.db.begin():
+            staff = await repository.get_staff(self.db, staff_id, for_update=True)
+            if staff is None or staff.disabled:
+                raise StaffChallengeInvalidError
+            if staff.totp_enrolled:
+                # Only an administrator resets 2FA: otherwise a stolen password alone would be
+                # enough to replace the owner's authenticator with the thief's.
+                raise TotpAlreadyEnrolledError
+            secret = generate_totp_secret()
+            ciphertext = encrypt_totp_secret(secret, self.settings.totp_encryption_key, staff.id)
+            await repository.set_pending_totp_secret(self.db, staff.id, ciphertext)
+        return StaffTotpEnrollment(
+            otpauth_uri=totp_provisioning_uri(secret, staff.email), secret=secret
+        )
+
+    async def verify_totp(
+        self, challenge_token: str, code: str, origin: RequestOrigin, now: datetime
+    ) -> StaffTokens:
+        staff_id = read_staff_challenge(challenge_token, self._jwt_secret)
+        await self.limiter.hit(STAFF_TOTP_IP_LIMIT, origin.ip_hash or _UNKNOWN_IP)
+        await self.limiter.hit(STAFF_TOTP_LIMIT, str(staff_id))
+
+        tokens: StaffTokens | None = None
+        async with self.db.begin():
+            staff = await repository.get_staff(self.db, staff_id, for_update=True)
+            if staff is None or staff.disabled:
+                raise StaffChallengeInvalidError
+            if staff.totp_secret_encrypted is None:
+                raise TotpEnrollmentNotStartedError
+            try:
+                secret = decrypt_totp_secret(
+                    staff.totp_secret_encrypted, self.settings.totp_encryption_key, staff.id
+                )
+            except InvalidTag as exc:
+                logger.error("staff_totp_secret_undecryptable", staff_id=str(staff.id))
+                raise TotpResetRequiredError from exc
+
+            step = match_totp(secret, code, now, staff.totp_last_step)
+            actor = _staff_actor(staff.id)
+            if step is None:
+                await audit.record(self.db, _sign_in_failed(actor, origin, "totp", "wrong_code"))
+            else:
+                # The first accepted code is what finishes the 2FA setup.
+                enrolled_at = None if staff.totp_enrolled else now
+                await repository.accept_totp_step(self.db, staff.id, step, enrolled_at)
+                if enrolled_at is not None:
+                    await audit.record(
+                        self.db, AuditEntry(actor, AuditAction.STAFF_TOTP_ENROLLED, origin)
+                    )
+                session_id = await repository.create_staff_session(
+                    self.db, staff.id, now + STAFF_SESSION_TTL, now
+                )
+                tokens = await self._issue_tokens(staff.id, session_id, staff.role, now)
+                await audit.record(
+                    self.db,
+                    AuditEntry(
+                        actor,
+                        AuditAction.STAFF_SIGNED_IN,
+                        origin,
+                        details={"session_id": session_id},
+                    ),
+                )
+        # Raised after the transaction so that the failed attempt is committed, not rolled back.
+        if tokens is None:
+            raise TotpInvalidError
+        return tokens
+
+    async def refresh_tokens(self, refresh_token: str, now: datetime) -> StaffTokens:
+        token_hash = hash_refresh_token(refresh_token)
+        tokens: StaffTokens | None = None
+        async with self.db.begin():
+            record = await repository.get_staff_refresh_token_for_update(self.db, token_hash)
+            decision = decide_refresh(record.state if record else None, now)
+            if record is not None and record.staff_disabled:
+                await repository.revoke_staff_session(self.db, record.session_id, now)
+            elif record is not None and decision is RefreshDecision.ROTATE:
+                await repository.mark_staff_refresh_token_used(self.db, token_hash, now)
+                await repository.extend_staff_session(
+                    self.db, record.session_id, now + STAFF_SESSION_TTL
+                )
+                tokens = await self._issue_tokens(
+                    record.staff_id, record.session_id, record.role, now
+                )
+            elif record is not None and decision is RefreshDecision.REUSE_DETECTED:
+                # Staff have no device ids: the session the token belongs to is what goes.
+                await repository.revoke_staff_session(self.db, record.session_id, now)
+                logger.warning("staff_refresh_token_reuse_detected", staff_id=str(record.staff_id))
+            elif record is not None and decision is RefreshDecision.ALREADY_ROTATED:
+                logger.info("staff_refresh_token_already_rotated", staff_id=str(record.staff_id))
+        if tokens is None:
+            raise RefreshTokenInvalidError
+        return tokens
+
+    async def logout(self, refresh_token: str, origin: RequestOrigin, now: datetime) -> None:
+        async with self.db.begin():
+            record = await repository.get_staff_refresh_token_for_update(
+                self.db, hash_refresh_token(refresh_token)
+            )
+            if record is not None and not record.state.session_revoked:
+                await repository.revoke_staff_session(self.db, record.session_id, now)
+                await audit.record(
+                    self.db,
+                    AuditEntry(
+                        _staff_actor(record.staff_id),
+                        AuditAction.STAFF_SIGNED_OUT,
+                        origin,
+                        details={"session_id": record.session_id},
+                    ),
+                )
+
+    async def get_profile(self, staff_id: UUID) -> StaffProfile:
+        async with self.db.begin():
+            staff = await repository.get_staff(self.db, staff_id)
+        if staff is None or staff.disabled:
+            raise AccessTokenInvalidError
+        return StaffProfile(id=staff.id, email=staff.email, role=staff.role)
+
+    async def _issue_tokens(
+        self, staff_id: UUID, session_id: UUID, role: StaffRole, now: datetime
+    ) -> StaffTokens:
+        refresh_token = generate_refresh_token()
+        await repository.add_staff_refresh_token(
+            self.db, session_id, hash_refresh_token(refresh_token), now
+        )
+        access_token = issue_staff_access_token(
+            StaffAccessClaims(staff_id=staff_id, session_id=session_id, role=role),
+            self._jwt_secret,
+            now,
+        )
+        return StaffTokens(
+            access_token=StaffAccessToken(
+                access_token=access_token,
+                expires_in=int(STAFF_ACCESS_TOKEN_TTL.total_seconds()),
+            ),
+            refresh_token=refresh_token,
+        )
+
+
+async def create_staff(
+    db: AsyncSession, email: str, password: str, role: StaffRole, now: datetime
+) -> UUID:
+    """For `flagman-staff create`; raises PasswordPolicyError, StaffEmailTakenError."""
+    check_password_policy(password)
+    password_hash = await asyncio.to_thread(hash_password, password)
+    async with db.begin():
+        staff_id = await repository.create_staff(
+            db, normalize_email(email), password_hash, role, now
+        )
+        if staff_id is None:
+            raise StaffEmailTakenError
+        await audit.record(
+            db,
+            AuditEntry(
+                SYSTEM,
+                AuditAction.STAFF_CREATED,
+                RequestOrigin(),
+                target=AuditTarget("staff_member", staff_id),
+                details={"role": role.value},
+            ),
+        )
+    return staff_id
+
+
+async def reset_staff_totp(db: AsyncSession, email: str, now: datetime) -> UUID:
+    """Lost phone or a new encryption key: 2FA is set up again at the next sign-in.
+
+    Every session of the staff member ends too: the old authenticator may be in wrong hands.
+    """
+    async with db.begin():
+        staff = await repository.get_staff_by_email(db, normalize_email(email))
+        if staff is None:
+            raise StaffNotFoundError
+        await repository.clear_staff_totp(db, staff.id)
+        await repository.revoke_all_staff_sessions(db, staff.id, now)
+        await audit.record(
+            db,
+            AuditEntry(
+                SYSTEM,
+                AuditAction.STAFF_TOTP_RESET,
+                RequestOrigin(),
+                target=AuditTarget("staff_member", staff.id),
+            ),
+        )
+    return staff.id

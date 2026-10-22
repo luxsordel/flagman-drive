@@ -191,7 +191,7 @@ async def test_system_events_have_no_actor(db: AsyncSession) -> None:
 
 
 def test_listing_needs_a_signed_in_staff_member(integration_settings: Settings) -> None:
-    # Until staff sign-in (#32) nobody gets in, whatever token they bring.
+    # Real staff tokens are covered in identity/tests/test_staff_sign_in.py.
     with _make_client(integration_settings, role=None) as client:
         anonymous = client.get(URL)
         with_token = client.get(URL, headers={"Authorization": "Bearer something"})

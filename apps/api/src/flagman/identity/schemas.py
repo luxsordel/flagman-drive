@@ -3,6 +3,13 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from flagman.identity.domain import (
+    EMAIL_MAX_LENGTH,
+    PASSWORD_MAX_LENGTH,
+    StaffNextStep,
+    StaffRole,
+)
+
 # The pilot runs in Belarus only: +375 and one of the mobile operator codes 25, 29, 33, 44.
 # Clients normalize the input to E.164 before sending, so the server accepts exactly one form.
 Phone = Annotated[
@@ -98,3 +105,95 @@ class TokenPair(BaseModel):
             "Absent when the refresh token travels in the cookie."
         ),
     )
+
+
+# Staff sign-in (#32). The pattern only rejects obvious garbage: the account exists or not.
+Email = Annotated[
+    str,
+    Field(
+        max_length=EMAIL_MAX_LENGTH,
+        pattern=r"^[^\s@]+@[^\s@]+$",
+        description="Work email; compared case-insensitively.",
+        examples=["operator@flagman.by"],
+    ),
+]
+# No length minimum at sign-in: the policy applies when a password is set, not when it is tried.
+Password = Annotated[str, Field(min_length=1, max_length=PASSWORD_MAX_LENGTH)]
+TotpCode = Annotated[
+    str,
+    Field(
+        pattern=r"^[0-9]{6}$",
+        description="Six-digit code from the authenticator app.",
+        examples=["123456"],
+    ),
+]
+ChallengeToken = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=2048,
+        description="From `POST /staff/auth/password`; valid for 5 minutes.",
+    ),
+]
+
+
+class StaffPasswordRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    email: Email
+    password: Password
+
+
+class StaffChallengeIssued(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    challenge_token: str = Field(description="Send it with the TOTP code; keep it in memory only.")
+    expires_in: int = Field(description="Seconds the challenge stays valid.", examples=[300])
+    next_step: StaffNextStep = Field(
+        description=(
+            "`totp`: ask for the code. `totp_enrollment`: 2FA is not set up yet, call "
+            "`POST /staff/auth/totp/enrollment` and show the QR code first."
+        )
+    )
+
+
+class StaffTotpEnrollmentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    challenge_token: ChallengeToken
+
+
+class StaffTotpEnrollment(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    otpauth_uri: str = Field(description="Show as a QR code for the authenticator app.")
+    secret: str = Field(description="The same secret in base32, for typing it in by hand.")
+
+
+class StaffTotpRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    challenge_token: ChallengeToken
+    code: TotpCode
+
+
+class StaffRefreshRequest(BaseModel):
+    """Empty on purpose: the refresh token is in the cookie, and a JSON body is still required."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class StaffAccessToken(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    access_token: str = Field(description="JWT for the `Authorization: Bearer` header.")
+    token_type: Literal["Bearer"] = "Bearer"  # noqa: S105 - the RFC 6750 scheme name, not a secret
+    expires_in: int = Field(description="Seconds the access token stays valid.", examples=[900])
+
+
+class StaffProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    email: str
+    role: StaffRole

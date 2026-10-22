@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 from pydantic import ValidationError
 
@@ -78,3 +80,28 @@ def test_sign_in_secrets_are_not_shown_in_repr(make_settings: SettingsFactory) -
 
     assert "a" * 32 not in repr(settings)
     assert "b" * 32 not in repr(settings)
+
+
+def test_totp_key_is_decoded_from_base64(make_settings: SettingsFactory) -> None:
+    key = bytes(range(32))
+
+    settings = make_settings(api_totp_encryption_key=base64.b64encode(key).decode())
+
+    assert settings.totp_encryption_key == key
+    assert base64.b64encode(key).decode() not in repr(settings)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        base64.b64encode(b"k" * 31).decode(),
+        base64.b64encode(b"k" * 33).decode(),
+        "k" * 32,  # long enough as text, but not base64 of 32 bytes
+        "not base64 at all!",
+    ],
+)
+def test_totp_key_must_be_32_bytes_of_base64(make_settings: SettingsFactory, value: str) -> None:
+    with pytest.raises(ValidationError, match="API_TOTP_ENCRYPTION_KEY") as error:
+        make_settings(api_totp_encryption_key=value)
+
+    assert value not in str(error.value)

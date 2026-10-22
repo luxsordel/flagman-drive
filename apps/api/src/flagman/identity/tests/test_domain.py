@@ -197,7 +197,7 @@ def _forged(**overrides: object) -> dict[str, object]:
         jwt.encode(_forged(sid=None), SECRET, algorithm=JWT_ALGORITHM),
         jwt.encode(_forged(sub="not-a-uuid"), SECRET, algorithm=JWT_ALGORITHM),
         # alg=none: no signature at all.
-        jwt.encode(_forged(), None, algorithm="none"),
+        jwt.encode(_forged(), "", algorithm="none"),
         jwt.encode(_forged(), SECRET, algorithm="HS512"),
         "not.a.jwt",
         "",

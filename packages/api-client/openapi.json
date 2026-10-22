@@ -8,7 +8,14 @@
       },
       "AuditAction": {
         "description": "Every recorded action is listed here, so filtering by action is reliable.\n\nValues are stored as is: renaming one breaks filtering of older events.",
-        "enum": ["staff.signed_in", "staff.sign_in_failed"],
+        "enum": [
+          "staff.created",
+          "staff.signed_in",
+          "staff.sign_in_failed",
+          "staff.signed_out",
+          "staff.totp_enrolled",
+          "staff.totp_reset"
+        ],
         "title": "AuditAction",
         "type": "string"
       },
@@ -397,6 +404,169 @@
         "title": "RefreshRequest",
         "type": "object"
       },
+      "StaffAccessToken": {
+        "additionalProperties": false,
+        "properties": {
+          "access_token": {
+            "description": "JWT for the `Authorization: Bearer` header.",
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Seconds the access token stays valid.",
+            "examples": [900],
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "token_type": {
+            "const": "Bearer",
+            "default": "Bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": ["access_token", "expires_in"],
+        "title": "StaffAccessToken",
+        "type": "object"
+      },
+      "StaffChallengeIssued": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_token": {
+            "description": "Send it with the TOTP code; keep it in memory only.",
+            "title": "Challenge Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "description": "Seconds the challenge stays valid.",
+            "examples": [300],
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "next_step": {
+            "$ref": "#/components/schemas/StaffNextStep",
+            "description": "`totp`: ask for the code. `totp_enrollment`: 2FA is not set up yet, call `POST /staff/auth/totp/enrollment` and show the QR code first."
+          }
+        },
+        "required": ["challenge_token", "expires_in", "next_step"],
+        "title": "StaffChallengeIssued",
+        "type": "object"
+      },
+      "StaffNextStep": {
+        "description": "What the admin panel shows after the password: the code field or the QR code first.",
+        "enum": ["totp", "totp_enrollment"],
+        "title": "StaffNextStep",
+        "type": "string"
+      },
+      "StaffPasswordRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "description": "Work email; compared case-insensitively.",
+            "examples": ["operator@flagman.by"],
+            "maxLength": 254,
+            "pattern": "^[^\\s@]+@[^\\s@]+$",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": ["email", "password"],
+        "title": "StaffPasswordRequest",
+        "type": "object"
+      },
+      "StaffProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/StaffRole"
+          }
+        },
+        "required": ["id", "email", "role"],
+        "title": "StaffProfile",
+        "type": "object"
+      },
+      "StaffRefreshRequest": {
+        "additionalProperties": false,
+        "description": "Empty on purpose: the refresh token is in the cookie, and a JSON body is still required.",
+        "properties": {},
+        "title": "StaffRefreshRequest",
+        "type": "object"
+      },
+      "StaffRole": {
+        "enum": ["operator", "technician", "admin"],
+        "title": "StaffRole",
+        "type": "string"
+      },
+      "StaffTotpEnrollment": {
+        "additionalProperties": false,
+        "properties": {
+          "otpauth_uri": {
+            "description": "Show as a QR code for the authenticator app.",
+            "title": "Otpauth Uri",
+            "type": "string"
+          },
+          "secret": {
+            "description": "The same secret in base32, for typing it in by hand.",
+            "title": "Secret",
+            "type": "string"
+          }
+        },
+        "required": ["otpauth_uri", "secret"],
+        "title": "StaffTotpEnrollment",
+        "type": "object"
+      },
+      "StaffTotpEnrollmentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_token": {
+            "description": "From `POST /staff/auth/password`; valid for 5 minutes.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Challenge Token",
+            "type": "string"
+          }
+        },
+        "required": ["challenge_token"],
+        "title": "StaffTotpEnrollmentRequest",
+        "type": "object"
+      },
+      "StaffTotpRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "challenge_token": {
+            "description": "From `POST /staff/auth/password`; valid for 5 minutes.",
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Challenge Token",
+            "type": "string"
+          },
+          "code": {
+            "description": "Six-digit code from the authenticator app.",
+            "examples": ["123456"],
+            "pattern": "^[0-9]{6}$",
+            "title": "Code",
+            "type": "string"
+          }
+        },
+        "required": ["challenge_token", "code"],
+        "title": "StaffTotpRequest",
+        "type": "object"
+      },
       "TokenPair": {
         "additionalProperties": false,
         "properties": {
@@ -437,7 +607,7 @@
     },
     "securitySchemes": {
       "HTTPBearer": {
-        "description": "Access token from `POST /auth/otp/verify`.",
+        "description": "Access token: a client's from `POST /auth/otp/verify`, a staff member's from `POST /staff/auth/totp`.",
         "scheme": "bearer",
         "type": "http"
       }
@@ -1004,6 +1174,447 @@
         },
         "summary": "Readiness: the database and Redis are reachable",
         "tags": ["health"]
+      }
+    },
+    "/staff/auth/logout": {
+      "post": {
+        "description": "Idempotent: without a valid cookie it also gives 204. The web client sends `{}` as the body and the refresh token in the cookie.",
+        "operationId": "staff_logout_staff_auth_logout_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "flagman_staff_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Flagman Staff Refresh"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "End the staff session of the refresh cookie",
+        "tags": ["staff-auth"]
+      }
+    },
+    "/staff/auth/password": {
+      "post": {
+        "operationId": "staff_check_password_staff_auth_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffPasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffChallengeIssued"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:staff-credentials-invalid`: wrong email or password, or the account is disabled; the cases are not told apart."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Staff sign-in, step 1: check the email and password",
+        "tags": ["staff-auth"]
+      }
+    },
+    "/staff/auth/token/refresh": {
+      "post": {
+        "description": "The new token carries the current role. The web client sends `{}` as the body and the refresh token in the cookie.",
+        "operationId": "staff_refresh_tokens_staff_auth_token_refresh_post",
+        "parameters": [
+          {
+            "in": "cookie",
+            "name": "flagman_staff_refresh",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Flagman Staff Refresh"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffAccessToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:refresh-token-invalid`: sign in again."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Rotate the staff refresh cookie and get a new access token",
+        "tags": ["staff-auth"]
+      }
+    },
+    "/staff/auth/totp": {
+      "post": {
+        "description": "The refresh token is set as an HttpOnly cookie and is not in the body.",
+        "operationId": "staff_verify_totp_staff_auth_totp_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffTotpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffAccessToken"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:totp-invalid`: wrong code, the user may retry."
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:staff-challenge-invalid`: start again with the password."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:totp-enrollment-not-started`: get the QR code first. `urn:flagman:problem:totp-reset-required`: an administrator must reset 2FA."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Staff sign-in, step 2: check the TOTP code and start a session",
+        "tags": ["staff-auth"]
+      }
+    },
+    "/staff/auth/totp/enrollment": {
+      "post": {
+        "description": "Each call replaces the secret that is not confirmed yet. The first accepted code in `POST /staff/auth/totp` finishes the setup.",
+        "operationId": "staff_start_totp_enrollment_staff_auth_totp_enrollment_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffTotpEnrollmentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffTotpEnrollment"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:staff-challenge-invalid`: start again with the password."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:totp-already-enrolled`: only an administrator resets 2FA."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Staff sign-in, first time only: get a new TOTP secret for the QR code",
+        "tags": ["staff-auth"]
+      }
+    },
+    "/staff/me": {
+      "get": {
+        "description": "The admin panel builds its menu from `role` after a page reload.",
+        "operationId": "staff_me_staff_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The signed-in staff member",
+        "tags": ["staff-auth"]
       }
     }
   }

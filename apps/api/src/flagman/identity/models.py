@@ -1,13 +1,16 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import DateTime, ForeignKey, Index, String
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, LargeBinary, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
 
 PHONE_LENGTH = 16  # E.164 is at most 15 digits plus "+"
 HASH_LENGTH = 64  # hex SHA-256
+EMAIL_LENGTH = 254
+PASSWORD_HASH_LENGTH = 255  # argon2 encoded hash with parameters, about 100 characters today
+ROLE_LENGTH = 16
 
 
 class User(Base):
@@ -52,6 +55,60 @@ class RefreshToken(Base):
     token_hash: Mapped[str] = mapped_column(String(HASH_LENGTH), primary_key=True)
     session_id: Mapped[UUID] = mapped_column(
         ForeignKey("auth_sessions.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class StaffMember(Base):
+    """An employee who signs in to the admin panel; created with `flagman-staff create`."""
+
+    __tablename__ = "staff_members"
+    __table_args__ = (
+        CheckConstraint("role IN ('operator', 'technician', 'admin')", name="role_known"),
+        CheckConstraint("email = lower(email)", name="email_lowercase"),
+        CheckConstraint(
+            "totp_enrolled_at IS NULL OR totp_secret_encrypted IS NOT NULL",
+            name="enrolled_has_totp_secret",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    email: Mapped[str] = mapped_column(String(EMAIL_LENGTH), unique=True)
+    password_hash: Mapped[str] = mapped_column(String(PASSWORD_HASH_LENGTH))
+    role: Mapped[str] = mapped_column(String(ROLE_LENGTH))
+    # Encrypted with API_TOTP_ENCRYPTION_KEY. Set without totp_enrolled_at while the setup waits
+    # for its first code; a new setup request replaces it.
+    totp_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)
+    totp_enrolled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # The time step of the last accepted code, so the same code is never accepted twice.
+    totp_last_step: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    disabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class StaffSession(Base):
+    """One admin panel sign-in; lives while its refresh tokens keep rotating."""
+
+    __tablename__ = "staff_sessions"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    staff_id: Mapped[UUID] = mapped_column(
+        ForeignKey("staff_members.id", ondelete="CASCADE"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class StaffRefreshToken(Base):
+    """Every token ever issued in a staff session, so that a reused old one is recognized."""
+
+    __tablename__ = "staff_refresh_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(HASH_LENGTH), primary_key=True)
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("staff_sessions.id", ondelete="CASCADE"), index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

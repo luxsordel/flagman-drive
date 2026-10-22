@@ -1,3 +1,5 @@
+import base64
+import binascii
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
@@ -6,6 +8,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy import URL
 
 Environment = Literal["dev", "test", "prod"]
+
+TOTP_KEY_BYTES = 32  # AES-256-GCM
 
 
 class Settings(BaseSettings):
@@ -16,6 +20,8 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
         extra="ignore",
         frozen=True,
+        # A startup error must not print the value: most settings here are secrets.
+        hide_input_in_errors=True,
     )
 
     api_env: Environment = "dev"
@@ -44,6 +50,10 @@ class Settings(BaseSettings):
     # Unset: the API runs, but nobody can request a sign-in code.
     sms_backend: Literal["log"] | None = None
 
+    # Staff sign-in, see docs/adr/0011. TOTP secrets are encrypted with this key, so a database
+    # dump alone does not let anyone generate staff 2FA codes. 32 bytes in standard base64.
+    api_totp_encryption_key: SecretStr
+
     @field_validator("api_cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
@@ -64,6 +74,21 @@ class Settings(BaseSettings):
                 raise ValueError(f"CORS origin must not have a path, got {origin!r}")
         return origins
 
+    @field_validator("api_totp_encryption_key")
+    @classmethod
+    def _validate_totp_key(cls, key: SecretStr) -> SecretStr:
+        try:
+            raw = base64.b64decode(key.get_secret_value(), validate=True)
+        except binascii.Error:
+            raw = b""
+        # The value itself stays out of the message: it is a secret.
+        if len(raw) != TOTP_KEY_BYTES:
+            raise ValueError(
+                f"API_TOTP_ENCRYPTION_KEY must be {TOTP_KEY_BYTES} bytes in base64 "
+                "(openssl rand -base64 32)"
+            )
+        return key
+
     @model_validator(mode="after")
     def _validate_secrets(self) -> Self:
         if self.api_jwt_secret.get_secret_value() == self.api_otp_pepper.get_secret_value():
@@ -72,6 +97,10 @@ class Settings(BaseSettings):
             # Codes in the log would let anyone with log access sign in as any client.
             raise ValueError("SMS_BACKEND=log is not allowed when API_ENV=prod")
         return self
+
+    @property
+    def totp_encryption_key(self) -> bytes:
+        return base64.b64decode(self.api_totp_encryption_key.get_secret_value())
 
     @property
     def is_prod(self) -> bool:
