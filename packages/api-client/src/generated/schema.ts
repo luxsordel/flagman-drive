@@ -112,6 +112,74 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/kyc/application': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The client's own application and uploaded documents */
+    get: operations['get_application_kyc_application_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/kyc/application/submit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Send the application for review, also again after a rejection */
+    post: operations['submit_application_kyc_application_submit_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/kyc/documents/{kind}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /** Upload or replace a document photo */
+    put: operations['upload_document_kyc_documents__kind__put'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/kyc/documents/{kind}/url': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A short-lived link to the client's own document photo */
+    get: operations['get_document_url_kyc_documents__kind__url_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/ready': {
     parameters: {
       query?: never;
@@ -210,6 +278,26 @@ export interface components {
      * @enum {string}
      */
     CheckStatus: 'ok' | 'fail';
+    /**
+     * DocumentKind
+     * @description Values are stored as is and are part of the API path: renaming one breaks both.
+     * @enum {string}
+     */
+    DocumentKind: 'license_front' | 'license_back' | 'passport' | 'selfie_with_license';
+    /** DocumentUrlOut */
+    DocumentUrlOut: {
+      /**
+       * Expires In
+       * @description Seconds the link keeps working.
+       * @example 300
+       */
+      expires_in: number;
+      /**
+       * Url
+       * @description Opens the photo without a token; do not store or share it.
+       */
+      url: string;
+    };
     /** FieldError */
     FieldError: {
       /** Loc */
@@ -219,6 +307,42 @@ export interface components {
       /** Type */
       type: string;
     };
+    /**
+     * KycApplicationOut
+     * @description No links here: the client asks for one only when it shows the photo.
+     */
+    KycApplicationOut: {
+      /** Documents */
+      documents: components['schemas']['KycDocumentOut'][];
+      /**
+       * Missing Documents
+       * @description Still to upload before the application can be submitted.
+       */
+      missing_documents: components['schemas']['DocumentKind'][];
+      /**
+       * Rejection Reason
+       * @description Set when `rejected`: what to fix before submitting again.
+       * @example The selfie is blurry
+       */
+      rejection_reason: string | null;
+      status: components['schemas']['KycStatus'];
+      /** Submitted At */
+      submitted_at: string | null;
+    };
+    /** KycDocumentOut */
+    KycDocumentOut: {
+      kind: components['schemas']['DocumentKind'];
+      /**
+       * Uploaded At
+       * Format: date-time
+       */
+      uploaded_at: string;
+    };
+    /**
+     * KycStatus
+     * @enum {string}
+     */
+    KycStatus: 'not_submitted' | 'pending' | 'approved' | 'rejected';
     /** LivenessResponse */
     LivenessResponse: {
       status: components['schemas']['CheckStatus'];
@@ -683,6 +807,290 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_application_kyc_application_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['KycApplicationOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  submit_application_kyc_application_submit_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['KycApplicationOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-incomplete`: documents are missing; `urn:flagman:problem:kyc-locked`: already under review or approved. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  upload_document_kyc_documents__kind__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kind: components['schemas']['DocumentKind'];
+      };
+      cookie?: never;
+    };
+    /** @description The photo itself, at most 10 MB. The type is detected from the content; the stored copy is a JPEG without metadata. */
+    requestBody: {
+      content: {
+        'image/jpeg': string;
+        'image/png': string;
+        'image/webp': string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['KycApplicationOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-locked`: the application is under review or approved. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:document-too-large`: too large. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:document-type-unsupported`: not a photo. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:document-storage-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_document_url_kyc_documents__kind__url_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        kind: components['schemas']['DocumentKind'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DocumentUrlOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-document-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:document-storage-unavailable`. */
+      503: {
         headers: {
           [name: string]: unknown;
         };

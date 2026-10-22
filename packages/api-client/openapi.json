@@ -165,6 +165,31 @@
         "title": "CheckStatus",
         "type": "string"
       },
+      "DocumentKind": {
+        "description": "Values are stored as is and are part of the API path: renaming one breaks both.",
+        "enum": ["license_front", "license_back", "passport", "selfie_with_license"],
+        "title": "DocumentKind",
+        "type": "string"
+      },
+      "DocumentUrlOut": {
+        "additionalProperties": false,
+        "properties": {
+          "expires_in": {
+            "description": "Seconds the link keeps working.",
+            "examples": [300],
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "url": {
+            "description": "Opens the photo without a token; do not store or share it.",
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": ["url", "expires_in"],
+        "title": "DocumentUrlOut",
+        "type": "object"
+      },
       "FieldError": {
         "additionalProperties": false,
         "properties": {
@@ -194,6 +219,85 @@
         "required": ["loc", "message", "type"],
         "title": "FieldError",
         "type": "object"
+      },
+      "KycApplicationOut": {
+        "additionalProperties": false,
+        "description": "No links here: the client asks for one only when it shows the photo.",
+        "properties": {
+          "documents": {
+            "items": {
+              "$ref": "#/components/schemas/KycDocumentOut"
+            },
+            "title": "Documents",
+            "type": "array"
+          },
+          "missing_documents": {
+            "description": "Still to upload before the application can be submitted.",
+            "items": {
+              "$ref": "#/components/schemas/DocumentKind"
+            },
+            "title": "Missing Documents",
+            "type": "array"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set when `rejected`: what to fix before submitting again.",
+            "examples": ["The selfie is blurry"],
+            "title": "Rejection Reason"
+          },
+          "status": {
+            "$ref": "#/components/schemas/KycStatus"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          }
+        },
+        "required": [
+          "status",
+          "rejection_reason",
+          "submitted_at",
+          "documents",
+          "missing_documents"
+        ],
+        "title": "KycApplicationOut",
+        "type": "object"
+      },
+      "KycDocumentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/DocumentKind"
+          },
+          "uploaded_at": {
+            "format": "date-time",
+            "title": "Uploaded At",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "uploaded_at"],
+        "title": "KycDocumentOut",
+        "type": "object"
+      },
+      "KycStatus": {
+        "enum": ["not_submitted", "pending", "approved", "rejected"],
+        "title": "KycStatus",
+        "type": "string"
       },
       "LivenessResponse": {
         "additionalProperties": false,
@@ -965,6 +1069,374 @@
         },
         "summary": "Liveness: the process is up",
         "tags": ["health"]
+      }
+    },
+    "/kyc/application": {
+      "get": {
+        "operationId": "get_application_kyc_application_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycApplicationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The client's own application and uploaded documents",
+        "tags": ["kyc"]
+      }
+    },
+    "/kyc/application/submit": {
+      "post": {
+        "operationId": "submit_application_kyc_application_submit_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycApplicationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:kyc-incomplete`: documents are missing; `urn:flagman:problem:kyc-locked`: already under review or approved."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Send the application for review, also again after a rejection",
+        "tags": ["kyc"]
+      }
+    },
+    "/kyc/documents/{kind}": {
+      "put": {
+        "operationId": "upload_document_kyc_documents__kind__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DocumentKind"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "image/jpeg": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/png": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            },
+            "image/webp": {
+              "schema": {
+                "format": "binary",
+                "type": "string"
+              }
+            }
+          },
+          "description": "The photo itself, at most 10 MB. The type is detected from the content; the stored copy is a JPEG without metadata.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/KycApplicationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:kyc-locked`: the application is under review or approved."
+          },
+          "413": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:document-too-large`: too large."
+          },
+          "415": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:document-type-unsupported`: not a photo."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:document-storage-unavailable`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload or replace a document photo",
+        "tags": ["kyc"]
+      }
+    },
+    "/kyc/documents/{kind}/url": {
+      "get": {
+        "operationId": "get_document_url_kyc_documents__kind__url_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/DocumentKind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentUrlOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:kyc-document-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:document-storage-unavailable`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "A short-lived link to the client's own document photo",
+        "tags": ["kyc"]
       }
     },
     "/ready": {

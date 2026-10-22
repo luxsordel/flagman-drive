@@ -73,8 +73,10 @@ Docker Desktop должен быть запущен. Все команды — �
    Для локальной разработки придумайте их сами, например `openssl rand -hex 24` в Git Bash.
    `API_JWT_SECRET` и `API_OTP_PEPPER` — не короче 32 символов и разные (`openssl rand -hex 32` даёт 64),
    иначе API не стартует. Если `.env` у вас уже был, перенесите в него из `.env.example` новые строки
-   `API_JWT_SECRET`, `API_OTP_PEPPER`, `SMS_BACKEND`, `SMS_FIXED_CODE` и `SMS_FIXED_PHONES`.
-   На сервере пилота `API_ENV=prod`.
+   `API_JWT_SECRET`, `API_OTP_PEPPER`, `SMS_BACKEND`, `SMS_FIXED_CODE`, `SMS_FIXED_PHONES`,
+   `S3_ENDPOINT_URL`, `S3_REGION` и `S3_PUBLIC_URL`; последние три локально можно оставить пустыми.
+   На сервере пилота `API_ENV=prod`, а `S3_PUBLIC_URL` — `https`-адрес хранилища, по которому клиенты
+   открывают фото документов ([ADR-0012](adr/0012-kyc-document-storage.md)).
    Пустое значение — ошибка запуска, это сделано специально (SeaweedFS без ключей открыт анонимно).
 
 3. Поднять:
