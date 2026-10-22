@@ -112,7 +112,7 @@ docker compose --env-file .env -f infra/docker-compose.yml down -v
 
 Если не стартует: `docker compose --env-file .env -f infra/docker-compose.yml logs <сервис>`.
 
-### Клиентское приложение (Expo)
+### Клиентское приложение (`apps/mobile`)
 
 Из корня репозитория:
 
@@ -126,6 +126,20 @@ npm run start --workspace @flagman/mobile
 
 QR-код из терминала открыть в Expo Go на телефоне (телефон и компьютер — в одной сети); клавиша `w`
 открывает веб-версию. Подробности и проверки — [apps/mobile/README.md](../apps/mobile/README.md).
+
+### Админ-панель (`apps/admin`)
+
+Из корня репозитория — установить JS-зависимости всех workspaces и запустить dev-сервер:
+
+```bash
+npm install
+```
+
+```bash
+npm run dev --workspace @flagman/admin
+```
+
+Панель открывается на http://127.0.0.1:5173. Подробнее — [apps/admin/README.md](../apps/admin/README.md).
 
 ## 4. Прочитать
 

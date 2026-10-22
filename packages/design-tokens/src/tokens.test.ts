@@ -90,5 +90,6 @@ describe('css variables', () => {
     expect(variables['--space-lg']).toBe('16px');
     expect(variables['--radius-card']).toBe('16px');
     expect(variables['--font-size-md']).toBe('16px');
+    expect(variables['--tap-target']).toBe('44px');
   });
 });

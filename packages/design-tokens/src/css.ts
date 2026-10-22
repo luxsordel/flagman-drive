@@ -1,6 +1,6 @@
 import type { Palette } from './colors';
 import { fontFamily, fontSize } from './typography';
-import { radius, spacing } from './layout';
+import { minTapTarget, radius, spacing } from './layout';
 
 const px = (value: number): string => `${String(value)}px`;
 
@@ -18,11 +18,12 @@ export function cssVariables(palette: Palette): Record<string, string> {
   return variables;
 }
 
-/** Theme-independent variables: spacing, radii, font sizes and families. */
+/** Theme-independent variables: spacing, radii, tap target, font sizes and families. */
 export function cssStaticVariables(): Record<string, string> {
   const variables: Record<string, string> = {
     '--font-heading': `'${fontFamily.heading}', sans-serif`,
     '--font-body': `'${fontFamily.body}', sans-serif`,
+    '--tap-target': px(minTapTarget),
   };
   for (const [name, value] of Object.entries(spacing)) variables[`--space-${name}`] = px(value);
   for (const [name, value] of Object.entries(radius)) variables[`--radius-${name}`] = px(value);
