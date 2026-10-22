@@ -39,6 +39,8 @@ select = ["E", "W", "F", "I", "N", "UP", "B", "S", "ASYNC", "SIM", "PT", "RUF"]
 [tool.mypy]
 strict = true
 python_version = "3.12"
+# ci.yml runs bare `mypy`, so the targets live here.
+files = ["src", "tests"]
 plugins = ["pydantic.mypy"]
 
 [tool.pydantic-mypy]

@@ -1,5 +1,7 @@
 name: car-emulator
 
+# Lint, types, tests and audit for the emulator run in ci.yml; this only checks that the image builds.
+# Not a required check, so filtering by `paths` here does not block merges.
 on:
   pull_request:
     paths:
@@ -14,39 +16,14 @@ on:
 permissions:
   contents: read
 
-defaults:
-  run:
-    working-directory: services/car-emulator
-
 jobs:
-  checks:
-    name: Lint, types, tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      # setup-uv publishes no floating major tag, so the exact release is pinned (Dependabot bumps it).
-      - uses: astral-sh/setup-uv@v10.3.2
-        with:
-          version: "0.13.4"
-      - name: Install dependencies
-        run: uv sync --locked
-      - name: ruff format
-        run: uv run --no-sync ruff format --check .
-      - name: ruff lint
-        run: uv run --no-sync ruff check .
-      - name: mypy
-        run: uv run --no-sync mypy src tests
-      - name: pytest
-        run: uv run --no-sync pytest
-      - name: pip-audit
-        run: |
-          uv export --frozen --no-dev --no-emit-project --format requirements.txt -o "$RUNNER_TEMP/requirements.txt"
-          uvx pip-audit==2.10.1 --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
-
   image:
     name: Docker image builds
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/car-emulator
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Build
         run: docker build -t flagman/car-emulator:ci .
