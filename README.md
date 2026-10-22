@@ -16,7 +16,8 @@
 | `apps/mobile` | Клиентское приложение: iOS, Android и веб из одного кода (Expo / React Native) |
 | `apps/admin` | Веб-панель операторов и администраторов (React + Vite) |
 | `services/car-emulator` | Эмулятор автопарка: «виртуальные машины» вместо телематических блоков |
-| `packages/api-client` | TypeScript-клиент, генерируется из OpenAPI бэкенда |
+| `packages/api-client` | TypeScript-клиент, генерируется из OpenAPI бэкенда (`npm run gen:api`) |
+| `packages/design-tokens` | Дизайн-токены: цвета (светлая и тёмная темы), типографика, отступы, радиусы |
 | `infra` | Docker Compose, конфиги окружений |
 | `docs` | Вся документация проекта |
 

@@ -21,6 +21,7 @@ jobs:
     outputs:
       python: ${{ steps.detect.outputs.python }}
       node: ${{ steps.detect.outputs.node }}
+      api-client: ${{ steps.detect.outputs.api-client }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -48,15 +49,21 @@ jobs:
             fi
           done
 
-          node='[]'
-          for dir in apps/mobile apps/admin packages/api-client; do
-            if [ -f "$dir/package.json" ] && { has "^$dir/" || { [ "$dir" != packages/api-client ] && has '^packages/api-client/'; }; }; then
-              node=$(echo "$node" | jq -c --arg d "$dir" '. + [$d]')
-            fi
-          done
+          # JS/TS parts are npm workspaces with one root lockfile, so they are checked together.
+          node=false
+          if [ -f package.json ] && has '^(package\.json|package-lock\.json|packages/|apps/(mobile|admin)/)'; then
+            node=true
+          fi
+
+          # The generated client depends on the backend schema as well as on its own files.
+          api_client=false
+          if [ -f packages/api-client/package.json ] && { [ "$node" = true ] || has '^apps/api/'; }; then
+            api_client=true
+          fi
 
           echo "python=$python" >> "$GITHUB_OUTPUT"
           echo "node=$node" >> "$GITHUB_OUTPUT"
+          echo "api-client=$api_client" >> "$GITHUB_OUTPUT"
 
   python-quality:
     name: Python quality (${{ matrix.dir }})
@@ -108,31 +115,54 @@ jobs:
           uvx pip-audit==2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
 
   node-quality:
-    name: Node quality (${{ matrix.dir }})
+    name: Node quality (workspaces)
     needs: changes
-    if: needs.changes.outputs.node != '[]'
+    if: needs.changes.outputs.node == 'true'
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dir: ${{ fromJSON(needs.changes.outputs.node) }}
-    defaults:
-      run:
-        working-directory: ${{ matrix.dir }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
       - run: npm ci
-      # Scripts are required: a missing one fails the job instead of silently skipping a check.
+      # Each workspace is expected to define these scripts; one that lacks them is skipped, not failed,
+      # so a missing check in a new app must be caught in review.
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
       - name: Dependency audit (high and above)
         run: npm audit --audit-level=high
+
+  api-client-fresh:
+    name: Generated API client is up to date
+    needs: changes
+    if: needs.changes.outputs.api-client == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: uv sync --locked --project apps/api
+      - run: npm ci
+      - run: npm run gen:api
+      - name: Fail if regenerating changed anything
+        run: |
+          if ! git diff --exit-code -- packages/api-client; then
+            echo "::error::packages/api-client is stale. Run 'npm run gen:api' and commit the result."
+            exit 1
+          fi
+          if [ -n "$(git status --porcelain -- packages/api-client)" ]; then
+            git status --porcelain -- packages/api-client
+            echo "::error::Generated files are not committed. Run 'npm run gen:api' and commit the result."
+            exit 1
+          fi
 
   semgrep:
     name: Semgrep (SAST)
@@ -150,7 +180,7 @@ jobs:
   gate:
     name: CI gate
     if: always()
-    needs: [changes, python-quality, python-audit, node-quality, semgrep]
+    needs: [changes, python-quality, python-audit, node-quality, api-client-fresh, semgrep]
     runs-on: ubuntu-latest
     steps:
       - name: Require no failed or cancelled jobs

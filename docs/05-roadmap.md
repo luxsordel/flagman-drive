@@ -12,7 +12,7 @@
 - [ ] `apps/api`: каркас FastAPI (модули, конфиг, БД, Alembic, обработка ошибок, логи, health-check)
 - [ ] `apps/mobile`: каркас Expo (навигация, i18n ru/en, темы, дизайн-токены FLAGMAN)
 - [ ] `apps/admin`: каркас React + Vite (вход, макет, дизайн-токены)
-- [ ] `packages/api-client`: генерация клиента из OpenAPI
+- [x] `packages/api-client`: генерация клиента из OpenAPI; `packages/design-tokens`: токены для мобилки и админки
 - [ ] `services/car-emulator`: каркас
 - [x] CI: линт, типы, тесты, сканеры безопасности для всех частей
 - [ ] Онбординг проверен «с нуля» на второй машине
