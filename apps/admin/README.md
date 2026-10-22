@@ -1,0 +1,61 @@
+# apps/admin — админ-панель FLAGMAN Drive
+
+Веб-панель для операторов поддержки, техников и администраторов (роли — [docs/01-vision-and-mvp.md](../../docs/01-vision-and-mvp.md)).
+React + Vite + TypeScript strict, роутинг — `react-router`, переводы — `i18next` (ru, en).
+
+Сейчас это каркас: макет с боковым меню и шапкой, заглушки разделов и страница входа сотрудника без запросов
+к серверу. Разделы наполняются в следующих задачах.
+
+## Запуск
+
+Все команды — из корня репозитория, работают в PowerShell и Git Bash.
+
+```bash
+npm install
+```
+
+```bash
+npm run dev --workspace @flagman/admin
+```
+
+Панель открывается на http://127.0.0.1:5173 (только localhost, как и остальной локальный стек).
+
+## Структура
+
+```
+src/
+  main.tsx        # точка входа: шрифты, тема, роутер
+  routes.tsx      # маршруты: /login и разделы внутри макета
+  navigation.ts   # разделы бокового меню
+  theme.ts        # дизайн-токены → CSS-переменные, светлая и тёмная темы
+  styles.css      # стили только через var(--color-*), var(--space-*), var(--radius-*), var(--font-*)
+  i18n/           # ru.json, en.json; ключи типизированы
+  layout/         # макет, шапка
+  pages/          # вход, заглушка раздела, 404
+```
+
+## Правила
+
+- Все строки интерфейса — только через `t('...')`, перевод добавляется сразу в `ru.json` и `en.json`
+  (тест проверяет, что ключи совпадают).
+- Цвета, шрифты, отступы и радиусы — только из `@flagman/design-tokens` через CSS-переменные.
+- Токены доступа в вебе хранятся только в памяти, refresh-токен — в `HttpOnly` cookie
+  ([docs/03-security.md](../../docs/03-security.md)); не в `localStorage` и не в `sessionStorage`.
+
+## Проверки
+
+```bash
+npm run lint --workspace @flagman/admin
+```
+
+```bash
+npm run typecheck --workspace @flagman/admin
+```
+
+```bash
+npm test --workspace @flagman/admin
+```
+
+```bash
+npm run build --workspace @flagman/admin
+```
