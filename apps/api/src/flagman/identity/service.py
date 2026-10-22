@@ -40,6 +40,9 @@ OTP_PHONE_LIMIT = Limit("otp-request-phone", 5, _HOUR)
 OTP_IP_LIMIT = Limit("otp-request-ip", 20, _HOUR)
 # Five attempts per code times five codes per hour would allow 25 guesses; this caps it at 10.
 OTP_VERIFY_LIMIT = Limit("otp-verify-phone", 10, _HOUR)
+# Against guessing spread over many phones. Higher than the request limit: a code may take
+# several tries, and mobile carriers put many clients behind one address.
+OTP_VERIFY_IP_LIMIT = Limit("otp-verify-ip", 50, _HOUR)
 
 
 @dataclass(frozen=True)
@@ -70,8 +73,10 @@ class SignInService:
             resend_after=int(OTP_RESEND_AFTER.total_seconds()),
         )
 
-    async def verify_otp(self, phone: str, code: str, device_id: UUID, now: datetime) -> TokenPair:
-        await self.limiter.hit(OTP_VERIFY_LIMIT, keyed_hash(phone, self._pepper))
+    async def verify_otp(
+        self, phone: str, code: str, device_id: UUID, client_ip: str, now: datetime
+    ) -> TokenPair:
+        await self.limiter.hit(OTP_VERIFY_IP_LIMIT, keyed_hash(client_ip, self._pepper))
 
         tokens: TokenPair | None = None
         async with self.db.begin():
@@ -79,6 +84,9 @@ class SignInService:
             if challenge is None:
                 outcome = OtpOutcome.EXPIRED
             else:
+                # Counted only while a code is pending: otherwise anyone could lock a stranger
+                # out of signing in for an hour without even triggering an SMS to them.
+                await self.limiter.hit(OTP_VERIFY_LIMIT, keyed_hash(phone, self._pepper))
                 check = challenge.check(hash_otp_code(phone, code, self._pepper), now)
                 outcome = check.outcome
                 if outcome is OtpOutcome.WRONG:

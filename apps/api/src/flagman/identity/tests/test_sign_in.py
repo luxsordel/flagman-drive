@@ -290,13 +290,34 @@ def test_codes_per_ip_are_limited_per_hour(client: TestClient) -> None:
 
 
 def test_guesses_per_phone_are_limited_across_codes(
-    client: TestClient, sms: FakeSms, phone: str
+    client: TestClient, sms: FakeSms, phone: str, integration_settings: Settings
 ) -> None:
+    for _ in range(2):
+        _request_code(client, phone)
+        _skip_resend_cooldown(integration_settings)
+        for _ in range(5):
+            _verify(client, phone, _wrong(sms.code_for(phone)))
     _request_code(client, phone)
-    for _ in range(10):
-        _verify(client, phone, _wrong(sms.code_for(phone)))
 
     response = _verify(client, phone, sms.code_for(phone))
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+
+
+def test_guesses_without_a_pending_code_do_not_lock_the_phone(
+    client: TestClient, sms: FakeSms, phone: str
+) -> None:
+    for _ in range(11):
+        assert _verify(client, phone, "123456").status_code == HTTPStatus.BAD_REQUEST
+
+    _sign_in(client, sms, phone)
+
+
+def test_guesses_per_ip_are_limited_per_hour(client: TestClient) -> None:
+    for number in range(50):
+        _verify(client, f"+37544{number:07d}", "123456")
+
+    response = _verify(client, "+375449999999", "123456")
 
     assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
 

@@ -113,8 +113,12 @@ async def request_otp(
         HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
-async def verify_otp(body: OtpVerifyRequest, response: Response, service: Service) -> TokenPair:
-    tokens = await service.verify_otp(body.phone, body.code, body.device_id, datetime.now(UTC))
+async def verify_otp(
+    body: OtpVerifyRequest, request: Request, response: Response, service: Service
+) -> TokenPair:
+    tokens = await service.verify_otp(
+        body.phone, body.code, body.device_id, _client_ip(request), datetime.now(UTC)
+    )
     return _deliver(tokens, body.refresh_token_transport, response)
 
 
