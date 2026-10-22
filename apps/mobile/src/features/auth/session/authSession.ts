@@ -47,6 +47,8 @@ export class AuthSession {
   private pending: PendingSignIn | null = null;
   private access: { token: string; expiresAt: number } | null = null;
   private refreshing: Promise<boolean> | null = null;
+  // Bumped by forget(): a rotation that was in flight then must not store its tokens.
+  private generation = 0;
 
   constructor({ api, store, now = Date.now }: AuthSessionOptions) {
     this.api = api;
@@ -88,7 +90,13 @@ export class AuthSession {
   async verifyCode(code: string): Promise<AuthError | null> {
     const pending = this.pending;
     if (pending === null) return { kind: 'otpExpired' };
-    const deviceId = await this.store.getDeviceId();
+    let deviceId: string;
+    try {
+      deviceId = await this.store.getDeviceId();
+    } catch {
+      // Keychain/Keystore failure: reported like any other error so the screen stays usable.
+      return { kind: 'unknown' };
+    }
     const result = await send(
       this.api.POST('/auth/otp/verify', {
         body: {
@@ -119,8 +127,11 @@ export class AuthSession {
     return (await this.refresh()) ? (this.access?.token ?? null) : null;
   };
 
+  /** Never throws: the user is signed out locally whatever the network or the keychain does. */
   async signOut(): Promise<void> {
-    const refreshToken = await this.store.getRefreshToken();
+    // Logs out with the token a rotation in flight is about to store, not the one it replaces.
+    await this.refreshing?.catch(() => undefined);
+    const refreshToken = await this.store.getRefreshToken().catch(() => null);
     if (this.store.transport === 'cookie' || refreshToken !== null) {
       // Waits for the server on the web: only its response clears the HttpOnly cookie,
       // otherwise the next page load would sign the user back in.
@@ -130,7 +141,8 @@ export class AuthSession {
         })
         .catch(() => undefined);
     }
-    await this.forget();
+    // A keychain that refuses the delete still leaves the app signed out for this run.
+    await this.forget().catch(() => undefined);
   }
 
   // Rotation is single-use on the server, so parallel callers must share one refresh call.
@@ -145,12 +157,16 @@ export class AuthSession {
     // Two browser tabs share the cookie: when the other tab has just rotated it, the second
     // attempt goes out with the new cookie (ADR-0009). The app holds its token alone.
     const attempts = this.store.transport === 'cookie' ? 2 : 1;
+    const generation = this.generation;
     for (let attempt = 0; attempt < attempts; attempt += 1) {
       const refreshToken = await this.store.getRefreshToken();
       if (this.store.transport === 'body' && refreshToken === null) break;
       const { data, response } = await this.api.POST('/auth/token/refresh', {
         body: refreshToken === null ? {} : { refresh_token: refreshToken },
       });
+      // Signed out meanwhile: storing the new refresh token would resume the session at the
+      // next launch.
+      if (generation !== this.generation) return false;
       if (data !== undefined) {
         await this.accept(data);
         return true;
@@ -169,10 +185,14 @@ export class AuthSession {
   }
 
   private async forget(): Promise<void> {
+    this.generation += 1;
     this.access = null;
     this.pending = null;
-    await this.store.setRefreshToken(null);
-    this.setStatus('signedOut');
+    try {
+      await this.store.setRefreshToken(null);
+    } finally {
+      this.setStatus('signedOut');
+    }
   }
 
   private setStatus(status: AuthStatus): void {

@@ -3,6 +3,14 @@ import { deviceId, json, problem, testSession, tokens } from './testing';
 const phone = '+375291234567';
 const accepted = json({ expires_in: 300, resend_after: 60 }, 202);
 
+function deferred() {
+  let resolve: (response: Response) => void = () => undefined;
+  const promise = new Promise<Response>((settle) => {
+    resolve = settle;
+  });
+  return { promise, resolve };
+}
+
 describe('AuthSession sign-in', () => {
   it('remembers the phone and when a new code may be requested', async () => {
     const { api, session } = testSession({ now: () => 1_000 });
@@ -70,6 +78,15 @@ describe('AuthSession sign-in', () => {
 
     expect(api.calls.at(-1)?.body).toMatchObject({ refresh_token_transport: 'cookie' });
     expect(session.getStatus()).toBe('signedIn');
+  });
+
+  it('reports a keychain failure as an error instead of throwing', async () => {
+    const { api, session, store } = testSession();
+    api.on('/auth/otp/request', accepted);
+    store.getDeviceId = () => Promise.reject(new Error('keychain locked'));
+    await session.requestCode(phone);
+
+    expect(await session.verifyCode('123456')).toEqual({ kind: 'unknown' });
   });
 
   it('stays on the code step after a wrong code', async () => {
@@ -176,6 +193,56 @@ describe('AuthSession tokens', () => {
     expect(store.refreshToken).toBeNull();
     expect(session.getPendingSignIn()).toBeNull();
     expect(await session.getAccessToken()).toBeNull();
+  });
+
+  it('signs out with the token a rotation in flight brings, without storing it', async () => {
+    let clock = 0;
+    const { api, session, store } = await signedIn(() => clock);
+    const refresh = deferred();
+    api.on('/auth/token/refresh', () => refresh.promise);
+    api.on('/auth/logout', new Response(null, { status: 204 }));
+    clock = 900_000;
+
+    const token = session.getAccessToken();
+    const signedOut = session.signOut();
+    refresh.resolve(json(tokens(2)));
+    await Promise.all([token, signedOut]);
+
+    expect(api.calls.at(-1)).toEqual({
+      path: '/auth/logout',
+      body: { refresh_token: 'refresh-2' },
+    });
+    expect(store.refreshToken).toBeNull();
+    expect(session.getStatus()).toBe('signedOut');
+  });
+
+  it('drops the tokens of a rotation that finishes after sign-out', async () => {
+    let clock = 0;
+    const { api, session, store } = await signedIn(() => clock);
+    const logout = deferred();
+    const refresh = deferred();
+    api.on('/auth/logout', () => logout.promise);
+    api.on('/auth/token/refresh', () => refresh.promise);
+    clock = 900_000;
+
+    const signedOut = session.signOut();
+    const token = session.getAccessToken();
+    logout.resolve(new Response(null, { status: 204 }));
+    await signedOut;
+    refresh.resolve(json(tokens(2)));
+
+    expect(await token).toBeNull();
+    expect(store.refreshToken).toBeNull();
+    expect(session.getStatus()).toBe('signedOut');
+  });
+
+  it('signs out locally when the keychain cannot be read', async () => {
+    const { session, store } = await signedIn(() => 0);
+    store.getRefreshToken = () => Promise.reject(new Error('keychain locked'));
+
+    await session.signOut();
+
+    expect(session.getStatus()).toBe('signedOut');
   });
 
   it('asks the web API to clear the cookie on sign-out', async () => {
