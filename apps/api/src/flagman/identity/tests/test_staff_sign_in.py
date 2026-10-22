@@ -466,6 +466,62 @@ def test_refresh_brings_the_current_role(
     assert claims["role"] == "admin"
 
 
+def _session_end(settings: Settings, staff_id: uuid.UUID) -> datetime:
+    [(expires_at,)] = _query(
+        settings, "SELECT expires_at FROM staff_sessions WHERE staff_id = :id", id=staff_id
+    )
+    end: datetime = expires_at
+    return end
+
+
+def test_refresh_does_not_extend_the_session(
+    client: TestClient, operator: Staff, integration_settings: Settings
+) -> None:
+    _first_sign_in(client, operator)
+    end = _session_end(integration_settings, operator.id)
+
+    refreshed = _refresh(client)
+
+    assert refreshed.status_code == HTTPStatus.OK
+    assert _session_end(integration_settings, operator.id) == end
+    # The new cookie expires with the session, not a full 12 hours after the refresh.
+    max_age = int(refreshed.headers["set-cookie"].split("Max-Age=")[1].split(";")[0])
+    assert max_age <= (end - datetime.now(UTC)).total_seconds() + 1
+
+
+def test_session_ends_12_hours_after_sign_in_however_it_is_used(
+    client: TestClient, operator: Staff, integration_settings: Settings
+) -> None:
+    _first_sign_in(client, operator)
+    assert _refresh(client).status_code == HTTPStatus.OK
+    # As if the tab had kept refreshing every 15 minutes since a sign-in 12 hours ago.
+    _query(
+        integration_settings,
+        "UPDATE staff_sessions SET created_at = created_at - interval '12 hours',"
+        " expires_at = expires_at - interval '12 hours' WHERE staff_id = :id",
+        id=operator.id,
+    )
+
+    response = _refresh(client)
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert _problem(response) == "refresh-token-invalid"
+
+
+def test_challenge_opens_only_one_session(client: TestClient, operator: Staff) -> None:
+    challenge = _challenge(client, operator)["challenge_token"]
+    secret = _enroll(client, challenge)
+    assert _totp(client, challenge, _code(secret)).status_code == HTTPStatus.OK
+
+    # The next code is valid, but the password step has to be passed again.
+    response = _totp(client, challenge, _code(secret, steps_ahead=1))
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert _problem(response) == "staff-challenge-invalid"
+    fresh = _challenge(client, operator)["challenge_token"]
+    assert _totp(client, fresh, _code(secret, steps_ahead=1)).status_code == HTTPStatus.OK
+
+
 def test_disabled_account_cannot_refresh(
     client: TestClient, operator: Staff, integration_settings: Settings
 ) -> None:
@@ -583,3 +639,12 @@ def test_command_refuses_a_taken_email_and_a_short_password(
 
     assert taken == cli.EXIT_FAILED
     assert short == cli.EXIT_FAILED
+
+
+@pytest.mark.parametrize("email", ["admin", "admin@", "two words@flagman.by"])
+def test_command_refuses_an_email_nobody_could_sign_in_with(email: str) -> None:
+    # Checked before any database access, so no environment is needed.
+    with pytest.raises(SystemExit) as exit_info:
+        _run_command("create", "--email", email, "--role", "admin", "--password-stdin")
+
+    assert exit_info.value.code == 2  # argparse usage error

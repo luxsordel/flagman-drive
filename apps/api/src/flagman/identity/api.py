@@ -14,7 +14,6 @@ from flagman.core.resources import Resources, get_resources
 from flagman.identity.dependencies import CurrentStaff, get_current_staff
 from flagman.identity.domain import (
     REFRESH_TOKEN_TTL,
-    STAFF_SESSION_TTL,
     RefreshTokenInvalidError,
 )
 from flagman.identity.ports import SmsSender, create_sms_sender
@@ -211,11 +210,12 @@ def _no_store(response: Response) -> None:
     response.headers["Cache-Control"] = "no-store"
 
 
-def _deliver_staff(tokens: StaffTokens, response: Response) -> StaffAccessToken:
+def _deliver_staff(tokens: StaffTokens, response: Response, now: datetime) -> StaffAccessToken:
     response.set_cookie(
         STAFF_REFRESH_COOKIE,
         tokens.refresh_token,
-        max_age=int(STAFF_SESSION_TTL.total_seconds()),
+        # Until the session ends, not a full TTL from now: refreshes do not extend the session.
+        max_age=max(int((tokens.session_expires_at - now).total_seconds()), 1),
         path=STAFF_REFRESH_COOKIE_PATH,
         secure=True,
         httponly=True,
@@ -299,8 +299,9 @@ async def staff_start_totp_enrollment(
 async def staff_verify_totp(
     body: StaffTotpRequest, origin: Origin, response: Response, service: StaffService
 ) -> StaffAccessToken:
-    tokens = await service.verify_totp(body.challenge_token, body.code, origin, datetime.now(UTC))
-    return _deliver_staff(tokens, response)
+    now = datetime.now(UTC)
+    tokens = await service.verify_totp(body.challenge_token, body.code, origin, now)
+    return _deliver_staff(tokens, response, now)
 
 
 @staff_router.post(
@@ -323,8 +324,9 @@ async def staff_refresh_tokens(
 ) -> StaffAccessToken:
     if refresh_cookie is None:
         raise RefreshTokenInvalidError
-    tokens = await service.refresh_tokens(refresh_cookie, datetime.now(UTC))
-    return _deliver_staff(tokens, response)
+    now = datetime.now(UTC)
+    tokens = await service.refresh_tokens(refresh_cookie, now)
+    return _deliver_staff(tokens, response, now)
 
 
 @staff_router.post(

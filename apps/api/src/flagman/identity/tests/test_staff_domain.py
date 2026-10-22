@@ -176,9 +176,13 @@ def test_ciphertext_does_not_decrypt_with_another_key() -> None:
 
 
 def test_challenge_round_trips() -> None:
-    token = issue_staff_challenge(STAFF_ID, SECRET, datetime.now(UTC))
+    now = datetime.now(UTC)
+    first = read_staff_challenge(issue_staff_challenge(STAFF_ID, SECRET, now), SECRET)
+    second = read_staff_challenge(issue_staff_challenge(STAFF_ID, SECRET, now), SECRET)
 
-    assert read_staff_challenge(token, SECRET) == STAFF_ID
+    assert first.staff_id == second.staff_id == STAFF_ID
+    # Each challenge has an id of its own, so using one up does not affect another.
+    assert first.challenge_id != second.challenge_id
 
 
 def test_expired_challenge_is_rejected() -> None:

@@ -232,13 +232,16 @@ def _decode_jwt(
 # Staff sign-in (#32, docs/adr/0011): email and password, then a TOTP code.
 
 STAFF_ACCESS_TOKEN_TTL = ACCESS_TOKEN_TTL
-# Sliding like the client's, but a workday instead of a month: the admin panel is the most
-# valuable account to steal, and staff sign in again every morning anyway.
+# Counted from the sign-in and never extended, unlike the client's sliding month: the admin panel
+# is the most valuable account to steal, so even a tab left open all night signs in again daily.
 STAFF_SESSION_TTL = timedelta(hours=12)
 # Between the password step and the TOTP step; enough to open the authenticator app.
 STAFF_CHALLENGE_TTL = timedelta(minutes=5)
 
 EMAIL_MAX_LENGTH = 254  # RFC 5321 path limit
+# Only rejects obvious garbage; shared by the API schema and the command that creates staff,
+# so the command cannot create an account nobody can sign in to.
+EMAIL_PATTERN = r"^[^\s@]+@[^\s@]+$"
 # The upper bound keeps argon2 from hashing megabytes sent by a caller.
 PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 128
@@ -398,19 +401,35 @@ class StaffNextStep(StrEnum):
     TOTP_ENROLLMENT = "totp_enrollment"
 
 
+@dataclass(frozen=True)
+class StaffChallenge:
+    staff_id: UUID
+    # Lets the service open at most one session per challenge.
+    challenge_id: str
+
+
 def issue_staff_challenge(staff_id: UUID, secret: str, now: datetime) -> str:
     """Proof that the password step passed; the TOTP step finishes the sign-in.
 
     It carries no step: the TOTP step reads the current 2FA state from the database, so two tabs
     setting up 2FA at once cannot enroll a secret behind each other's back.
     """
-    return _encode_jwt(STAFF_CHALLENGE_AUDIENCE, staff_id, STAFF_CHALLENGE_TTL, now, secret)
+    return _encode_jwt(
+        STAFF_CHALLENGE_AUDIENCE,
+        staff_id,
+        STAFF_CHALLENGE_TTL,
+        now,
+        secret,
+        jti=secrets.token_urlsafe(16),
+    )
 
 
-def read_staff_challenge(token: str, secret: str) -> UUID:
-    payload = _decode_jwt(token, secret, STAFF_CHALLENGE_AUDIENCE, [], StaffChallengeInvalidError)
+def read_staff_challenge(token: str, secret: str) -> StaffChallenge:
+    payload = _decode_jwt(
+        token, secret, STAFF_CHALLENGE_AUDIENCE, ["jti"], StaffChallengeInvalidError
+    )
     try:
-        return UUID(payload["sub"])
+        return StaffChallenge(staff_id=UUID(payload["sub"]), challenge_id=str(payload["jti"]))
     except (ValueError, TypeError) as exc:
         raise StaffChallengeInvalidError from exc
 

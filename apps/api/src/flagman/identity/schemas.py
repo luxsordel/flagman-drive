@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from flagman.identity.domain import (
     EMAIL_MAX_LENGTH,
+    EMAIL_PATTERN,
     PASSWORD_MAX_LENGTH,
     StaffNextStep,
     StaffRole,
@@ -112,7 +113,7 @@ Email = Annotated[
     str,
     Field(
         max_length=EMAIL_MAX_LENGTH,
-        pattern=r"^[^\s@]+@[^\s@]+$",
+        pattern=EMAIL_PATTERN,
         description="Work email; compared case-insensitively.",
         examples=["operator@flagman.by"],
     ),

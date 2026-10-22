@@ -10,6 +10,7 @@ never an argument: those end up in the shell history and in the process list.
 import argparse
 import asyncio
 import getpass
+import re
 import sys
 from datetime import UTC, datetime
 from typing import TextIO
@@ -18,6 +19,8 @@ from flagman.core.config import load_settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.identity import service
 from flagman.identity.domain import (
+    EMAIL_MAX_LENGTH,
+    EMAIL_PATTERN,
     PasswordPolicyError,
     StaffEmailTakenError,
     StaffNotFoundError,
@@ -29,12 +32,19 @@ EXIT_OK = 0
 EXIT_FAILED = 1
 
 
+def _email(value: str) -> str:
+    # The same check as the sign-in API applies, so the account can actually sign in.
+    if len(value) > EMAIL_MAX_LENGTH or not re.fullmatch(EMAIL_PATTERN, value):
+        raise argparse.ArgumentTypeError("not an email address")
+    return value
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="flagman-staff", description=__doc__.split("\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
 
     create = commands.add_parser("create", help="create a staff member; 2FA is set up at sign-in")
-    create.add_argument("--email", required=True)
+    create.add_argument("--email", required=True, type=_email)
     create.add_argument("--role", required=True, choices=[role.value for role in StaffRole])
     create.add_argument(
         "--password-stdin",

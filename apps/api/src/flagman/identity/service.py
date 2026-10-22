@@ -18,6 +18,7 @@ from flagman.audit.domain import (
     RequestOrigin,
 )
 from flagman.core.config import Settings
+from flagman.core.errors import RateLimitedError
 from flagman.core.ratelimit import Limit, RateLimiter
 from flagman.core.security import keyed_hash
 from flagman.identity import repository
@@ -99,6 +100,10 @@ STAFF_PASSWORD_IP_LIMIT = Limit("staff-password-ip", 30, _HOUR)
 # A challenge stays valid for 5 minutes and may be retried: this caps TOTP guessing per account.
 STAFF_TOTP_LIMIT = Limit("staff-totp-staff", 10, _HOUR)
 STAFF_TOTP_IP_LIMIT = Limit("staff-totp-ip", 30, _HOUR)
+# A challenge opens at most one session; the window outlives the challenge itself.
+STAFF_CHALLENGE_SESSION_LIMIT = Limit(
+    "staff-challenge-session", 1, int(STAFF_CHALLENGE_TTL.total_seconds())
+)
 
 _UNKNOWN_IP = "unknown"
 
@@ -250,6 +255,8 @@ class StaffTokens:
     access_token: StaffAccessToken
     # Always delivered in the HttpOnly cookie: the admin panel is a web app only.
     refresh_token: str
+    # The cookie lives exactly as long as the session, which refreshes do not extend.
+    session_expires_at: datetime
 
 
 @dataclass(frozen=True)
@@ -279,6 +286,10 @@ class StaffSignInService:
         # so that no database connection is held meanwhile.
         password_hash = staff.password_hash if staff is not None else None
         matches = await asyncio.to_thread(_verify_password_or_dummy, password_hash, password)
+        accepted = staff is not None and matches and not staff.disabled
+        new_hash = None
+        if accepted and staff is not None and password_needs_rehash(staff.password_hash):
+            new_hash = await asyncio.to_thread(hash_password, password)
 
         async with self.db.begin():
             if staff is None:
@@ -291,11 +302,10 @@ class StaffSignInService:
                 await audit.record(
                     self.db, _sign_in_failed(_staff_actor(staff.id), origin, "password", reason)
                 )
-            elif password_needs_rehash(staff.password_hash):
-                new_hash = await asyncio.to_thread(hash_password, password)
+            elif new_hash is not None:
                 await repository.set_staff_password_hash(self.db, staff.id, new_hash)
         # Raised after the transaction so that the failed attempt is committed, not rolled back.
-        if staff is None or not matches or staff.disabled:
+        if staff is None or not accepted:
             raise StaffCredentialsInvalidError
         return StaffChallengeIssued(
             challenge_token=issue_staff_challenge(staff.id, self._jwt_secret, now),
@@ -304,7 +314,7 @@ class StaffSignInService:
         )
 
     async def start_totp_enrollment(self, challenge_token: str) -> StaffTotpEnrollment:
-        staff_id = read_staff_challenge(challenge_token, self._jwt_secret)
+        staff_id = read_staff_challenge(challenge_token, self._jwt_secret).staff_id
         async with self.db.begin():
             staff = await repository.get_staff(self.db, staff_id, for_update=True)
             if staff is None or staff.disabled:
@@ -323,7 +333,8 @@ class StaffSignInService:
     async def verify_totp(
         self, challenge_token: str, code: str, origin: RequestOrigin, now: datetime
     ) -> StaffTokens:
-        staff_id = read_staff_challenge(challenge_token, self._jwt_secret)
+        challenge = read_staff_challenge(challenge_token, self._jwt_secret)
+        staff_id = challenge.staff_id
         await self.limiter.hit(STAFF_TOTP_IP_LIMIT, origin.ip_hash or _UNKNOWN_IP)
         await self.limiter.hit(STAFF_TOTP_LIMIT, str(staff_id))
 
@@ -347,6 +358,7 @@ class StaffSignInService:
             if step is None:
                 await audit.record(self.db, _sign_in_failed(actor, origin, "totp", "wrong_code"))
             else:
+                await self._use_challenge_once(challenge.challenge_id)
                 # The first accepted code is what finishes the 2FA setup.
                 enrolled_at = None if staff.totp_enrolled else now
                 await repository.accept_totp_step(self.db, staff.id, step, enrolled_at)
@@ -354,10 +366,11 @@ class StaffSignInService:
                     await audit.record(
                         self.db, AuditEntry(actor, AuditAction.STAFF_TOTP_ENROLLED, origin)
                     )
+                expires_at = now + STAFF_SESSION_TTL
                 session_id = await repository.create_staff_session(
-                    self.db, staff.id, now + STAFF_SESSION_TTL, now
+                    self.db, staff.id, expires_at, now
                 )
-                tokens = await self._issue_tokens(staff.id, session_id, staff.role, now)
+                tokens = await self._issue_tokens(staff.id, session_id, staff.role, expires_at, now)
                 await audit.record(
                     self.db,
                     AuditEntry(
@@ -382,11 +395,13 @@ class StaffSignInService:
                 await repository.revoke_staff_session(self.db, record.session_id, now)
             elif record is not None and decision is RefreshDecision.ROTATE:
                 await repository.mark_staff_refresh_token_used(self.db, token_hash, now)
-                await repository.extend_staff_session(
-                    self.db, record.session_id, now + STAFF_SESSION_TTL
-                )
+                # The session keeps its end: STAFF_SESSION_TTL counts from the sign-in.
                 tokens = await self._issue_tokens(
-                    record.staff_id, record.session_id, record.role, now
+                    record.staff_id,
+                    record.session_id,
+                    record.role,
+                    record.state.session_expires_at,
+                    now,
                 )
             elif record is not None and decision is RefreshDecision.REUSE_DETECTED:
                 # Staff have no device ids: the session the token belongs to is what goes.
@@ -422,8 +437,21 @@ class StaffSignInService:
             raise AccessTokenInvalidError
         return StaffProfile(id=staff.id, email=staff.email, role=staff.role)
 
+    async def _use_challenge_once(self, challenge_id: str) -> None:
+        # Without this, the same challenge and the next code would open a second session
+        # within its five minutes. A wrong code does not use it up: the user may retry.
+        try:
+            await self.limiter.hit(STAFF_CHALLENGE_SESSION_LIMIT, challenge_id)
+        except RateLimitedError as exc:
+            raise StaffChallengeInvalidError from exc
+
     async def _issue_tokens(
-        self, staff_id: UUID, session_id: UUID, role: StaffRole, now: datetime
+        self,
+        staff_id: UUID,
+        session_id: UUID,
+        role: StaffRole,
+        session_expires_at: datetime,
+        now: datetime,
     ) -> StaffTokens:
         refresh_token = generate_refresh_token()
         await repository.add_staff_refresh_token(
@@ -440,6 +468,7 @@ class StaffSignInService:
                 expires_in=int(STAFF_ACCESS_TOKEN_TTL.total_seconds()),
             ),
             refresh_token=refresh_token,
+            session_expires_at=session_expires_at,
         )
 
 

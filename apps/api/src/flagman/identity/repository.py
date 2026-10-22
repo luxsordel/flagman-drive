@@ -251,12 +251,6 @@ async def create_staff_session(
     return session.id
 
 
-async def extend_staff_session(db: AsyncSession, session_id: UUID, expires_at: datetime) -> None:
-    await db.execute(
-        update(StaffSession).where(StaffSession.id == session_id).values(expires_at=expires_at)
-    )
-
-
 async def revoke_staff_session(db: AsyncSession, session_id: UUID, now: datetime) -> None:
     await db.execute(
         update(StaffSession)
