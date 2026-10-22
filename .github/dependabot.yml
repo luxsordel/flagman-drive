@@ -51,9 +51,23 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+  # The Python version is a project-wide decision (ADR-0001, requires-python in pyproject.toml),
+  # so Dependabot only gets patch releases of the python base image (3.12.x).
   - package-ecosystem: docker
     directory: /services/car-emulator
     schedule:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
+  - package-ecosystem: docker
+    directory: /apps/api
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
