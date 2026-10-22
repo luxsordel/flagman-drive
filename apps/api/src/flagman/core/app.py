@@ -33,12 +33,13 @@ SWAGGER_OAUTH_REDIRECT_URL = "/docs/oauth2-redirect"
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     configure_logging(settings.api_log_level)
-    if not settings.is_prod:
+    # Every protection that only prod turns on goes here, so the warning below never misses one.
+    prod_protections = {"hsts": settings.is_prod, "hidden_api_docs": settings.is_prod}
+    disabled = [name for name, enabled in prod_protections.items() if not enabled]
+    if disabled:
         # Loud on purpose: a server started without API_ENV=prod works, but without these.
         logger.warning(
-            "api_not_in_prod_mode",
-            api_env=settings.api_env,
-            disabled_protections=["hsts", "hidden_api_docs"],
+            "api_not_in_prod_mode", api_env=settings.api_env, disabled_protections=disabled
         )
 
     @asynccontextmanager
@@ -63,7 +64,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await redis.aclose()
             await engine.dispose()
 
-    docs_enabled = not settings.is_prod
+    docs_enabled = not prod_protections["hidden_api_docs"]
     app = FastAPI(
         title="FLAGMAN Drive API",
         version="0.1.0",
@@ -91,7 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
         SecurityHeadersMiddleware,
-        hsts=settings.is_prod,
+        hsts=prod_protections["hsts"],
         csp_exempt_paths=(DOCS_URL, SWAGGER_OAUTH_REDIRECT_URL) if docs_enabled else (),
     )
 
