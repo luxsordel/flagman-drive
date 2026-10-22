@@ -17,11 +17,20 @@ export interface ApiClientOptions {
   getAccessToken?: () => string | null | Promise<string | null>;
   /** Override for tests or React Native polyfills. */
   fetch?: ClientOptions['fetch'];
+  /**
+   * `include` for a web client served from another origin than the API: without it the browser
+   * neither sends nor stores the HttpOnly refresh cookie (ADR-0009).
+   */
+  credentials?: RequestCredentials;
 }
 
 export function createApiClient(options: ApiClientOptions): ReturnType<typeof createClient<paths>> {
-  const { baseUrl, getAccessToken, fetch } = options;
-  const client = createClient<paths>({ baseUrl, ...(fetch ? { fetch } : {}) });
+  const { baseUrl, getAccessToken, fetch, credentials } = options;
+  const client = createClient<paths>({
+    baseUrl,
+    ...(fetch ? { fetch } : {}),
+    ...(credentials ? { credentials } : {}),
+  });
   if (getAccessToken) {
     client.use({
       async onRequest({ request }) {
