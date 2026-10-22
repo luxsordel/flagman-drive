@@ -68,12 +68,13 @@ Docker Desktop должен быть запущен. Все команды — �
    cp .env.example .env          # Git Bash
    ```
 
-2. Заполнить в `.env` пустые значения: `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`,
-   `API_JWT_SECRET`, `API_OTP_PEPPER`.
+2. Заполнить в `.env` пустые значения: `API_ENV` (локально `dev`), `POSTGRES_PASSWORD`, `REDIS_PASSWORD`,
+   `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `API_JWT_SECRET`, `API_OTP_PEPPER`.
    Для локальной разработки придумайте их сами, например `openssl rand -hex 24` в Git Bash.
    `API_JWT_SECRET` и `API_OTP_PEPPER` — не короче 32 символов и разные (`openssl rand -hex 32` даёт 64),
    иначе API не стартует. Если `.env` у вас уже был, перенесите в него из `.env.example` новые строки
-   `API_JWT_SECRET`, `API_OTP_PEPPER` и `SMS_BACKEND`.
+   `API_JWT_SECRET`, `API_OTP_PEPPER`, `SMS_BACKEND`, `SMS_FIXED_CODE` и `SMS_FIXED_PHONES`.
+   На сервере пилота `API_ENV=prod`.
    Пустое значение — ошибка запуска, это сделано специально (SeaweedFS без ключей открыт анонимно).
 
 3. Поднять:

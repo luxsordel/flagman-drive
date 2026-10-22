@@ -86,6 +86,13 @@ def _transport(body_token: str | None) -> RefreshTokenTransport:
     summary="Send a one-time sign-in code by SMS",
     status_code=HTTPStatus.ACCEPTED,
     responses={
+        HTTPStatus.FORBIDDEN: {
+            "model": Problem,
+            "description": (
+                "`urn:flagman:problem:sign-in-not-allowed`: the pilot runs without SMS "
+                "and only its test phones can sign in."
+            ),
+        },
         HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
         HTTPStatus.SERVICE_UNAVAILABLE: {
             "model": Problem,

@@ -1,6 +1,7 @@
 import json
 import uuid
 from http import HTTPStatus
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -54,8 +55,18 @@ def test_swagger_ui_is_exempt_from_the_strict_csp(client: TestClient) -> None:
     assert response.headers["x-frame-options"] == "DENY"
 
 
-def test_prod_enables_hsts_and_hides_the_docs(make_settings: SettingsFactory) -> None:
-    client = TestClient(create_app(make_settings(api_env="prod")))
+@pytest.mark.parametrize(
+    "sms",
+    [
+        {"sms_backend": None},
+        {"sms_backend": "fixed", "sms_fixed_code": "482913", "sms_fixed_phones": ["+375291111111"]},
+    ],
+)
+def test_prod_enables_hsts_and_hides_the_docs(
+    make_settings: SettingsFactory, sms: dict[str, Any]
+) -> None:
+    # Whatever the pilot does instead of SMS, it must not cost the prod protections.
+    client = TestClient(create_app(make_settings(api_env="prod", **sms)))
 
     assert client.get("/health").headers["strict-transport-security"].startswith("max-age=")
     assert client.get("/docs").status_code == HTTPStatus.NOT_FOUND
