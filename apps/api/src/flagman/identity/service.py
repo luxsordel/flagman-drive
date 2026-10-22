@@ -123,6 +123,13 @@ class SignInService:
                     user_id=str(record.user_id),
                     device_id=str(record.device_id),
                 )
+            elif record is not None and decision is RefreshDecision.ALREADY_ROTATED:
+                # Expected from web tabs; a spike for one device may still be worth a look.
+                logger.info(
+                    "refresh_token_already_rotated",
+                    user_id=str(record.user_id),
+                    device_id=str(record.device_id),
+                )
         if tokens is None:
             raise RefreshTokenInvalidError
         return tokens

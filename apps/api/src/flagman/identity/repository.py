@@ -110,7 +110,7 @@ async def get_refresh_token_for_update(
     db: AsyncSession, token_hash: str
 ) -> RefreshTokenRecord | None:
     # Both rows are locked: two refreshes with the same token take turns, and the second one
-    # sees the token as used, i.e. as reuse, instead of both rotating it.
+    # sees the token as used instead of both rotating it.
     row = (
         await db.execute(
             select(RefreshToken, AuthSession)
@@ -127,7 +127,7 @@ async def get_refresh_token_for_update(
         user_id=session.user_id,
         device_id=session.device_id,
         state=RefreshTokenState(
-            used=token.used_at is not None,
+            used_at=token.used_at,
             session_revoked=session.revoked_at is not None,
             session_expires_at=session.expires_at,
         ),

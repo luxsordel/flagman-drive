@@ -11,6 +11,7 @@ from flagman.identity.domain import (
     JWT_ALGORITHM,
     JWT_ISSUER,
     OTP_MAX_ATTEMPTS,
+    REFRESH_REUSE_GRACE,
     AccessClaims,
     AccessTokenInvalidError,
     OtpChallenge,
@@ -103,10 +104,15 @@ def test_refresh_tokens_are_random_and_hashed() -> None:
 
 
 def _state(
-    *, used: bool = False, revoked: bool = False, expires_in: timedelta = timedelta(days=1)
+    *,
+    used_ago: timedelta | None = None,
+    revoked: bool = False,
+    expires_in: timedelta = timedelta(days=1),
 ) -> RefreshTokenState:
     return RefreshTokenState(
-        used=used, session_revoked=revoked, session_expires_at=NOW + expires_in
+        used_at=None if used_ago is None else NOW - used_ago,
+        session_revoked=revoked,
+        session_expires_at=NOW + expires_in,
     )
 
 
@@ -115,9 +121,17 @@ def _state(
     [
         (None, RefreshDecision.REJECT),
         (_state(), RefreshDecision.ROTATE),
-        (_state(used=True), RefreshDecision.REUSE_DETECTED),
-        # Reuse wins over revocation: a stolen old token still burns the device's new sessions.
-        (_state(used=True, revoked=True), RefreshDecision.REUSE_DETECTED),
+        (_state(used_ago=timedelta(0)), RefreshDecision.ALREADY_ROTATED),
+        (
+            _state(used_ago=REFRESH_REUSE_GRACE - timedelta(seconds=1)),
+            RefreshDecision.ALREADY_ROTATED,
+        ),
+        (_state(used_ago=REFRESH_REUSE_GRACE), RefreshDecision.REUSE_DETECTED),
+        (_state(used_ago=timedelta(days=1)), RefreshDecision.REUSE_DETECTED),
+        # Reuse wins over revocation: a stolen old token still burns the device's new sessions,
+        # and a revoked session gets no grace, it has nothing left to retry for.
+        (_state(used_ago=timedelta(days=1), revoked=True), RefreshDecision.REUSE_DETECTED),
+        (_state(used_ago=timedelta(0), revoked=True), RefreshDecision.REUSE_DETECTED),
         (_state(revoked=True), RefreshDecision.REJECT),
         (_state(expires_in=timedelta(0)), RefreshDecision.REJECT),
     ],

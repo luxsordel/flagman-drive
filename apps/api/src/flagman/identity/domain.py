@@ -21,6 +21,9 @@ OTP_MAX_ATTEMPTS = 5
 ACCESS_TOKEN_TTL = timedelta(minutes=15)
 # Sliding: every rotation moves the end of the session, so an app in use never signs out.
 REFRESH_TOKEN_TTL = timedelta(days=30)
+# Two browser tabs share one refresh cookie, and a reload can resend it before the new one
+# arrives. A token that was rotated this recently is turned down without revoking anything.
+REFRESH_REUSE_GRACE = timedelta(seconds=30)
 
 JWT_ALGORITHM = "HS256"
 JWT_ISSUER = "flagman"
@@ -37,7 +40,9 @@ class OtpInvalidError(AppError):
 class OtpExpiredError(AppError):
     """The code expired, ran out of attempts or was never requested: the client asks for a new one.
 
-    These cases are not told apart, so the response does not reveal whether a code was sent.
+    These cases are not told apart from each other. A wrong guess while a code is pending gets
+    `otp-invalid` instead, so a caller can learn that a code was requested for the phone in the
+    last minutes; anyone can request one anyway, so this reveals little.
     """
 
     status = HTTPStatus.BAD_REQUEST
@@ -122,7 +127,7 @@ def hash_refresh_token(token: str) -> str:
 
 @dataclass(frozen=True)
 class RefreshTokenState:
-    used: bool
+    used_at: datetime | None
     session_revoked: bool
     session_expires_at: datetime
 
@@ -130,15 +135,21 @@ class RefreshTokenState:
 class RefreshDecision(StrEnum):
     ROTATE = "rotate"
     REUSE_DETECTED = "reuse-detected"
+    # Rotated moments ago by a concurrent request of the same client: the client retries with
+    # the newer token, so the session is left alone.
+    ALREADY_ROTATED = "already-rotated"
     REJECT = "reject"
 
 
 def decide_refresh(state: RefreshTokenState | None, now: datetime) -> RefreshDecision:
     if state is None:
         return RefreshDecision.REJECT
-    # A used token comes back only if it was copied: either the thief or the owner is replaying
-    # it, and we cannot tell which, so every session of the device goes (docs/03-security.md).
-    if state.used:
+    if state.used_at is not None:
+        if not state.session_revoked and now < state.used_at + REFRESH_REUSE_GRACE:
+            return RefreshDecision.ALREADY_ROTATED
+        # Later on, a used token comes back only if it was copied: either the thief or the owner
+        # is replaying it, and we cannot tell which, so every session of the device goes
+        # (docs/03-security.md).
         return RefreshDecision.REUSE_DETECTED
     if state.session_revoked or now >= state.session_expires_at:
         return RefreshDecision.REJECT

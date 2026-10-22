@@ -17,6 +17,7 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine
 from flagman.identity.api import get_sms_sender
 from flagman.identity.dependencies import CurrentClient, get_current_client
+from flagman.identity.domain import REFRESH_REUSE_GRACE, hash_refresh_token
 
 pytestmark = pytest.mark.integration
 
@@ -116,6 +117,17 @@ def _wrong(code: str) -> str:
 
 def _refresh(client: TestClient, refresh_token: str) -> Any:
     return client.post("/auth/token/refresh", json={"refresh_token": refresh_token})
+
+
+def _end_reuse_grace(settings: Settings, refresh_token: str) -> None:
+    """Moves the rotation of this token back past the grace window, as if time had passed."""
+    _query(
+        settings,
+        "UPDATE refresh_tokens SET used_at = used_at - CAST(:age AS interval)"
+        " WHERE token_hash = :token_hash",
+        age=REFRESH_REUSE_GRACE,
+        token_hash=hash_refresh_token(refresh_token),
+    )
 
 
 def _me(client: TestClient, access_token: str) -> Any:
@@ -335,10 +347,11 @@ def test_refresh_rotates_the_token(client: TestClient, sms: FakeSms, phone: str)
 
 
 def test_reused_refresh_token_revokes_the_device_sessions(
-    client: TestClient, sms: FakeSms, phone: str
+    client: TestClient, sms: FakeSms, phone: str, integration_settings: Settings
 ) -> None:
     tokens = _sign_in(client, sms, phone)
     rotated = _refresh(client, tokens["refresh_token"]).json()
+    _end_reuse_grace(integration_settings, tokens["refresh_token"])
 
     reuse = _refresh(client, tokens["refresh_token"])
 
@@ -348,16 +361,37 @@ def test_reused_refresh_token_revokes_the_device_sessions(
     assert _refresh(client, rotated["refresh_token"]).status_code == HTTPStatus.UNAUTHORIZED
 
 
+def test_token_rotated_moments_ago_is_turned_down_without_revoking(
+    client: TestClient, sms: FakeSms, phone: str
+) -> None:
+    tokens = _sign_in(client, sms, phone)
+    rotated = _refresh(client, tokens["refresh_token"]).json()
+
+    late = _refresh(client, tokens["refresh_token"])
+
+    assert late.status_code == HTTPStatus.UNAUTHORIZED
+    assert late.json()["type"] == "urn:flagman:problem:refresh-token-invalid"
+    # The request that lost the race retries with the newer token, and the session goes on.
+    assert _me(client, rotated["access_token"]).status_code == HTTPStatus.OK
+    assert _refresh(client, rotated["refresh_token"]).status_code == HTTPStatus.OK
+
+
 def test_reuse_on_one_device_keeps_other_devices_signed_in(
-    client: TestClient, sms: FakeSms, phone: str, reset_limits: Callable[[], None]
+    client: TestClient,
+    sms: FakeSms,
+    phone: str,
+    reset_limits: Callable[[], None],
+    integration_settings: Settings,
 ) -> None:
     phone_tokens = _sign_in(client, sms, phone, device_id=uuid.uuid4())
     reset_limits()
     tablet_tokens = _sign_in(client, sms, phone, device_id=uuid.uuid4())
-    _refresh(client, phone_tokens["refresh_token"])
+    phone_rotated = _refresh(client, phone_tokens["refresh_token"]).json()
+    _end_reuse_grace(integration_settings, phone_tokens["refresh_token"])
 
     _refresh(client, phone_tokens["refresh_token"])
 
+    assert _refresh(client, phone_rotated["refresh_token"]).status_code == HTTPStatus.UNAUTHORIZED
     assert _refresh(client, tablet_tokens["refresh_token"]).status_code == HTTPStatus.OK
 
 
@@ -434,14 +468,32 @@ def test_web_client_refreshes_and_signs_out_with_the_cookie(
 
 
 def test_reused_refresh_cookie_revokes_the_device_sessions(
-    client: TestClient, sms: FakeSms, phone: str
+    client: TestClient, sms: FakeSms, phone: str, integration_settings: Settings
 ) -> None:
     _web_sign_in(client, sms, phone)
     stolen = client.cookies["flagman_refresh"]
     client.post("/auth/token/refresh", json={})
+    _end_reuse_grace(integration_settings, stolen)
 
     assert _refresh(client, stolen).status_code == HTTPStatus.UNAUTHORIZED
     assert client.post("/auth/token/refresh", json={}).status_code == HTTPStatus.UNAUTHORIZED
+
+
+def test_second_browser_tab_with_the_old_cookie_does_not_sign_the_user_out(
+    client: TestClient, sms: FakeSms, phone: str
+) -> None:
+    _web_sign_in(client, sms, phone)
+    old_cookie = client.cookies["flagman_refresh"]
+    # The first tab rotates; the second one had already sent the cookie it saw before.
+    assert client.post("/auth/token/refresh", json={}).status_code == HTTPStatus.OK
+
+    second_tab = client.post(
+        "/auth/token/refresh", json={}, headers={"Cookie": f"flagman_refresh={old_cookie}"}
+    )
+
+    assert second_tab.status_code == HTTPStatus.UNAUTHORIZED
+    # Its retry goes out with the cookie the first tab received, and the session is intact.
+    assert client.post("/auth/token/refresh", json={}).status_code == HTTPStatus.OK
 
 
 def test_refresh_without_any_token_is_rejected(client: TestClient) -> None:
@@ -476,14 +528,21 @@ def test_refresh_token_is_not_an_access_token(client: TestClient, sms: FakeSms, 
 
 
 def test_phones_codes_and_tokens_stay_out_of_the_logs(
-    client: TestClient, sms: FakeSms, phone: str, caplog: pytest.LogCaptureFixture
+    client: TestClient,
+    sms: FakeSms,
+    phone: str,
+    caplog: pytest.LogCaptureFixture,
+    integration_settings: Settings,
 ) -> None:
     tokens = _sign_in(client, sms, phone)
     rotated = _refresh(client, tokens["refresh_token"]).json()
+    _refresh(client, tokens["refresh_token"])  # within the grace window
+    _end_reuse_grace(integration_settings, tokens["refresh_token"])
     _refresh(client, tokens["refresh_token"])  # reuse: logged as a security event
 
     logs = caplog.text
 
+    assert "refresh_token_already_rotated" in logs
     assert "refresh_token_reuse_detected" in logs
     for secret in (
         phone,
