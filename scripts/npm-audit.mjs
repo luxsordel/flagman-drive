@@ -1,7 +1,9 @@
 // Fails on high and critical npm advisories, except the ones listed in .github/npm-audit-allowlist.json.
 // Each exception names one advisory and expires on `reviewBy`, so an unfixed issue resurfaces instead of
-// being silenced forever. Run from the repository root: `node scripts/npm-audit.mjs`.
-import { spawnSync } from 'node:child_process';
+// being silenced forever. Run from the repository root: `npm run audit`.
+//
+// The report comes on stdin (`npm audit --json | node scripts/npm-audit.mjs`) instead of a child
+// process: on Windows npm is a .cmd script that cannot be spawned without a shell.
 import { readFileSync } from 'node:fs';
 
 const blocking = new Set(['high', 'critical']);
@@ -11,13 +13,14 @@ const allowlist = new Map(
 );
 const today = new Date().toISOString().slice(0, 10);
 
-// A fixed command string: `shell` is needed on Windows, where npm is a .cmd script.
-const audit = spawnSync('npm audit --json', { encoding: 'utf8', shell: true });
+let input = '';
+for await (const chunk of process.stdin) input += chunk;
 let report;
 try {
-  report = JSON.parse(audit.stdout);
+  report = JSON.parse(input);
 } catch {
-  console.error('npm audit did not return JSON:\n', audit.stderr || audit.stdout);
+  // Also covers an empty pipe, e.g. when npm audit could not reach the registry.
+  console.error('Expected `npm audit --json` output on stdin, got:\n', input.slice(0, 2000));
   process.exit(1);
 }
 

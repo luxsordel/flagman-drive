@@ -10,7 +10,8 @@
     "gen:api": "npm run gen --workspace @flagman/api-client",
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "audit": "npm audit --json | node scripts/npm-audit.mjs"
   },
   "engines": {
     "node": ">=22"
