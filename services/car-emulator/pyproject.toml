@@ -1,0 +1,53 @@
+[project]
+name = "car-emulator"
+version = "0.1.0"
+description = "Car fleet emulator that stands in for real telematics during the FLAGMAN Drive pilot"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.159.1",
+    "httpx>=0.28.1",
+    "pydantic-settings>=2.16.1",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+car-emulator = "car_emulator.main:main"
+
+[build-system]
+requires = ["uv_build>=0.13.4,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "ruff>=0.17.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "N", "UP", "B", "S", "ASYNC", "SIM", "PT", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# S105: tests use hardcoded test-only secrets.
+"tests/**" = ["S101", "S105"]
+
+[tool.mypy]
+strict = true
+python_version = "3.12"
+# ci.yml runs bare `mypy`, so the targets live here.
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

@@ -51,3 +51,9 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+  - package-ecosystem: docker
+    directory: /services/car-emulator
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7

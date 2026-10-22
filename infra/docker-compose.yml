@@ -124,6 +124,34 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
+  # Stands in for real telematics, see "Телематика и эмулятор" in docs/02-architecture.md.
+  car-emulator:
+    build:
+      context: ../services/car-emulator
+    environment:
+      EMULATOR_COMMAND_SECRET: ${EMULATOR_COMMAND_SECRET:?set EMULATOR_COMMAND_SECRET in .env}
+      EMULATOR_TELEMETRY_SECRET: ${EMULATOR_TELEMETRY_SECRET:?set EMULATOR_TELEMETRY_SECRET in .env}
+      EMULATOR_TELEMETRY_URL: ${EMULATOR_TELEMETRY_URL:-}
+      EMULATOR_CAR_COUNT: ${EMULATOR_CAR_COUNT:-30}
+    ports:
+      - "127.0.0.1:${EMULATOR_PORT:-8100}:8100"
+    healthcheck:
+      # The slim image has no curl or wget, so the check uses Python itself.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8100/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 5s
+    # State lives only in memory, so the same hardening as the API applies.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
 volumes:
   pgdata:
   redisdata:
