@@ -24,26 +24,9 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+  # One root lockfile for all npm workspaces (apps/mobile, apps/admin, packages/*).
   - package-ecosystem: npm
-    directory: /apps/mobile
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        update-types: [minor, patch]
-  - package-ecosystem: npm
-    directory: /apps/admin
-    schedule:
-      interval: weekly
-    cooldown:
-      default-days: 7
-    groups:
-      minor-and-patch:
-        update-types: [minor, patch]
-  - package-ecosystem: npm
-    directory: /packages/api-client
+    directory: /
     schedule:
       interval: weekly
     cooldown:

@@ -1,0 +1,23 @@
+{
+  "name": "@flagman/design-tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "FLAGMAN Drive design tokens (docs/07-design-system.md)",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "lint": "eslint . && prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}
