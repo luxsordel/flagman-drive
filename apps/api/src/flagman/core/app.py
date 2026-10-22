@@ -36,8 +36,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             host=settings.redis_host,
             port=settings.redis_port,
             password=settings.redis_password.get_secret_value(),
-            socket_connect_timeout=settings.readiness_timeout_seconds,
-            socket_timeout=settings.readiness_timeout_seconds,
+            socket_connect_timeout=settings.redis_timeout_seconds,
+            socket_timeout=settings.redis_timeout_seconds,
         )
         app.state.resources = Resources(
             settings=settings,

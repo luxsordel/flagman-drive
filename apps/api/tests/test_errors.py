@@ -3,16 +3,54 @@ from http import HTTPStatus
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic_core import PydanticCustomError
 
 from conftest import SettingsFactory
 from flagman.core.app import create_app
-from flagman.core.errors import PROBLEM_CONTENT_TYPE, VALIDATION_ERROR_TYPE, AppError
+from flagman.core.errors import (
+    CUSTOM_ERROR_MESSAGE,
+    PROBLEM_CONTENT_TYPE,
+    VALIDATION_ERROR_TYPE,
+    AppError,
+)
+
+PHONE = "+375291234567"
+DOCUMENT_NUMBER = "MP1234567"
 
 
 class CarNotFoundError(AppError):
     status = HTTPStatus.NOT_FOUND
     slug = "car-not-found"
     title = "Car not found"
+
+
+class SignUpRequest(BaseModel):
+    """Validators that put the input into their messages, as is easy to do by mistake."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    phone: str
+    document_number: str
+    age: int
+
+    @field_validator("phone")
+    @classmethod
+    def _check_phone(cls, value: str) -> str:
+        raise ValueError(f"not a Belarusian phone: {value!r}")
+
+    @field_validator("document_number")
+    @classmethod
+    def _check_document_number(cls, value: str) -> str:
+        raise PydanticCustomError(
+            "document_number_invalid", "bad document {number}", {"number": value}
+        )
+
+    @field_validator("age")
+    @classmethod
+    def _check_age(cls, value: int) -> int:
+        assert value >= 18, f"too young: {value}"
+        return value
 
 
 @pytest.fixture
@@ -34,6 +72,10 @@ def app(make_settings: SettingsFactory) -> FastAPI:
     @app.get("/test/validation")
     async def validate(phone: int) -> int:
         return phone
+
+    @app.post("/test/sign-up")
+    async def sign_up(body: SignUpRequest) -> None:
+        pass
 
     return app
 
@@ -96,6 +138,28 @@ def test_validation_error_lists_fields_without_echoing_the_input(client: TestCli
         {"loc": ["query", "phone"], "message": body["errors"][0]["message"], "type": "int_parsing"}
     ]
     assert "375291234567" not in response.text
+    # Pydantic's own messages are templates over the schema, not the input, so they are kept.
+    assert body["errors"][0]["message"].startswith("Input should be a valid integer")
+
+
+def test_validation_error_hides_messages_written_by_our_validators(client: TestClient) -> None:
+    response = client.post(
+        "/test/sign-up",
+        json={"phone": PHONE, "document_number": DOCUMENT_NUMBER, "age": 16},
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"] == [
+        {"loc": ["body", "phone"], "message": CUSTOM_ERROR_MESSAGE, "type": "value_error"},
+        {
+            "loc": ["body", "document_number"],
+            "message": CUSTOM_ERROR_MESSAGE,
+            "type": "document_number_invalid",
+        },
+        {"loc": ["body", "age"], "message": CUSTOM_ERROR_MESSAGE, "type": "assertion_error"},
+    ]
+    assert PHONE not in response.text
+    assert DOCUMENT_NUMBER not in response.text
 
 
 def test_unhandled_exception_is_a_generic_500_with_request_id(client: TestClient) -> None:

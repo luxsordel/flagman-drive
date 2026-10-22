@@ -2,12 +2,13 @@
 
 from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, cast, get_args
 
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict
+from pydantic_core.core_schema import ErrorType
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse
 from starlette.types import HTTPExceptionHandler
@@ -15,6 +16,12 @@ from starlette.types import HTTPExceptionHandler
 PROBLEM_CONTENT_TYPE = "application/problem+json"
 PROBLEM_TYPE_PREFIX = "urn:flagman:problem:"
 VALIDATION_ERROR_TYPE = f"{PROBLEM_TYPE_PREFIX}validation-error"
+CUSTOM_ERROR_MESSAGE = "Invalid value"
+
+# Pydantic's built-in messages are templates over the schema (expected type, limits), so they are
+# safe to return. Messages of `value_error`, `assertion_error` and custom error types are written
+# by our validators and may contain the input, so only their `type` reaches the client.
+_SAFE_MESSAGE_TYPES = frozenset(get_args(ErrorType)) - {"value_error", "assertion_error"}
 
 logger = structlog.get_logger(__name__)
 
@@ -123,7 +130,11 @@ async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
     # Only location, message and type: pydantic's `input` and `ctx` may echo personal data back.
     errors = [
-        FieldError(loc=list(error["loc"]), message=error["msg"], type=error["type"])
+        FieldError(
+            loc=list(error["loc"]),
+            message=error["msg"] if error["type"] in _SAFE_MESSAGE_TYPES else CUSTOM_ERROR_MESSAGE,
+            type=error["type"],
+        )
         for error in exc.errors()
     ]
     status = HTTPStatus.UNPROCESSABLE_ENTITY
