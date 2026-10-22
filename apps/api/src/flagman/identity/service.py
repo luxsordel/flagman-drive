@@ -313,8 +313,13 @@ class StaffSignInService:
             next_step=StaffNextStep.TOTP if staff.totp_enrolled else StaffNextStep.TOTP_ENROLLMENT,
         )
 
-    async def start_totp_enrollment(self, challenge_token: str) -> StaffTotpEnrollment:
+    async def start_totp_enrollment(
+        self, challenge_token: str, origin: RequestOrigin
+    ) -> StaffTotpEnrollment:
         staff_id = read_staff_challenge(challenge_token, self._jwt_secret).staff_id
+        # Shares the TOTP limit: otherwise someone with the password could keep replacing the
+        # secret while the owner is scanning the QR code.
+        await self.limiter.hit(STAFF_TOTP_LIMIT, str(staff_id))
         async with self.db.begin():
             staff = await repository.get_staff(self.db, staff_id, for_update=True)
             if staff is None or staff.disabled:
@@ -326,6 +331,12 @@ class StaffSignInService:
             secret = generate_totp_secret()
             ciphertext = encrypt_totp_secret(secret, self.settings.totp_encryption_key, staff.id)
             await repository.set_pending_totp_secret(self.db, staff.id, ciphertext)
+            await audit.record(
+                self.db,
+                AuditEntry(
+                    _staff_actor(staff.id), AuditAction.STAFF_TOTP_ENROLLMENT_STARTED, origin
+                ),
+            )
         return StaffTotpEnrollment(
             otpauth_uri=totp_provisioning_uri(secret, staff.email), secret=secret
         )
@@ -501,20 +512,49 @@ async def reset_staff_totp(db: AsyncSession, email: str, now: datetime) -> UUID:
     """Lost phone or a new encryption key: 2FA is set up again at the next sign-in.
 
     Every session of the staff member ends too: the old authenticator may be in wrong hands.
+    Until the next sign-in the password alone is enough to set up 2FA, so on a suspected
+    break-in the password is changed as well (`set_staff_password`).
     """
     async with db.begin():
-        staff = await repository.get_staff_by_email(db, normalize_email(email))
-        if staff is None:
-            raise StaffNotFoundError
-        await repository.clear_staff_totp(db, staff.id)
-        await repository.revoke_all_staff_sessions(db, staff.id, now)
-        await audit.record(
-            db,
-            AuditEntry(
-                SYSTEM,
-                AuditAction.STAFF_TOTP_RESET,
-                RequestOrigin(),
-                target=AuditTarget("staff_member", staff.id),
-            ),
-        )
+        staff_id = await _end_access(db, email, AuditAction.STAFF_TOTP_RESET, now)
+        await repository.clear_staff_totp(db, staff_id)
+    return staff_id
+
+
+async def set_staff_password(db: AsyncSession, email: str, password: str, now: datetime) -> UUID:
+    """Forgotten or leaked password; raises PasswordPolicyError, StaffNotFoundError."""
+    check_password_policy(password)
+    password_hash = await asyncio.to_thread(hash_password, password)
+    async with db.begin():
+        staff_id = await _end_access(db, email, AuditAction.STAFF_PASSWORD_CHANGED, now)
+        await repository.set_staff_password_hash(db, staff_id, password_hash)
+    return staff_id
+
+
+async def disable_staff(db: AsyncSession, email: str, now: datetime) -> UUID:
+    """The staff member left or the account is compromised: no sign-in and no refresh after this.
+
+    There is no command to enable an account again yet: that comes with staff management in
+    the admin panel.
+    """
+    async with db.begin():
+        staff_id = await _end_access(db, email, AuditAction.STAFF_DISABLED, now)
+        await repository.disable_staff(db, staff_id, now)
+    return staff_id
+
+
+async def _end_access(db: AsyncSession, email: str, action: AuditAction, now: datetime) -> UUID:
+    """Shared by the commands that change how a staff member signs in: every session ends.
+
+    Access tokens are not checked against the database, so they keep working for up to
+    STAFF_ACCESS_TOKEN_TTL (docs/adr/0011).
+    """
+    staff = await repository.get_staff_by_email(db, normalize_email(email))
+    if staff is None:
+        raise StaffNotFoundError
+    await repository.revoke_all_staff_sessions(db, staff.id, now)
+    await audit.record(
+        db,
+        AuditEntry(SYSTEM, action, RequestOrigin(), target=AuditTarget("staff_member", staff.id)),
+    )
     return staff.id

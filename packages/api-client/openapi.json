@@ -13,8 +13,11 @@
           "staff.signed_in",
           "staff.sign_in_failed",
           "staff.signed_out",
+          "staff.totp_enrollment_started",
           "staff.totp_enrolled",
-          "staff.totp_reset"
+          "staff.totp_reset",
+          "staff.password_changed",
+          "staff.disabled"
         ],
         "title": "AuditAction",
         "type": "string"
@@ -569,7 +572,7 @@
             "description": "Work email; compared case-insensitively.",
             "examples": ["operator@flagman.by"],
             "maxLength": 254,
-            "pattern": "^[^\\s@]+@[^\\s@]+$",
+            "pattern": "^[!-?A-~]+@[!-?A-~]+$",
             "title": "Email",
             "type": "string"
           },
@@ -2028,6 +2031,25 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {

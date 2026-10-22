@@ -267,12 +267,13 @@ async def staff_check_password(
                 "`urn:flagman:problem:totp-already-enrolled`: only an administrator resets 2FA."
             ),
         },
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
 async def staff_start_totp_enrollment(
-    body: StaffTotpEnrollmentRequest, service: StaffService
+    body: StaffTotpEnrollmentRequest, origin: Origin, service: StaffService
 ) -> StaffTotpEnrollment:
-    return await service.start_totp_enrollment(body.challenge_token)
+    return await service.start_totp_enrollment(body.challenge_token, origin)
 
 
 @staff_router.post(

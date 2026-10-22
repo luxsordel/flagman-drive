@@ -38,8 +38,11 @@ class AuditAction(StrEnum):
     STAFF_SIGNED_IN = "staff.signed_in"
     STAFF_SIGN_IN_FAILED = "staff.sign_in_failed"
     STAFF_SIGNED_OUT = "staff.signed_out"
+    STAFF_TOTP_ENROLLMENT_STARTED = "staff.totp_enrollment_started"
     STAFF_TOTP_ENROLLED = "staff.totp_enrolled"
     STAFF_TOTP_RESET = "staff.totp_reset"
+    STAFF_PASSWORD_CHANGED = "staff.password_changed"  # noqa: S105 - an event name, not a secret
+    STAFF_DISABLED = "staff.disabled"
 
 
 @dataclass(frozen=True)

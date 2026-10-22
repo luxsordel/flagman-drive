@@ -226,6 +226,14 @@ async def accept_totp_step(
     await db.execute(update(StaffMember).where(StaffMember.id == staff_id).values(**values))
 
 
+async def disable_staff(db: AsyncSession, staff_id: UUID, now: datetime) -> None:
+    await db.execute(
+        update(StaffMember)
+        .where(StaffMember.id == staff_id, StaffMember.disabled_at.is_(None))
+        .values(disabled_at=now)
+    )
+
+
 async def clear_staff_totp(db: AsyncSession, staff_id: UUID) -> None:
     await db.execute(
         update(StaffMember)

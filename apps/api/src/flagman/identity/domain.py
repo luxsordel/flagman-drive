@@ -240,8 +240,9 @@ STAFF_CHALLENGE_TTL = timedelta(minutes=5)
 
 EMAIL_MAX_LENGTH = 254  # RFC 5321 path limit
 # Only rejects obvious garbage; shared by the API schema and the command that creates staff,
-# so the command cannot create an account nobody can sign in to.
-EMAIL_PATTERN = r"^[^\s@]+@[^\s@]+$"
+# so the command cannot create an account nobody can sign in to. Printable ASCII without spaces
+# (the ranges skip "@"): Python and Postgres lowercase a few non-ASCII letters differently.
+EMAIL_PATTERN = r"^[!-?A-~]+@[!-?A-~]+$"
 # The upper bound keeps argon2 from hashing megabytes sent by a caller.
 PASSWORD_MIN_LENGTH = 12
 PASSWORD_MAX_LENGTH = 128

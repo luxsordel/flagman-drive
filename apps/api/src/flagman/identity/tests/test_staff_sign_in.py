@@ -194,8 +194,9 @@ def test_first_sign_in_sets_up_2fa_and_opens_a_session(
     assert me.status_code == HTTPStatus.OK
     assert me.json() == {"id": str(operator.id), "email": operator.email, "role": "operator"}
     actions = [action for action, _ in _events(integration_settings, operator.id)]
-    # One transaction, one now(): the order of the two events is not defined.
-    assert sorted(actions) == ["staff.signed_in", "staff.totp_enrolled"]
+    assert actions[0] == "staff.totp_enrollment_started"
+    # One transaction, one now(): the order of the last two events is not defined.
+    assert sorted(actions[1:]) == ["staff.signed_in", "staff.totp_enrolled"]
 
 
 def test_refresh_token_comes_only_in_a_strict_cookie(client: TestClient, operator: Staff) -> None:
@@ -287,6 +288,22 @@ def test_email_is_case_insensitive(client: TestClient, operator: Staff) -> None:
     assert response.status_code == HTTPStatus.OK
 
 
+@pytest.mark.parametrize("email", ["İnna@flagman.by", "оператор@flagman.by"])
+def test_email_must_be_ascii(client: TestClient, email: str) -> None:
+    # Python and Postgres lowercase some non-ASCII letters differently.
+    assert _password(client, email).status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+def test_qr_code_requests_count_against_the_totp_limit(client: TestClient, operator: Staff) -> None:
+    challenge = _challenge(client, operator)["challenge_token"]
+    for _ in range(10):
+        _enroll(client, challenge)
+
+    response = client.post("/staff/auth/totp/enrollment", json={"challenge_token": challenge})
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+
+
 def test_wrong_password_unknown_email_and_disabled_account_look_the_same(
     client: TestClient,
     operator: Staff,
@@ -355,8 +372,8 @@ def test_totp_guessing_is_rate_limited(client: TestClient, operator: Staff) -> N
     secret, _ = _first_sign_in(client, operator)
     challenge = _challenge(client, operator)["challenge_token"]
     wrong = "000000" if _code(secret, 1) != "000000" else "111111"
-    # One code was already counted by the first sign-in.
-    for _ in range(9):
+    # The first sign-in already counted the QR code request and one code.
+    for _ in range(8):
         _totp(client, challenge, wrong)
 
     response = _totp(client, challenge, _code(secret, steps_ahead=1))
@@ -648,3 +665,75 @@ def test_command_refuses_an_email_nobody_could_sign_in_with(email: str) -> None:
         _run_command("create", "--email", email, "--role", "admin", "--password-stdin")
 
     assert exit_info.value.code == 2  # argparse usage error
+
+
+def _system_events(settings: Settings, staff_id: uuid.UUID) -> list[str]:
+    rows = _query(
+        settings,
+        "SELECT action FROM audit_events WHERE target_id = :id AND actor_type = 'system'"
+        " ORDER BY occurred_at, id",
+        id=staff_id,
+    )
+    return [row.action for row in rows]
+
+
+def test_set_password_replaces_the_old_one_and_ends_sessions(
+    command_env: None, client: TestClient, operator: Staff, integration_settings: Settings
+) -> None:
+    _first_sign_in(client, operator)
+    new_password = "a brand new passphrase"
+
+    code, output = _run_command(
+        "set-password", "--email", operator.email, "--password-stdin", stdin=new_password
+    )
+
+    assert code == cli.EXIT_OK
+    assert new_password not in output
+    assert "15 minutes" in output
+    assert _refresh(client).status_code == HTTPStatus.UNAUTHORIZED
+    assert _password(client, operator.email).status_code == HTTPStatus.UNAUTHORIZED
+    assert _password(client, operator.email, new_password).status_code == HTTPStatus.OK
+    assert _system_events(integration_settings, operator.id)[-1] == "staff.password_changed"
+
+
+def test_set_password_applies_the_policy(command_env: None, operator: Staff) -> None:
+    code, _ = _run_command(
+        "set-password", "--email", operator.email, "--password-stdin", stdin="short"
+    )
+
+    assert code == cli.EXIT_FAILED
+
+
+def test_disable_blocks_sign_in_and_ends_sessions(
+    command_env: None, client: TestClient, operator: Staff, integration_settings: Settings
+) -> None:
+    _first_sign_in(client, operator)
+
+    code, output = _run_command("disable", "--email", operator.email)
+
+    assert code == cli.EXIT_OK
+    assert "15 minutes" in output
+    assert _refresh(client).status_code == HTTPStatus.UNAUTHORIZED
+    response = _password(client, operator.email)
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert _problem(response) == "staff-credentials-invalid"
+    assert _system_events(integration_settings, operator.id)[-1] == "staff.disabled"
+
+
+def test_reset_totp_warns_about_tokens_and_the_password(command_env: None, operator: Staff) -> None:
+    code, output = _run_command("reset-totp", "--email", operator.email)
+
+    assert code == cli.EXIT_OK
+    assert "15 minutes" in output
+    assert "set-password" in output
+
+
+@pytest.mark.parametrize(
+    "command", [["set-password", "--password-stdin"], ["reset-totp"], ["disable"]]
+)
+def test_commands_report_an_unknown_email(command_env: None, command: list[str]) -> None:
+    email = f"nobody-{secrets.token_hex(6)}@flagman.by"
+
+    code, _ = _run_command(*command, "--email", email, stdin=PASSWORD)
+
+    assert code == cli.EXIT_FAILED

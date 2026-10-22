@@ -335,8 +335,11 @@ export interface components {
       | 'staff.signed_in'
       | 'staff.sign_in_failed'
       | 'staff.signed_out'
+      | 'staff.totp_enrollment_started'
       | 'staff.totp_enrolled'
-      | 'staff.totp_reset';
+      | 'staff.totp_reset'
+      | 'staff.password_changed'
+      | 'staff.disabled';
     /** AuditEventOut */
     AuditEventOut: {
       /**
@@ -1659,6 +1662,17 @@ export interface operations {
       /** @description Unprocessable Entity */
       422: {
         headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
           [name: string]: unknown;
         };
         content: {
