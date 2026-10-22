@@ -39,6 +39,22 @@ describe('createApiClient', () => {
     expect(authorization).toBe('Bearer token-1');
   });
 
+  it('passes the credentials mode to every request', async () => {
+    const modes: RequestCredentials[] = [];
+    const api = createApiClient({
+      baseUrl: 'http://api.test',
+      credentials: 'include',
+      fetch: (request) => {
+        modes.push(request.credentials);
+        return Promise.resolve(json({ status: 'ok' }));
+      },
+    });
+
+    await api.GET('/health');
+
+    expect(modes).toEqual(['include']);
+  });
+
   it('sends the sign-in body and types the token pair', async () => {
     const tokens: TokenPair = {
       access_token: 'access-1',
