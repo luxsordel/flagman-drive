@@ -126,3 +126,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0003](adr/0003-maps.md) — MapLibre + OSM вместо Яндекс/Google
 - [ADR-0004](adr/0004-hosting.md) — хостинг
 - [ADR-0005](adr/0005-object-storage-seaweedfs.md) — объектное хранилище SeaweedFS вместо MinIO
+- [ADR-0006](adr/0006-api-error-format.md) — единый формат ошибок API (RFC 9457)
