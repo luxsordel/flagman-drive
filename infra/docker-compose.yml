@@ -110,6 +110,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
+      REDIS_TIMEOUT_SECONDS: ${REDIS_TIMEOUT_SECONDS:-}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:

@@ -30,7 +30,18 @@
   пользователя клиенты берут из своих i18n-словарей по `type`.
 - Расширения: `request_id` (тот же, что в заголовке `X-Request-ID` и в логах) и `errors` для ошибок валидации.
 - В `errors` только место, сообщение и тип ошибки, **без введённого значения** — оно может быть телефоном
-  или номером документа.
+  или номером документа. Сообщение отдаётся только для встроенных ошибок pydantic: почти все они —
+  шаблоны по схеме («Input should be a valid integer») или фиксированные тексты парсеров. Исключения,
+  для которых вместо текста всегда `"Invalid value"`:
+  - `value_error`, `assertion_error` и собственные типы (`PydanticCustomError`) — текст пишет наш
+    валидатор, и в нём легко оказывается значение;
+  - `union_tag_invalid` — pydantic цитирует присланный тег размеченного объединения;
+  - `get_attribute_error`, `iteration_error`, `mapping_type`, `datetime_object_invalid` — в текст
+    подставляется сообщение произвольного исключения.
+
+  Список — `_SAFE_MESSAGE_TYPES` в `flagman/core/errors.py`. Причину такой ошибки клиент различает
+  по `type`: для своих проверок используйте `PydanticCustomError` с понятным типом, например
+  `phone_invalid`.
 - Ответ 500 содержит только `type`, `title`, `status`, `request_id`; подробности — только в логах.
 - Бизнес-ошибки — подклассы `flagman.core.errors.AppError` с полями `status`, `slug`, `title`.
 - В OpenAPI схема `Problem` описана под `application/problem+json` для 422 и 500 на всех эндпоинтах.
