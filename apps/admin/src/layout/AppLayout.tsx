@@ -1,11 +1,13 @@
 import { useTranslation } from 'react-i18next';
 import { NavLink, Outlet } from 'react-router';
 
-import { sections } from '../navigation';
+import { useStaff } from '../auth/context';
+import { sectionsFor } from '../navigation';
 import { Header } from './Header';
 
 export function AppLayout() {
   const { t } = useTranslation();
+  const staff = useStaff();
 
   return (
     <div className="layout">
@@ -13,7 +15,7 @@ export function AppLayout() {
         <div className="brand">{t('app.name')}</div>
         <nav aria-label={t('layout.menu')}>
           <ul className="menu">
-            {sections.map((section) => (
+            {sectionsFor(staff.role).map((section) => (
               <li key={section.key}>
                 {/* Only the overview needs an exact match; sections stay active on their sub-pages. */}
                 <NavLink to={section.path} end={section.path === '/'} className="menu-link">

@@ -1,64 +1,62 @@
-import { spacing } from '@flagman/design-tokens';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useTheme } from '../../theme/theme';
 import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
+import { Screen } from '../../ui/Screen';
 import { TextField } from '../../ui/TextField';
+import { AuthErrorMessage } from './AuthErrorMessage';
 import { belarusCountryCode, parseBelarusMobile } from './phone';
+import type { AuthError } from './session/authErrors';
+import { useAuthSession } from './session/AuthProvider';
 
-/** Phone sign-in stub: no API call until the identity module and SMS port exist. */
+/** First sign-in step: the phone number to text a code to. */
 export function LoginScreen() {
   const { t } = useTranslation();
-  const { colors } = useTheme();
+  const session = useAuthSession();
+  const router = useRouter();
   const [phone, setPhone] = useState('');
-  const [submitted, setSubmitted] = useState(false);
-  const isValid = parseBelarusMobile(phone) !== null;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<AuthError | null>(null);
+  const normalized = parseBelarusMobile(phone);
+
+  async function submit(target: string) {
+    setBusy(true);
+    setError(null);
+    const failure = await session.requestCode(target);
+    setBusy(false);
+    if (failure === null) router.push('/code');
+    else setError(failure);
+  }
 
   return (
-    <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.background }]}>
-      <KeyboardAvoidingView
-        style={styles.safeArea}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-          <AppText variant="title">{t('auth.login.title')}</AppText>
-          <AppText>{t('auth.login.subtitle')}</AppText>
-          <TextField
-            label={t('auth.login.phoneLabel')}
-            hint={t('auth.login.phoneHint')}
-            prefix={belarusCountryCode}
-            value={phone}
-            onChangeText={(value) => {
-              setPhone(value);
-              setSubmitted(false);
-            }}
-            keyboardType="phone-pad"
-            autoComplete="tel"
-            textContentType="telephoneNumber"
-            maxLength={20}
-            testID="login-phone"
-          />
-          <Button
-            title={t('auth.login.submit')}
-            disabled={!isValid}
-            onPress={() => {
-              setSubmitted(true);
-            }}
-          />
-          {submitted && (
-            <AppText accessibilityLiveRegion="polite">{t('auth.login.notAvailable')}</AppText>
-          )}
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </SafeAreaView>
+    <Screen>
+      <AppText variant="title">{t('auth.login.title')}</AppText>
+      <AppText>{t('auth.login.subtitle')}</AppText>
+      <TextField
+        label={t('auth.login.phoneLabel')}
+        hint={t('auth.login.phoneHint')}
+        prefix={belarusCountryCode}
+        value={phone}
+        onChangeText={(value) => {
+          setPhone(value);
+          setError(null);
+        }}
+        keyboardType="phone-pad"
+        autoComplete="tel"
+        textContentType="telephoneNumber"
+        maxLength={20}
+        testID="login-phone"
+      />
+      <Button
+        title={t('auth.login.submit')}
+        disabled={normalized === null || busy}
+        onPress={() => {
+          if (normalized !== null) void submit(normalized);
+        }}
+      />
+      <AuthErrorMessage error={error} />
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  safeArea: { flex: 1 },
-  content: { flexGrow: 1, justifyContent: 'center', padding: spacing.xl, gap: spacing.lg },
-});

@@ -108,6 +108,16 @@ a {
   font-size: var(--font-size-sm);
 }
 
+.header-staff {
+  display: flex;
+  flex-direction: column;
+  margin-left: var(--space-md);
+}
+
+.page-status {
+  padding: var(--space-xl);
+}
+
 .content {
   padding: var(--space-xl);
 }
@@ -158,9 +168,19 @@ a {
 
 .login {
   display: grid;
-  place-items: center;
+  place-content: center;
+  justify-items: center;
+  gap: var(--space-lg);
   min-height: 100vh;
   padding: var(--space-lg);
+}
+
+.login-alert {
+  border-color: var(--color-danger);
+}
+
+.login-alert p {
+  margin: 0;
 }
 
 .login-card {
