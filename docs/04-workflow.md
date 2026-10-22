@@ -31,6 +31,22 @@
 
 `main` защищена: прямой push запрещён, нужен 1 approve и зелёный CI.
 
+### Что проверяет CI
+
+Workflow `.github/workflows/ci.yml` запускается на каждый PR и push в `main`:
+
+| Часть | Проверки |
+|---|---|
+| `apps/api`, `services/car-emulator` | `ruff check`, `ruff format --check`, `mypy`, `lint-imports` (только api), `pytest` (Postgres/Redis через testcontainers), `pip-audit` |
+| `apps/mobile`, `apps/admin`, `packages/api-client` | `npm run lint`, `npm run typecheck`, `npm test`, `npm audit --audit-level=high` |
+| весь репозиторий | Semgrep (SAST), gitleaks и проверка заголовка PR (`repo-checks.yml`) |
+
+- Проверяются только изменённые части; части, которых ещё нет в репозитории, пропускаются.
+  Правка самого `ci.yml` запускает все проверки.
+- В `package.json` каждой JS-части обязательны скрипты `lint`, `typecheck`, `test`.
+- Обязательный для `main` статус — `CI gate`: он есть всегда и зелёный, если все запущенные проверки прошли.
+  Список обязательных проверок задаётся в `scripts/setup-github.ps1`.
+
 ## Коммиты
 
 [Conventional Commits](https://www.conventionalcommits.org/ru/) на английском:

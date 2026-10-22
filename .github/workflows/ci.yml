@@ -1,0 +1,161 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Path filtering happens here instead of in `on.paths`: a workflow skipped by `paths` never reports
+  # a status, so a required check would hang forever. Jobs below are skipped, and the gate still reports.
+  changes:
+    name: Detect changed parts
+    runs-on: ubuntu-latest
+    outputs:
+      python: ${{ steps.detect.outputs.python }}
+      node: ${{ steps.detect.outputs.node }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+      - id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            changed=$(git diff --name-only "$BASE_SHA" HEAD)
+          else
+            changed="__all__"
+          fi
+          # Editing CI itself re-checks everything.
+          if echo "$changed" | grep -Eq '^(__all__|\.github/workflows/ci\.yml)$'; then all=1; else all=0; fi
+
+          has() { [ "$all" = 1 ] || echo "$changed" | grep -Eq "$1"; }
+
+          # A part is checked only once it exists; missing apps are skipped, not failed.
+          python='[]'
+          for dir in apps/api services/car-emulator; do
+            if [ -f "$dir/pyproject.toml" ] && has "^$dir/"; then
+              python=$(echo "$python" | jq -c --arg d "$dir" '. + [$d]')
+            fi
+          done
+
+          node='[]'
+          for dir in apps/mobile apps/admin packages/api-client; do
+            if [ -f "$dir/package.json" ] && { has "^$dir/" || { [ "$dir" != packages/api-client ] && has '^packages/api-client/'; }; }; then
+              node=$(echo "$node" | jq -c --arg d "$dir" '. + [$d]')
+            fi
+          done
+
+          echo "python=$python" >> "$GITHUB_OUTPUT"
+          echo "node=$node" >> "$GITHUB_OUTPUT"
+
+  python-quality:
+    name: Python quality (${{ matrix.dir }})
+    needs: changes
+    if: needs.changes.outputs.python != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.changes.outputs.python) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          enable-cache: true
+          cache-dependency-glob: ${{ matrix.dir }}/uv.lock
+      - run: uv sync --locked
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - run: uv run mypy
+      - name: Module boundaries
+        if: matrix.dir == 'apps/api'
+        run: uv run lint-imports
+      - name: Tests
+        # Integration tests start Postgres/PostGIS and Redis through testcontainers (Docker is on the runner).
+        run: uv run pytest -q
+
+  python-audit:
+    name: Python dependency audit (${{ matrix.dir }})
+    needs: changes
+    if: needs.changes.outputs.python != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.changes.outputs.python) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Audit locked dependencies
+        run: |
+          uv export --frozen --no-emit-project -o "$RUNNER_TEMP/requirements.txt" > /dev/null
+          uvx pip-audit==2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
+
+  node-quality:
+    name: Node quality (${{ matrix.dir }})
+    needs: changes
+    if: needs.changes.outputs.node != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(needs.changes.outputs.node) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.dir }}/package-lock.json
+      - run: npm ci
+      # Scripts are required: a missing one fails the job instead of silently skipping a check.
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - name: Dependency audit (high and above)
+        run: npm audit --audit-level=high
+
+  semgrep:
+    name: Semgrep (SAST)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - name: Run Semgrep
+        run: |
+          uvx semgrep==1.182.1 scan --error --metrics=off \
+            --config p/default --config p/python --config p/typescript --config p/security-audit
+
+  # The only check added to branch protection (besides repo-checks): it always reports,
+  # and passes when every job succeeded or was skipped by change detection.
+  gate:
+    name: CI gate
+    if: always()
+    needs: [changes, python-quality, python-audit, node-quality, semgrep]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require no failed or cancelled jobs
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          echo "$RESULTS" | jq -e 'all(. == "success" or . == "skipped")' > /dev/null
