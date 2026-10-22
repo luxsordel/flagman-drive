@@ -55,3 +55,26 @@ def test_secrets_are_not_shown_in_repr(make_settings: SettingsFactory) -> None:
     assert "db-secret" not in repr(settings)
     assert "redis-secret" not in repr(settings)
     assert "db-secret" not in repr(settings.database_url)
+
+
+@pytest.mark.parametrize("field", ["api_jwt_secret", "api_otp_pepper"])
+def test_sign_in_secrets_must_be_long(make_settings: SettingsFactory, field: str) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(**{field: "x" * 31})
+
+
+def test_sign_in_secrets_must_differ(make_settings: SettingsFactory) -> None:
+    with pytest.raises(ValidationError, match="must be different"):
+        make_settings(api_jwt_secret="x" * 32, api_otp_pepper="x" * 32)
+
+
+def test_sms_codes_in_the_log_are_refused_in_prod(make_settings: SettingsFactory) -> None:
+    with pytest.raises(ValidationError, match="SMS_BACKEND=log"):
+        make_settings(api_env="prod", sms_backend="log")
+
+
+def test_sign_in_secrets_are_not_shown_in_repr(make_settings: SettingsFactory) -> None:
+    settings = make_settings(api_jwt_secret="jwt-" + "a" * 32, api_otp_pepper="pep-" + "b" * 32)
+
+    assert "a" * 32 not in repr(settings)
+    assert "b" * 32 not in repr(settings)

@@ -1,0 +1,135 @@
+import uuid
+from collections.abc import Iterator
+from http import HTTPStatus
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from conftest import SettingsFactory
+from flagman.core.app import create_app
+from flagman.core.errors import PROBLEM_CONTENT_TYPE, VALIDATION_ERROR_TYPE
+
+PHONE = "+375291234567"
+REFRESH_TOKEN = "r" * 43
+
+
+@pytest.fixture
+def client(make_settings: SettingsFactory) -> Iterator[TestClient]:
+    # Nothing listens on these ports: invalid input must be rejected before any I/O.
+    settings = make_settings(postgres_port=1, redis_port=1, sms_backend="log")
+    with TestClient(create_app(settings)) as client:
+        yield client
+
+
+def test_without_an_sms_gateway_only_code_requests_are_unavailable(
+    make_settings: SettingsFactory,
+) -> None:
+    settings = make_settings(postgres_port=1, redis_port=1, sms_backend=None)
+
+    with TestClient(create_app(settings)) as client:
+        otp = client.post("/auth/otp/request", json={"phone": PHONE})
+        refresh = client.post("/auth/token/refresh", json={"refresh_token": "short"})
+
+    assert otp.status_code == HTTPStatus.SERVICE_UNAVAILABLE
+    assert otp.json()["type"] == "urn:flagman:problem:sign-in-unavailable"
+    # Signed-in clients keep refreshing: this one only fails validation, not with a 503.
+    assert refresh.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.parametrize(
+    "phone",
+    [
+        "375291234567",  # no plus
+        "+375 29 123 45 67",  # not normalized
+        "+375171234567",  # Minsk landline, cannot receive SMS
+        "+37529123456",  # one digit short
+        "+79161234567",  # not Belarus
+        "+375２９1234567",  # full-width digits  # noqa: RUF001
+    ],
+)
+def test_otp_request_rejects_phones_outside_the_pilot(client: TestClient, phone: str) -> None:
+    response = client.post("/auth/otp/request", json={"phone": phone})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["type"] == VALIDATION_ERROR_TYPE
+    # The phone is personal data: it is never echoed back.
+    assert phone not in response.text
+
+
+@pytest.mark.parametrize("code", ["12345", "1234567", "12345a", "１２３４５６"])  # noqa: RUF001
+def test_otp_verify_accepts_only_six_ascii_digits(client: TestClient, code: str) -> None:
+    body = {"phone": PHONE, "code": code, "device_id": str(uuid.uuid4())}
+
+    response = client.post("/auth/otp/verify", json=body)
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"][0]["loc"] == ["body", "code"]
+
+
+def test_otp_verify_requires_a_uuid_device_id(client: TestClient) -> None:
+    body = {"phone": PHONE, "code": "123456", "device_id": "my-phone"}
+
+    response = client.post("/auth/otp/verify", json=body)
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"][0]["loc"] == ["body", "device_id"]
+
+
+@pytest.mark.parametrize(
+    ("path", "body"),
+    [
+        ("/auth/otp/request", {"phone": PHONE, "user_id": str(uuid.uuid4())}),
+        ("/auth/token/refresh", {"refresh_token": REFRESH_TOKEN, "device_id": "x"}),
+    ],
+)
+def test_unknown_fields_are_rejected(client: TestClient, path: str, body: dict[str, Any]) -> None:
+    response = client.post(path, json=body)
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"][0]["type"] == "extra_forbidden"
+
+
+def test_otp_verify_knows_only_two_refresh_token_transports(client: TestClient) -> None:
+    body = {
+        "phone": PHONE,
+        "code": "123456",
+        "device_id": str(uuid.uuid4()),
+        "refresh_token_transport": "header",
+    }
+
+    response = client.post("/auth/otp/verify", json=body)
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert response.json()["errors"][0]["loc"] == ["body", "refresh_token_transport"]
+
+
+@pytest.mark.parametrize("path", ["/auth/token/refresh", "/auth/logout"])
+def test_cookie_endpoints_still_require_a_json_body(client: TestClient, path: str) -> None:
+    # A cross-site form can post with the cookie attached, but it cannot send JSON.
+    response = client.post(path, data={"refresh_token": REFRESH_TOKEN})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+@pytest.mark.parametrize("token", ["short", "x" * 1000], ids=["too-short", "too-long"])
+def test_refresh_rejects_tokens_of_absurd_length(client: TestClient, token: str) -> None:
+    response = client.post("/auth/token/refresh", json={"refresh_token": token})
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+def test_openapi_documents_the_error_responses(client: TestClient) -> None:
+    paths = client.app.openapi()["paths"]  # type: ignore[attr-defined]
+    problem = {PROBLEM_CONTENT_TYPE: {"schema": {"$ref": "#/components/schemas/Problem"}}}
+
+    rate_limited = paths["/auth/otp/request"]["post"]["responses"]["429"]
+    assert rate_limited["content"] == problem
+    assert "Retry-After" in rate_limited["headers"]
+
+    verify = paths["/auth/otp/verify"]["post"]["responses"]
+    assert verify["400"]["content"] == problem
+    assert "otp-expired" in verify["400"]["description"]
+
+    refresh = paths["/auth/token/refresh"]["post"]["responses"]
+    assert refresh["401"]["content"] == problem

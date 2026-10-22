@@ -20,6 +20,7 @@ from flagman.core.middleware import (
 )
 from flagman.core.resources import Resources
 from flagman.health.api import router as health_router
+from flagman.identity.api import router as identity_router
 
 DOCS_URL = "/docs"
 SWAGGER_OAUTH_REDIRECT_URL = "/docs/oauth2-redirect"
@@ -73,7 +74,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key", REQUEST_ID_HEADER],
-        expose_headers=[REQUEST_ID_HEADER],
+        # Retry-After is not CORS-safelisted: without this the web client cannot read 429 timing.
+        expose_headers=[REQUEST_ID_HEADER, "Retry-After"],
     )
     app.add_middleware(RequestContextMiddleware)
     app.add_middleware(
@@ -83,4 +85,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.include_router(health_router)
+    app.include_router(identity_router)
     return app

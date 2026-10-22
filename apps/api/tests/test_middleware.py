@@ -73,6 +73,13 @@ def test_cors_allows_configured_origin(client: TestClient) -> None:
     assert response.headers["access-control-allow-credentials"] == "true"
 
 
+def test_cors_lets_the_browser_read_retry_after(client: TestClient) -> None:
+    response = client.get("/health", headers={"Origin": ADMIN_ORIGIN})
+
+    exposed = response.headers["access-control-expose-headers"].lower().split(", ")
+    assert "retry-after" in exposed
+
+
 def test_cors_rejects_unknown_origin(client: TestClient) -> None:
     response = client.options(
         "/health",

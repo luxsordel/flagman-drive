@@ -75,6 +75,37 @@ class AppError(Exception):
     def type(self) -> str:
         return f"{PROBLEM_TYPE_PREFIX}{self.slug}"
 
+    @property
+    def headers(self) -> Mapping[str, str] | None:
+        return None
+
+
+class RateLimitedError(AppError):
+    status = HTTPStatus.TOO_MANY_REQUESTS
+    slug = "rate-limited"
+    title = "Too many requests"
+
+    def __init__(self, retry_after_seconds: int, detail: str | None = None) -> None:
+        super().__init__(detail)
+        self.retry_after_seconds = retry_after_seconds
+
+    @property
+    def headers(self) -> Mapping[str, str] | None:
+        return {"Retry-After": str(self.retry_after_seconds)}
+
+
+RATE_LIMITED_RESPONSE: dict[str, Any] = {
+    "model": Problem,
+    "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+    "headers": {
+        "Retry-After": {
+            "description": "Seconds to wait before retrying.",
+            "schema": {"type": "integer", "minimum": 0},
+        }
+    },
+}
+"""OpenAPI entry for endpoints that raise RateLimitedError."""
+
 
 PROBLEM_RESPONSES: dict[int | str, dict[str, Any]] = {
     status: {"model": Problem}
@@ -134,7 +165,7 @@ async def _app_error_handler(request: Request, exc: AppError) -> JSONResponse:
         detail=exc.detail,
         request_id=get_request_id(request),
     )
-    return problem_response(problem)
+    return problem_response(problem, headers=exc.headers)
 
 
 async def _validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
