@@ -12,6 +12,7 @@ Environment = Literal["dev", "test", "prod"]
 # [0-9] rather than \d: \d also matches non-ASCII digits.
 PILOT_PHONE_RE = re.compile(r"\+375(25|29|33|44)[0-9]{7}")
 OTP_CODE_RE = re.compile(r"[0-9]{6}")
+_DIGIT_RUNS = "0123456789"
 
 
 class Settings(BaseSettings):
@@ -93,6 +94,9 @@ class Settings(BaseSettings):
         code = self.sms_fixed_code.get_secret_value() if self.sms_fixed_code else ""
         if not OTP_CODE_RE.fullmatch(code):
             raise ValueError("SMS_BACKEND=fixed needs SMS_FIXED_CODE of 6 digits")
+        # The test phones are known to the whole team: a guessable code opens all of them at once.
+        if len(set(code)) == 1 or code in _DIGIT_RUNS or code in _DIGIT_RUNS[::-1]:
+            raise ValueError("SMS_FIXED_CODE is too easy to guess, generate a random one")
         if not self.sms_fixed_phones:
             raise ValueError("SMS_BACKEND=fixed needs at least one phone in SMS_FIXED_PHONES")
         if not all(PILOT_PHONE_RE.fullmatch(phone) for phone in self.sms_fixed_phones):

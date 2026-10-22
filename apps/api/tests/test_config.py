@@ -101,6 +101,14 @@ def test_fixed_sms_needs_a_six_digit_code(make_settings: SettingsFactory, code: 
         make_settings(sms_backend="fixed", sms_fixed_code=code, sms_fixed_phones=FIXED_PHONES)
 
 
+@pytest.mark.parametrize(
+    "code", ["000000", "111111", "999999", "012345", "123456", "456789", "987654", "543210"]
+)
+def test_fixed_sms_refuses_guessable_codes(make_settings: SettingsFactory, code: str) -> None:
+    with pytest.raises(ValidationError, match="too easy to guess"):
+        make_settings(sms_backend="fixed", sms_fixed_code=code, sms_fixed_phones=FIXED_PHONES)
+
+
 def test_fixed_sms_needs_at_least_one_phone(make_settings: SettingsFactory) -> None:
     with pytest.raises(ValidationError, match="SMS_FIXED_PHONES"):
         make_settings(sms_backend="fixed", sms_fixed_code="482913")
