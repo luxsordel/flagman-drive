@@ -1,0 +1,28 @@
+{
+  "name": "@flagman/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed FLAGMAN Drive API client, generated from the backend OpenAPI schema",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "gen": "uv run --project ../../apps/api python ../../apps/api/tools/dump_openapi.py openapi.json && openapi-typescript openapi.json -o src/generated/schema.ts && prettier --write src/generated/schema.ts openapi.json",
+    "lint": "eslint . && prettier --check .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "openapi-fetch": "^0.17.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.13.0",
+    "openapi-typescript": "^7.13.0",
+    "prettier": "^3.9.10",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.72.0",
+    "vitest": "^5.0.5"
+  }
+}
