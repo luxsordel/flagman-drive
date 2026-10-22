@@ -1,0 +1,42 @@
+{
+  "app": {
+    "name": "FLAGMAN Drive",
+    "subtitle": "Control panel"
+  },
+  "layout": {
+    "menu": "Main menu"
+  },
+  "nav": {
+    "dashboard": "Overview",
+    "kyc": "Document checks",
+    "fleet": "Fleet",
+    "rentals": "Rentals",
+    "clients": "Clients",
+    "zones": "Zones",
+    "tariffs": "Tariffs and fines",
+    "audit": "Audit log"
+  },
+  "header": {
+    "language": "Language",
+    "darkTheme": "Dark theme"
+  },
+  "languages": {
+    "ru": "Русский",
+    "en": "English"
+  },
+  "section": {
+    "placeholder": "This section comes in later tasks."
+  },
+  "login": {
+    "title": "Staff sign-in",
+    "email": "Work email",
+    "password": "Password",
+    "totp": "Code from your 2FA app",
+    "submit": "Sign in",
+    "notConnected": "Sign-in is not connected yet: this is a stub that sends nothing to the server."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "back": "Back to overview"
+  }
+}

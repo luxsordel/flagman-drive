@@ -112,6 +112,20 @@ docker compose --env-file .env -f infra/docker-compose.yml down -v
 
 Если не стартует: `docker compose --env-file .env -f infra/docker-compose.yml logs <сервис>`.
 
+### Админ-панель (`apps/admin`)
+
+Из корня репозитория — установить JS-зависимости всех workspaces и запустить dev-сервер:
+
+```bash
+npm install
+```
+
+```bash
+npm run dev --workspace @flagman/admin
+```
+
+Панель открывается на http://127.0.0.1:5173. Подробнее — [apps/admin/README.md](../apps/admin/README.md).
+
 ## 4. Прочитать
 
 1. [README](../README.md) → [цели](01-vision-and-mvp.md) → [архитектура](02-architecture.md)
