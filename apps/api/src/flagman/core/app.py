@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from redis.asyncio import Redis
 from starlette.middleware.cors import CORSMiddleware
 
+from flagman.audit.api import router as audit_router
 from flagman.core.config import Settings, load_settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.errors import (
@@ -86,4 +87,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health_router)
     app.include_router(identity_router)
+    app.include_router(audit_router)
     return app

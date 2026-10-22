@@ -27,7 +27,9 @@ async def test_migrations_enable_postgis(integration_settings: Settings) -> None
 @pytest.mark.integration
 async def test_migrations_match_the_models(integration_settings: Settings) -> None:
     # Migrations are reviewed by hand; this catches a model change that forgot its migration.
-    import flagman.identity.models  # noqa: F401, PLC0415 - registers the tables on Base.metadata
+    # Importing the models registers their tables on Base.metadata.
+    import flagman.audit.models  # noqa: PLC0415
+    import flagman.identity.models  # noqa: F401, PLC0415
 
     # PostGIS ships its own tables (spatial_ref_sys and others); only ours are compared.
     ours = set(Base.metadata.tables)

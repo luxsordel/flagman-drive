@@ -13,6 +13,7 @@ from uuid import UUID
 import jwt
 
 from flagman.core.errors import AppError
+from flagman.core.security import keyed_hash
 
 OTP_LENGTH = 6
 OTP_TTL = timedelta(minutes=5)
@@ -70,10 +71,18 @@ class AccessTokenInvalidError(AppError):
         return {"WWW-Authenticate": "Bearer"}
 
 
-def keyed_hash(value: str, pepper: str) -> str:
-    """HMAC-SHA256 for low-entropy values (codes, phones): a plain hash of them is brute-forced
-    in seconds, while without the pepper a leaked hash is useless."""
-    return hmac.new(pepper.encode(), value.encode(), hashlib.sha256).hexdigest()
+class StaffRole(StrEnum):
+    OPERATOR = "operator"
+    TECHNICIAN = "technician"
+    ADMIN = "admin"
+
+
+class StaffRoleForbiddenError(AppError):
+    """A signed-in staff member opened a section of another role."""
+
+    status = HTTPStatus.FORBIDDEN
+    slug = "forbidden"
+    title = "Forbidden"
 
 
 def generate_otp_code() -> str:
