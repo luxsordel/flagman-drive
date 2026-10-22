@@ -102,6 +102,8 @@ services:
       API_JWT_SECRET: ${API_JWT_SECRET:?set API_JWT_SECRET in .env}
       API_OTP_PEPPER: ${API_OTP_PEPPER:?set API_OTP_PEPPER in .env}
       SMS_BACKEND: ${SMS_BACKEND:-}
+      # Read by uvicorn itself; the default is uvicorn's own.
+      FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
