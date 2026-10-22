@@ -1,7 +1,7 @@
 """audit events clock timestamp
 
 Revision ID: 9f5ccc74d90b
-Revises: 4a250ed5a850
+Revises: a0a42ade87d1
 Create Date: 2026-10-23 18:00:00.000000
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "9f5ccc74d90b"
-down_revision: str | Sequence[str] | None = "4a250ed5a850"
+down_revision: str | Sequence[str] | None = "a0a42ade87d1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
