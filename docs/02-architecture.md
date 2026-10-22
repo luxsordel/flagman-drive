@@ -91,7 +91,8 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - `services/car-emulator` — отдельный Python-сервис, имитирует N машин в Минске: координаты, заряд,
   двери, зажигание; движется по маршрутам во время «поездки», разряжается, принимает команды.
 - Обмен как у реальных облачных API телематики: **команды** — HTTP-запросы от API к эмулятору,
-  **телеметрия** — подписанные (HMAC) вебхуки от эмулятора в API.
+  **телеметрия** — подписанные (HMAC) вебхуки от эмулятора в API. Формат подписи —
+  [ADR-0006](adr/0006-telematics-hmac-signing.md).
 - Подключение реального поставщика = новая реализация `TelematicsGateway` + приём его вебхуков.
 
 ## Стек
@@ -126,3 +127,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0003](adr/0003-maps.md) — MapLibre + OSM вместо Яндекс/Google
 - [ADR-0004](adr/0004-hosting.md) — хостинг
 - [ADR-0005](adr/0005-object-storage-seaweedfs.md) — объектное хранилище SeaweedFS вместо MinIO
+- [ADR-0006](adr/0006-telematics-hmac-signing.md) — подпись запросов телематики HMAC + метка времени

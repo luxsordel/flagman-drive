@@ -1,0 +1,51 @@
+name: car-emulator
+
+on:
+  pull_request:
+    paths:
+      - services/car-emulator/**
+      - .github/workflows/car-emulator.yml
+  push:
+    branches: [main]
+    paths:
+      - services/car-emulator/**
+      - .github/workflows/car-emulator.yml
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: services/car-emulator
+
+jobs:
+  checks:
+    name: Lint, types, tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
+        with:
+          version: "0.13.4"
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: ruff format
+        run: uv run --no-sync ruff format --check .
+      - name: ruff lint
+        run: uv run --no-sync ruff check .
+      - name: mypy
+        run: uv run --no-sync mypy src tests
+      - name: pytest
+        run: uv run --no-sync pytest
+      - name: pip-audit
+        run: |
+          uv export --frozen --no-dev --no-emit-project --format requirements.txt -o "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit==2.10.1 --strict --disable-pip --require-hashes -r "$RUNNER_TEMP/requirements.txt"
+
+  image:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        run: docker build -t flagman/car-emulator:ci .

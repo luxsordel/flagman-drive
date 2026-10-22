@@ -4,4 +4,12 @@ updates:
     directory: /
     schedule:
       interval: weekly
-  # pip / npm ecosystems are added in stage 0 together with apps/*
+  - package-ecosystem: uv
+    directory: /services/car-emulator
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /services/car-emulator
+    schedule:
+      interval: weekly
+  # pip / npm ecosystems for apps/* are added together with those apps
