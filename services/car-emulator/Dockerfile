@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:0.13.4 AS uv
 
-FROM python:3.12.15-slim AS build
+FROM python:3.14.7-slim AS build
 COPY --from=uv /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -12,7 +12,7 @@ RUN uv sync --locked --no-dev --no-install-project
 COPY src ./src
 RUN uv sync --locked --no-dev --no-editable
 
-FROM python:3.12.15-slim
+FROM python:3.14.7-slim
 RUN useradd --system --uid 10001 --no-create-home emulator
 COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH \
