@@ -13,10 +13,15 @@ export function resolveApiUrl(configured: string | undefined): string {
   return trimmed === '' ? defaultApiUrl : trimmed;
 }
 
+/** API origin of this build. */
+export function appApiUrl(): string {
+  // Public client setting, not a secret; inlined at build time, so read by its literal name.
+  return resolveApiUrl(process.env.EXPO_PUBLIC_API_URL);
+}
+
 export function createAppAuthSession(): AuthSession {
   const api = createApiClient({
-    // Public client setting, not a secret; inlined at build time, so read by its literal name.
-    baseUrl: resolveApiUrl(process.env.EXPO_PUBLIC_API_URL),
+    baseUrl: appApiUrl(),
     // The web app runs on another origin than the API; the refresh cookie must ride along.
     ...(Platform.OS === 'web' ? { credentials: 'include' as const } : {}),
   });
