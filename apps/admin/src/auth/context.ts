@@ -1,15 +1,19 @@
 import { createContext, useContext } from 'react';
 
+import type { AccessToken } from './session';
 import type { Staff } from './staff';
 
 export type AuthState =
   | { status: 'loading' }
+  // byUser: the staff member signed out, the session did not just expire.
   // logoutFailed: the panel forgot the session, but the server and its refresh cookie may keep it.
-  | { status: 'signedOut'; logoutFailed?: true }
+  | { status: 'signedOut'; byUser?: true; logoutFailed?: true }
   | { status: 'signedIn'; staff: Staff };
 
 export interface AuthContextValue {
   state: AuthState;
+  /** Finishes a sign-in that passed 2FA; rejects when the staff profile cannot be loaded. */
+  signIn: (token: AccessToken) => Promise<void>;
   /** Never rejects: a failed server sign-out shows up as `logoutFailed` instead. */
   signOut: () => Promise<void>;
 }

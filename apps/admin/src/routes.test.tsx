@@ -1,4 +1,5 @@
 import { screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
 import ru from './i18n/ru.json';
@@ -7,11 +8,27 @@ import { testStaff } from './test/auth';
 import { renderAt } from './test/render';
 
 describe('routes', () => {
-  it('shows the staff sign-in page at /login', () => {
+  it('shows the staff sign-in page at /login', async () => {
     renderAt('/login', null);
 
-    expect(screen.getByRole('heading', { name: ru.login.title })).toBeDefined();
+    expect(await screen.findByRole('heading', { name: ru.login.title })).toBeDefined();
     expect(screen.queryByRole('navigation')).toBeNull();
+  });
+
+  it('does not return to the page the staff member left by signing out', async () => {
+    const user = userEvent.setup();
+    const { api } = renderAt('/fleet', testStaff());
+    await user.click(await screen.findByRole('button', { name: ru.header.signOut }));
+    expect(await screen.findByRole('heading', { name: ru.login.title })).toBeDefined();
+    expect(api.logout).toHaveBeenCalledOnce();
+
+    await user.type(screen.getByLabelText(ru.login.email), 'operator@example.com');
+    await user.type(screen.getByLabelText(ru.login.password), 'correct horse battery');
+    await user.click(screen.getByRole('button', { name: ru.login.next }));
+    await user.type(await screen.findByLabelText(ru.login.totp), '123456');
+    await user.click(screen.getByRole('button', { name: ru.login.submit }));
+
+    expect(await screen.findByRole('heading', { level: 1, name: ru.nav.dashboard })).toBeDefined();
   });
 
   it('sends a visitor without a session to the sign-in page', async () => {

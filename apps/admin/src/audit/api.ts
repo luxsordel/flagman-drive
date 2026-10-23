@@ -1,6 +1,6 @@
 import type { components } from '@flagman/api-client';
 
-import { ApiError, type AdminApiClient } from '../api/client';
+import { unwrap, type AdminApiClient } from '../api/client';
 import { minskDayStart, nextDay } from './minskTime';
 
 export type AuditEvent = components['schemas']['AuditEventOut'];
@@ -28,7 +28,7 @@ export interface AuditLogApi {
 export function createAuditLogApi(client: AdminApiClient): AuditLogApi {
   return {
     async list(filter, cursor) {
-      const { data, response } = await client.GET('/admin/audit-events', {
+      const result = await client.GET('/admin/audit-events', {
         params: {
           query: {
             limit: auditPageSize,
@@ -41,8 +41,7 @@ export function createAuditLogApi(client: AdminApiClient): AuditLogApi {
           },
         },
       });
-      if (!data) throw new ApiError(response.status);
-      return data;
+      return unwrap(result);
     },
   };
 }

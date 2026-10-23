@@ -15,12 +15,12 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 
-import { createAdminApiClient } from './api/client';
+import { createAdminApiClient, createAuthApiClient } from './api/client';
 import { ApiContext, type AdminApis } from './api/context';
 import { createAuditLogApi } from './audit/api';
 import { AuthProvider } from './auth/AuthProvider';
-import { pendingStaffAuthApi } from './auth/pendingApi';
 import { createStaffSession } from './auth/session';
+import { createStaffAuthApi } from './auth/staffApi';
 import { routes } from './routes';
 import { applyTheme, currentTheme, installTheme } from './theme';
 
@@ -30,9 +30,10 @@ applyTheme(currentTheme());
 const root = document.getElementById('root');
 if (!root) throw new Error('index.html has no #root element');
 
-const session = createStaffSession(pendingStaffAuthApi);
+const staffAuth = createStaffAuthApi(createAuthApiClient());
+const session = createStaffSession(staffAuth);
 const client = createAdminApiClient(session);
-const apis: AdminApis = { auditLog: createAuditLogApi(client) };
+const apis: AdminApis = { auditLog: createAuditLogApi(client), staffSignIn: staffAuth };
 
 createRoot(root).render(
   <StrictMode>
