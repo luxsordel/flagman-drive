@@ -76,8 +76,15 @@
     },
     "filterByStaff": "Show only the actions of staff member {{id}}",
     "actions": {
+      "staffCreated": "Staff member created",
       "staffSignedIn": "Staff sign-in",
-      "staffSignInFailed": "Failed staff sign-in"
+      "staffSignInFailed": "Failed staff sign-in",
+      "staffSignedOut": "Staff sign-out",
+      "staffTotpEnrollmentStarted": "2FA setup started",
+      "staffTotpEnrolled": "2FA set up",
+      "staffTotpReset": "2FA reset",
+      "staffPasswordChanged": "Staff password changed",
+      "staffDisabled": "Staff member disabled"
     },
     "noTarget": "none",
     "loading": "Loading the log…",

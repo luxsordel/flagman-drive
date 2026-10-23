@@ -14,10 +14,17 @@ from flagman.identity.domain import (
     StaffRole,
     StaffRoleForbiddenError,
     read_access_token,
+    read_staff_access_token,
 )
 
 # auto_error=False: a missing header gets our problem+json 401, not FastAPI's own 403.
-_bearer = HTTPBearer(auto_error=False, description="Access token from `POST /auth/otp/verify`.")
+_bearer = HTTPBearer(
+    auto_error=False,
+    description=(
+        "Access token: a client's from `POST /auth/otp/verify`, "
+        "a staff member's from `POST /staff/auth/totp`."
+    ),
+)
 
 
 @dataclass(frozen=True)
@@ -51,10 +58,19 @@ class CurrentStaff:
 
 async def get_current_staff(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
+    resources: Annotated[Resources, Depends(get_resources)],
 ) -> CurrentStaff:
-    """Staff sign-in comes with #32; until then no token is a staff token, so every staff-only
-    endpoint fails closed with 401. The bearer dependency keeps the scheme in OpenAPI."""
-    raise AccessTokenInvalidError
+    """Any signed-in staff member; endpoints of particular roles use `require_staff_role`.
+
+    Only the token is checked, as for clients: a disabled account or a new role takes effect
+    within the access token lifetime (15 minutes), see docs/adr/0011.
+    """
+    if credentials is None:
+        raise AccessTokenInvalidError
+    claims = read_staff_access_token(
+        credentials.credentials, resources.settings.api_jwt_secret.get_secret_value()
+    )
+    return CurrentStaff(staff_id=claims.staff_id, role=claims.role)
 
 
 def require_staff_role(*roles: StaffRole) -> Callable[[CurrentStaff], Awaitable[CurrentStaff]]:

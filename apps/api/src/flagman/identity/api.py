@@ -5,11 +5,17 @@ from typing import Annotated
 from fastapi import APIRouter, Cookie, Depends, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.audit.dependencies import get_request_origin
+from flagman.audit.domain import RequestOrigin
 from flagman.core.db import get_session
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.ratelimit import RateLimiter, get_rate_limiter
 from flagman.core.resources import Resources, get_resources
-from flagman.identity.domain import REFRESH_TOKEN_TTL, RefreshTokenInvalidError
+from flagman.identity.dependencies import CurrentStaff, get_current_staff
+from flagman.identity.domain import (
+    REFRESH_TOKEN_TTL,
+    RefreshTokenInvalidError,
+)
 from flagman.identity.ports import SmsSender, create_sms_sender
 from flagman.identity.schemas import (
     LogoutRequest,
@@ -18,9 +24,17 @@ from flagman.identity.schemas import (
     OtpVerifyRequest,
     RefreshRequest,
     RefreshTokenTransport,
+    StaffAccessToken,
+    StaffChallengeIssued,
+    StaffPasswordRequest,
+    StaffProfile,
+    StaffRefreshRequest,
+    StaffTotpEnrollment,
+    StaffTotpEnrollmentRequest,
+    StaffTotpRequest,
     TokenPair,
 )
-from flagman.identity.service import SignInService
+from flagman.identity.service import SignInService, StaffSignInService, StaffTokens
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -168,3 +182,190 @@ async def logout(
     response.delete_cookie(
         REFRESH_COOKIE, path=REFRESH_COOKIE_PATH, secure=True, httponly=True, samesite="strict"
     )
+
+
+# Staff sign-in (#32, docs/adr/0011). The admin panel is a web app only, so the refresh token
+# always travels in a cookie of its own, apart from the client's and sent to the staff routes only.
+staff_router = APIRouter(prefix="/staff", tags=["staff-auth"])
+
+STAFF_REFRESH_COOKIE = "flagman_staff_refresh"
+STAFF_REFRESH_COOKIE_PATH = "/staff/auth"
+StaffRefreshCookie = Annotated[str | None, Cookie(alias=STAFF_REFRESH_COOKIE)]
+
+
+def get_staff_sign_in_service(
+    db: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    resources: Annotated[Resources, Depends(get_resources)],
+) -> StaffSignInService:
+    return StaffSignInService(db=db, limiter=limiter, settings=resources.settings)
+
+
+StaffService = Annotated[StaffSignInService, Depends(get_staff_sign_in_service)]
+Origin = Annotated[RequestOrigin, Depends(get_request_origin)]
+
+
+def _no_store(response: Response) -> None:
+    # Tokens and the TOTP secret must not stay in a browser or proxy cache.
+    response.headers["Cache-Control"] = "no-store"
+
+
+def _deliver_staff(tokens: StaffTokens, response: Response, now: datetime) -> StaffAccessToken:
+    response.set_cookie(
+        STAFF_REFRESH_COOKIE,
+        tokens.refresh_token,
+        # Until the session ends, not a full TTL from now: refreshes do not extend the session.
+        max_age=max(int((tokens.session_expires_at - now).total_seconds()), 1),
+        path=STAFF_REFRESH_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+    return tokens.access_token
+
+
+_CHALLENGE_INVALID = {
+    "model": Problem,
+    "description": "`urn:flagman:problem:staff-challenge-invalid`: start again with the password.",
+}
+
+
+@staff_router.post(
+    "/auth/password",
+    summary="Staff sign-in, step 1: check the email and password",
+    dependencies=[Depends(_no_store)],
+    responses={
+        HTTPStatus.UNAUTHORIZED: {
+            "model": Problem,
+            "description": (
+                "`urn:flagman:problem:staff-credentials-invalid`: wrong email or password, "
+                "or the account is disabled; the cases are not told apart."
+            ),
+        },
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+    },
+)
+async def staff_check_password(
+    body: StaffPasswordRequest, origin: Origin, service: StaffService
+) -> StaffChallengeIssued:
+    return await service.check_password(body.email, body.password, origin, datetime.now(UTC))
+
+
+@staff_router.post(
+    "/auth/totp/enrollment",
+    summary="Staff sign-in, first time only: get a new TOTP secret for the QR code",
+    description=(
+        "Each call replaces the secret that is not confirmed yet. "
+        "The first accepted code in `POST /staff/auth/totp` finishes the setup."
+    ),
+    dependencies=[Depends(_no_store)],
+    responses={
+        HTTPStatus.UNAUTHORIZED: _CHALLENGE_INVALID,
+        HTTPStatus.CONFLICT: {
+            "model": Problem,
+            "description": (
+                "`urn:flagman:problem:totp-already-enrolled`: only an administrator resets 2FA."
+            ),
+        },
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+    },
+)
+async def staff_start_totp_enrollment(
+    body: StaffTotpEnrollmentRequest, origin: Origin, service: StaffService
+) -> StaffTotpEnrollment:
+    return await service.start_totp_enrollment(body.challenge_token, origin)
+
+
+@staff_router.post(
+    "/auth/totp",
+    summary="Staff sign-in, step 2: check the TOTP code and start a session",
+    description="The refresh token is set as an HttpOnly cookie and is not in the body.",
+    dependencies=[Depends(_no_store)],
+    responses={
+        HTTPStatus.BAD_REQUEST: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:totp-invalid`: wrong code, the user may retry.",
+        },
+        HTTPStatus.UNAUTHORIZED: _CHALLENGE_INVALID,
+        HTTPStatus.CONFLICT: {
+            "model": Problem,
+            "description": (
+                "`urn:flagman:problem:totp-enrollment-not-started`: get the QR code first. "
+                "`urn:flagman:problem:totp-reset-required`: an administrator must reset 2FA."
+            ),
+        },
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+    },
+)
+async def staff_verify_totp(
+    body: StaffTotpRequest, origin: Origin, response: Response, service: StaffService
+) -> StaffAccessToken:
+    now = datetime.now(UTC)
+    tokens = await service.verify_totp(body.challenge_token, body.code, origin, now)
+    return _deliver_staff(tokens, response, now)
+
+
+@staff_router.post(
+    "/auth/token/refresh",
+    summary="Rotate the staff refresh cookie and get a new access token",
+    description=f"The new token carries the current role. {_COOKIE_BODY_NOTE}",
+    dependencies=[Depends(_no_store)],
+    responses={
+        HTTPStatus.UNAUTHORIZED: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:refresh-token-invalid`: sign in again.",
+        },
+    },
+)
+async def staff_refresh_tokens(
+    body: StaffRefreshRequest,
+    response: Response,
+    service: StaffService,
+    refresh_cookie: StaffRefreshCookie = None,
+) -> StaffAccessToken:
+    if refresh_cookie is None:
+        raise RefreshTokenInvalidError
+    now = datetime.now(UTC)
+    tokens = await service.refresh_tokens(refresh_cookie, now)
+    return _deliver_staff(tokens, response, now)
+
+
+@staff_router.post(
+    "/auth/logout",
+    summary="End the staff session of the refresh cookie",
+    description=f"Idempotent: without a valid cookie it also gives 204. {_COOKIE_BODY_NOTE}",
+    status_code=HTTPStatus.NO_CONTENT,
+)
+async def staff_logout(
+    body: StaffRefreshRequest,
+    origin: Origin,
+    response: Response,
+    service: StaffService,
+    refresh_cookie: StaffRefreshCookie = None,
+) -> None:
+    if refresh_cookie is not None:
+        await service.logout(refresh_cookie, origin, datetime.now(UTC))
+    response.delete_cookie(
+        STAFF_REFRESH_COOKIE,
+        path=STAFF_REFRESH_COOKIE_PATH,
+        secure=True,
+        httponly=True,
+        samesite="strict",
+    )
+
+
+@staff_router.get(
+    "/me",
+    summary="The signed-in staff member",
+    description="The admin panel builds its menu from `role` after a page reload.",
+    responses={
+        HTTPStatus.UNAUTHORIZED: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in.",
+        },
+    },
+)
+async def staff_me(
+    staff: Annotated[CurrentStaff, Depends(get_current_staff)], service: StaffService
+) -> StaffProfile:
+    return await service.get_profile(staff.staff_id)

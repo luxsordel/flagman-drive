@@ -4,6 +4,7 @@ Builds the app without connecting to Postgres or Redis (the lifespan is not star
 in CI and on a clean machine. The settings are placeholders and never read the real `.env`.
 """
 
+import base64
 import json
 import sys
 from pathlib import Path
@@ -23,6 +24,7 @@ _PLACEHOLDER_SETTINGS = Settings(
     redis_password=SecretStr("openapi"),
     api_jwt_secret=SecretStr("openapi-jwt-" + "j" * 32),
     api_otp_pepper=SecretStr("openapi-pepper-" + "p" * 32),
+    api_totp_encryption_key=SecretStr(base64.b64encode(b"o" * 32).decode()),
 )
 
 
