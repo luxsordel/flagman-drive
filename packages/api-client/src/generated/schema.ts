@@ -180,6 +180,27 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/me': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The signed-in client's profile */
+    get: operations['get_my_profile_me_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /**
+     * Change the signed-in client's profile
+     * @description Only the fields in the body change. The phone cannot be changed here.
+     */
+    patch: operations['update_my_profile_me_patch'];
+    trace?: never;
+  };
   '/ready': {
     parameters: {
       query?: never;
@@ -404,6 +425,65 @@ export interface components {
      * @enum {string}
      */
     CheckStatus: 'ok' | 'fail';
+    /** ClientProfile */
+    ClientProfile: {
+      /**
+       * Birth Date
+       * @description Null until the client fills it in.
+       */
+      birth_date: string | null;
+      /** Email */
+      email: string | null;
+      /**
+       * First Name
+       * @description Null until the client fills it in.
+       */
+      first_name: string | null;
+      /** @description Language of the app. */
+      language: components['schemas']['Language'];
+      /**
+       * Last Name
+       * @description Null until the client fills it in.
+       */
+      last_name: string | null;
+      /**
+       * Phone
+       * @description The number the client signs in with; not changed through the profile.
+       * @example +375291234567
+       */
+      phone: string;
+    };
+    /**
+     * ClientProfileUpdate
+     * @description Fields left out stay as they are; `phone` is not accepted.
+     */
+    ClientProfileUpdate: {
+      /**
+       * Birth Date
+       * Format: date
+       * @description Not in the future and not before 1 January 120 years ago, else `urn:flagman:problem:birth-date-invalid`.
+       * @example 1990-05-17
+       */
+      birth_date?: string;
+      /**
+       * Email
+       * @description Null removes the email.
+       */
+      email?: string | null;
+      /**
+       * First Name
+       * @description As in the documents; at most 100 characters.
+       * @example Анна
+       */
+      first_name?: string;
+      language?: components['schemas']['Language'];
+      /**
+       * Last Name
+       * @description As in the documents; at most 100 characters.
+       * @example Анна
+       */
+      last_name?: string;
+    };
     /**
      * DocumentKind
      * @description Values are stored as is and are part of the API path: renaming one breaks both.
@@ -469,6 +549,11 @@ export interface components {
      * @enum {string}
      */
     KycStatus: 'not_submitted' | 'pending' | 'approved' | 'rejected';
+    /**
+     * Language
+     * @enum {string}
+     */
+    Language: 'ru' | 'en';
     /** LivenessResponse */
     LivenessResponse: {
       status: components['schemas']['CheckStatus'];
@@ -1326,6 +1411,104 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:document-storage-unavailable`. */
       503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_my_profile_me_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ClientProfile'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  update_my_profile_me_patch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ClientProfileUpdate'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ClientProfile'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:validation-error`: see `errors`. `urn:flagman:problem:birth-date-invalid`: in the future or too long ago. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
         headers: {
           [name: string]: unknown;
         };
