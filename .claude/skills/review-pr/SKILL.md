@@ -33,3 +33,37 @@ Argument: PR number. If none is given, list open PRs where the current user is a
    relevant lines when the user agrees, so the author can resolve them one by one.
 5. After an approval, tell the user what happens next: if the author turned on auto-merge, the PR merges
    itself once CI is green; otherwise someone presses "Squash and merge". If the PR is behind main, say so.
+6. If the posted review left must-fix or should-fix items, follow the fix — see below.
+
+## Following the fix
+
+The author (usually their Claude session, see `ship`) fixes the comments, pushes, replies in the threads and
+re-requests your review once the whole fix is in. You notice the re-request and recheck without the user
+relaying anything. The user's consent to post the review covers the rounds below: replies in threads, resolving
+them and the round summaries need no new confirmation. Approving still does (step 4).
+
+1. Note the head commit you reviewed (`gh pr view <n> --json headRefOid`) and start the watcher with the Bash
+   tool in the background (`run_in_background`, not Monitor — it may wait for hours):
+   `bash scripts/wait-pr-activity.sh <n> --until-review-request`. It wakes only on the re-request, so a fix
+   still in progress does not cost a round. Tell the user you are watching the PR and that "stop watching"
+   ends it; on that, stop the background task (TaskStop) and confirm it is stopped.
+2. When the watcher exits, read its output:
+   - review requested → run a round (step 3);
+   - PR merged or closed, nothing for 24 h (exit 3) or GitHub unreachable (exit 1) → tell the user and stop.
+3. A round is steps 2 and 4 of `/review-open-prs` for this one PR: re-review only the author's own commits since
+   the reviewed head (`git fetch origin <headRefName>`, then
+   `git log --first-parent --no-merges -p <reviewed>..origin/<headRefName>`: without `--first-parent` the log also
+   lists the commits a `/sync` brought in from `main`), then go through your unresolved threads — fixed ones get a reply with the commit and are
+   resolved, judged by the code and not by the author's reply. Check the changed lines by the checklist of
+   step 2: a fix can break something else; new problems go as new inline comments. Comments are in Russian,
+   as in `/review-open-prs`.
+4. Decide what is next:
+   - Something is still open → post the round summary the way step 5 of `/review-open-prs` does (COMMENT, or
+     REQUEST_CHANGES while a must-fix is open), note the new reviewed head and start the watcher again.
+   - Everything is fixed → do not approve on your own. Tell the user (and send a push notification if the tool
+     is available) in two or three lines what was fixed and the CI state, and ask whether to approve. Approve
+     only on their yes, then continue with step 5 above.
+   - The third round still leaves open items, or a disagreement neither side gives up → stop watching, post a
+     summary that hands the PR to the humans and tell the user. Two agents must not argue in a loop.
+5. Rounds run without the user in the conversation: ask them nothing mid-round except the approval. Never push
+   to the author's branch: the fix is theirs.
