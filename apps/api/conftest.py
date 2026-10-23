@@ -1,3 +1,4 @@
+import base64
 import secrets
 from collections.abc import Iterator
 from pathlib import Path
@@ -35,6 +36,7 @@ def make_settings() -> SettingsFactory:
             "redis_password": "test",
             "api_jwt_secret": "test-jwt-secret-" + "j" * 32,
             "api_otp_pepper": "test-otp-pepper-" + "p" * 32,
+            "api_totp_encryption_key": base64.b64encode(b"t" * 32).decode(),
             **overrides,
         }
         return Settings(_env_file=None, **values)
@@ -78,6 +80,7 @@ def integration_env(
         "REDIS_PASSWORD": str(redis_container.password),
         "API_JWT_SECRET": secrets.token_hex(32),
         "API_OTP_PEPPER": secrets.token_hex(32),
+        "API_TOTP_ENCRYPTION_KEY": base64.b64encode(secrets.token_bytes(32)).decode(),
         "SMS_BACKEND": "log",
     }
 

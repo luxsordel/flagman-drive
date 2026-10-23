@@ -1,3 +1,5 @@
+import base64
+import binascii
 import re
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
@@ -7,6 +9,8 @@ from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy import URL
 
 Environment = Literal["dev", "test", "prod"]
+
+TOTP_KEY_BYTES = 32  # AES-256-GCM
 
 # Same rules as the API accepts (flagman.identity.schemas), so every listed phone can sign in.
 # [0-9] rather than \d: \d also matches non-ASCII digits.
@@ -57,6 +61,10 @@ class Settings(BaseSettings):
     sms_fixed_code: SecretStr | None = None
     sms_fixed_phones: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
+    # Staff sign-in, see docs/adr/0011. TOTP secrets are encrypted with this key, so a database
+    # dump alone does not let anyone generate staff 2FA codes. 32 bytes in standard base64.
+    api_totp_encryption_key: SecretStr
+
     # Private bucket for client documents, see docs/adr/0005 and docs/adr/0012. The API talks to
     # the endpoint, while signed links point to the public URL: the S3 signature covers the host,
     # so a link signed for the internal address does not open from a phone.
@@ -87,6 +95,21 @@ class Settings(BaseSettings):
             if parts.path or parts.query or parts.fragment:
                 raise ValueError(f"CORS origin must not have a path, got {origin!r}")
         return origins
+
+    @field_validator("api_totp_encryption_key")
+    @classmethod
+    def _validate_totp_key(cls, key: SecretStr) -> SecretStr:
+        try:
+            raw = base64.b64decode(key.get_secret_value(), validate=True)
+        except binascii.Error:
+            raw = b""
+        # The value itself stays out of the message: it is a secret.
+        if len(raw) != TOTP_KEY_BYTES:
+            raise ValueError(
+                f"API_TOTP_ENCRYPTION_KEY must be {TOTP_KEY_BYTES} bytes in base64 "
+                "(openssl rand -base64 32)"
+            )
+        return key
 
     @field_validator("s3_endpoint_url", "s3_public_url")
     @classmethod
@@ -140,6 +163,10 @@ class Settings(BaseSettings):
                 "SMS_FIXED_PHONES must be Belarusian mobile numbers in E.164, e.g. +375291234567"
             )
         return self
+
+    @property
+    def totp_encryption_key(self) -> bytes:
+        return base64.b64decode(self.api_totp_encryption_key.get_secret_value())
 
     @property
     def is_prod(self) -> bool:

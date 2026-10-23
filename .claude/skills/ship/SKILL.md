@@ -19,6 +19,7 @@ GitHub calls can fail on a flaky network: retry a failed `gh` call a few times b
    - `apps/mobile`, `apps/admin`, `packages/*`: `npm run lint`, `npm run typecheck`, `npm test`
    - If the API schema changed — regenerate `packages/api-client`.
 4. Self-review the diff (`git diff origin/main...`) against `CLAUDE.md` and `.github/pull_request_template.md`.
+   If `/pre-ship-review` was not run in this session on the current diff, suggest running it first.
    If the diff touches identity, kyc, payments, rentals or car commands — tell the user to run
    `/security-review` before the PR and wait.
 5. Show the user a summary of the changes and the proposed commit message(s) (Conventional Commits, English).

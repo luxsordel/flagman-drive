@@ -56,6 +56,44 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build api
 docker compose --env-file .env -f infra/docker-compose.yml run --rm api alembic upgrade head
 ```
 
+## Сотрудники
+
+Сотрудников админки создаёт команда `flagman-staff` (управления в интерфейсе пока нет, см.
+[ADR-0011](../../docs/adr/0011-staff-auth-password-totp.md)). Пароль она спрашивает дважды, в аргументах его нет.
+2FA сотрудник подключает сам при первом входе в админку.
+
+```bash
+uv run flagman-staff create --email admin@flagman.by --role admin
+```
+
+В Docker — из корня репозитория:
+
+```bash
+docker compose --env-file .env -f infra/docker-compose.yml run --rm api flagman-staff create --email admin@flagman.by --role admin
+```
+
+Роли: `operator`, `technician`, `admin`. Остальные команды завершают все сессии сотрудника. Уже выданный
+access-токен работает ещё до 15 минут.
+
+Пароль забыт или утёк:
+
+```bash
+uv run flagman-staff set-password --email admin@flagman.by
+```
+
+Потерян телефон с аутентификатором или сменён `API_TOTP_ENCRYPTION_KEY`. Если есть подозрение на взлом, сменить
+и пароль: до следующего входа подключить 2FA можно с одним паролем.
+
+```bash
+uv run flagman-staff reset-totp --email admin@flagman.by
+```
+
+Сотрудник уволился или аккаунт взломан:
+
+```bash
+uv run flagman-staff disable --email admin@flagman.by
+```
+
 ## Проверки
 
 ```bash
