@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@flagman/api-client": "*",
     "@flagman/design-tokens": "*",
     "@fontsource/open-sans": "^5.3.0",
     "@fontsource/oswald": "^5.3.0",

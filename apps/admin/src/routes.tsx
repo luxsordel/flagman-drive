@@ -17,12 +17,10 @@ export const routes: RouteObject[] = [
       </RequireAuth>
     ),
     children: [
-      ...sections.map(({ key, path, roles }) => ({
+      ...sections.map(({ key, path, roles, page: Page }) => ({
         path,
         element: (
-          <RequireRole roles={roles}>
-            <SectionPage section={key} />
-          </RequireRole>
+          <RequireRole roles={roles}>{Page ? <Page /> : <SectionPage section={key} />}</RequireRole>
         ),
       })),
       { path: '*', element: <NotFoundPage /> },

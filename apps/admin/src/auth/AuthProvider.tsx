@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 
 import { AuthContext, type AuthContextValue, type AuthState } from './context';
 import type { StaffSession } from './session';
@@ -32,20 +32,18 @@ export function AuthProvider({
     };
   }, [session]);
 
-  const value = useMemo<AuthContextValue>(
-    () => ({
-      state,
-      signOut: async () => {
-        try {
-          await session.signOut();
-        } catch {
-          // On a shared computer the next reload would quietly sign the same person back in.
-          setState({ status: 'signedOut', logoutFailed: true });
-        }
-      },
-    }),
-    [state, session],
-  );
+  // Stable while the session is the same: pages keep it in effect dependencies, and a new one on
+  // every auth state change would make them reload.
+  const signOut = useCallback(async () => {
+    try {
+      await session.signOut();
+    } catch {
+      // On a shared computer the next reload would quietly sign the same person back in.
+      setState({ status: 'signedOut', logoutFailed: true });
+    }
+  }, [session]);
+
+  const value = useMemo<AuthContextValue>(() => ({ state, signOut }), [state, signOut]);
 
   return <AuthContext value={value}>{children}</AuthContext>;
 }
