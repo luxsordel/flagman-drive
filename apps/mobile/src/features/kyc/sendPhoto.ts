@@ -15,6 +15,9 @@ export interface SendPhotoOptions {
   createXhr?: () => XMLHttpRequest;
 }
 
+/** Generous enough for a 10 MB photo on a slow mobile network. */
+export const uploadTimeoutMs = 120_000;
+
 export class UploadNetworkError extends Error {
   constructor() {
     super('Photo upload failed on the network');
@@ -55,6 +58,8 @@ export function sendPhoto({
       signal?.removeEventListener('abort', abort);
     };
     xhr.open('PUT', url);
+    // A mobile connection can drop silently; without a timeout the progress bar would hang forever.
+    xhr.timeout = uploadTimeoutMs;
     xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
     // Every photo is re-encoded to JPEG before it leaves the device; the server checks anyway.
     xhr.setRequestHeader('Content-Type', 'image/jpeg');

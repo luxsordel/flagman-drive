@@ -102,13 +102,13 @@ describe('createKycApi', () => {
     expect(xhr.method).toBe('');
   });
 
-  it('does not blame the network for a photo it cannot read', async () => {
+  it('asks for another photo when this one cannot be read', async () => {
     const { xhr, kyc, loadPhoto } = setup();
     loadPhoto.mockRejectedValueOnce(new Error('ENOENT'));
 
     const upload = kyc.upload('passport', 'file:///cache/gone.jpg');
 
-    await expect(upload.done).resolves.toEqual({ ok: false, error: { kind: 'unknown' } });
+    await expect(upload.done).resolves.toEqual({ ok: false, error: { kind: 'unsupported' } });
     expect(xhr.method).toBe('');
   });
 });

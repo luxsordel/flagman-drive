@@ -54,10 +54,33 @@ export function discardPhoto(uri: string): void {
       if (uri.startsWith('blob:')) URL.revokeObjectURL(uri);
       return;
     }
-    if (uri.startsWith(Paths.cache.uri)) new File(uri).delete();
+    if (isInCache(uri)) new File(uri).delete();
   } catch {
     // Already gone or locked by the image view; nothing else to do.
   }
+}
+
+/**
+ * One spelling for the many names of the same local file: with or without `file://`,
+ * percent-encoded, iOS `/private/var/…` for `/var/…`, Android `/data/data/…` for `/data/user/0/…`.
+ * Null for anything that is not a plain absolute path, `..` included.
+ */
+export function canonicalPath(uri: string): string | null {
+  let path = uri.replace(/^file:(\/\/)?/, '');
+  try {
+    path = decodeURI(path);
+  } catch {
+    return null;
+  }
+  if (!path.startsWith('/') || path.split('/').includes('..')) return null;
+  return path.replace(/^\/private\/var\//, '/var/').replace(/^\/data\/data\//, '/data/user/0/');
+}
+
+function isInCache(uri: string): boolean {
+  const file = canonicalPath(uri);
+  const cache = canonicalPath(Paths.cache.uri);
+  if (file === null || cache === null) return false;
+  return file.startsWith(cache.endsWith('/') ? cache : `${cache}/`);
 }
 
 // HEIC from an iPhone is not accepted by the API (ADR-0012), and a full-size shot is far larger

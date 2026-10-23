@@ -38,10 +38,13 @@ export class KycStore {
 
   /** Parallel callers share one request. */
   load(): Promise<void> {
-    this.loadingRequest ??= this.fetchApplication().finally(() => {
-      this.loadingRequest = null;
+    if (this.loadingRequest !== null) return this.loadingRequest;
+    const request = this.fetchApplication().finally(() => {
+      // A request from before reset() must not clear the one that replaced it.
+      if (this.loadingRequest === request) this.loadingRequest = null;
     });
-    return this.loadingRequest;
+    this.loadingRequest = request;
+    return request;
   }
 
   upload(kind: DocumentKind, photoUri: string, onProgress?: (sent: number) => void): UploadHandle {

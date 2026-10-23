@@ -98,6 +98,30 @@ describe('KycStore', () => {
     expect(store.getState()).toEqual({ application: null, loading: false, loadError: null });
   });
 
+  it('keeps sharing the new request when one from before reset ends', async () => {
+    const { api, store } = setup();
+    const answers: ((result: ReturnType<typeof ok>) => void)[] = [];
+    api.getApplication.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          answers.push(resolve);
+        }),
+    );
+
+    const old = store.load();
+    store.reset();
+    const fresh = store.load();
+    answers[0]?.(ok(kycApplication()));
+    await old;
+    const joined = store.load();
+
+    expect(joined).toBe(fresh);
+    expect(api.getApplication).toHaveBeenCalledTimes(2);
+    answers[1]?.(ok(kycApplication(['passport'])));
+    await fresh;
+    expect(store.getState().application?.missing_documents).not.toContain('passport');
+  });
+
   it('notifies subscribers', async () => {
     const { api, store } = setup();
     api.getApplication.mockResolvedValue(ok(kycApplication()));

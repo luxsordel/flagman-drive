@@ -58,8 +58,8 @@ export function createKycApi({
           if (token === null) return { ok: false, error: { kind: 'sessionExpired' } };
           const photo = await loadPhoto(photoUri).catch(() => null);
           if (signal.aborted) return { ok: false, error: null };
-          // The photo file vanished or is unreadable: not a network problem.
-          if (photo === null) return { ok: false, error: { kind: 'unknown' } };
+          // The photo file vanished or is unreadable: sending it again cannot help, another one can.
+          if (photo === null) return { ok: false, error: { kind: 'unsupported' } };
           const response = await sendPhoto({
             url: `${origin}/kyc/documents/${kind}`,
             accessToken: token,

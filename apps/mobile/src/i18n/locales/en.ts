@@ -105,7 +105,7 @@ export const en: Translation = {
     },
     errors: {
       network: 'Cannot reach the server. Check your connection',
-      sessionExpired: 'Your session has ended. Sign out and sign in again',
+      sessionExpired: 'Your session has ended. Sign out on the home screen and sign in again',
       tooLarge: 'The photo is too large. Take it again',
       unsupported: 'Could not read the photo. A JPEG, PNG or WebP image is needed',
       locked: 'Your documents are already under review and cannot be changed',

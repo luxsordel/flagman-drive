@@ -66,6 +66,7 @@ export class FakeXhr {
   responseText = '';
   responseHeaders: Record<string, string> = {};
   aborted = false;
+  timeout = 0;
   upload: { onprogress: Listener | null } = { onprogress: null };
   onload: (() => void) | null = null;
   onerror: (() => void) | null = null;
@@ -107,6 +108,10 @@ export class FakeXhr {
 
   fail() {
     this.onerror?.();
+  }
+
+  expire() {
+    this.ontimeout?.();
   }
 
   asXhr(): XMLHttpRequest {

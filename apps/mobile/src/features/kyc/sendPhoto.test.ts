@@ -1,4 +1,4 @@
-import { sendPhoto, UploadAbortedError, UploadNetworkError } from './sendPhoto';
+import { sendPhoto, UploadAbortedError, UploadNetworkError, uploadTimeoutMs } from './sendPhoto';
 import { FakeXhr } from './testing';
 
 const photo = new Blob(['jpeg bytes'], { type: 'image/jpeg' });
@@ -51,6 +51,15 @@ describe('sendPhoto', () => {
   it('fails with a network error when the connection drops', async () => {
     const { xhr, done } = start();
     xhr.fail();
+
+    await expect(done).rejects.toBeInstanceOf(UploadNetworkError);
+  });
+
+  it('gives up on a connection that went silent', async () => {
+    const { xhr, done } = start();
+    expect(xhr.timeout).toBe(uploadTimeoutMs);
+
+    xhr.expire();
 
     await expect(done).rejects.toBeInstanceOf(UploadNetworkError);
   });

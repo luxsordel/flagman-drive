@@ -1,15 +1,20 @@
 import { Platform } from 'react-native';
 
-import { discardPhoto, pickPhoto } from './photos';
+import { canonicalPath, discardPhoto, pickPhoto } from './photos';
 
 const mockDeleted: string[] = [];
+const mockCache = { uri: 'file:///cache/' };
 const mockResize = jest.fn();
 const mockSave = jest.fn<Promise<{ uri: string }>, [unknown]>(() =>
   Promise.resolve({ uri: 'file:///cache/out.jpg' }),
 );
 
 jest.mock('expo-file-system', () => ({
-  Paths: { cache: { uri: 'file:///cache/' } },
+  Paths: {
+    get cache() {
+      return mockCache;
+    },
+  },
   File: class {
     readonly uri: string;
     constructor(uri: string) {
@@ -119,6 +124,7 @@ describe('pickPhoto', () => {
 describe('discardPhoto', () => {
   beforeEach(() => {
     mockDeleted.length = 0;
+    mockCache.uri = 'file:///cache/';
   });
 
   it('deletes files in the app cache only', () => {
@@ -126,6 +132,47 @@ describe('discardPhoto', () => {
     discardPhoto('file:///storage/DCIM/Camera/original.jpg');
 
     expect(mockDeleted).toEqual(['file:///cache/ImageManipulator/out.jpg']);
+  });
+
+  it.each([
+    // iOS reports the same container through the /private symlink or without it.
+    [
+      'file:///private/var/mobile/Containers/Data/Application/A1/Library/Caches/',
+      'file:///var/mobile/Containers/Data/Application/A1/Library/Caches/ImagePicker/x.jpg',
+    ],
+    [
+      'file:///var/mobile/Containers/Data/Application/A1/Library/Caches',
+      '/private/var/mobile/Containers/Data/Application/A1/Library/Caches/ImagePicker/x.jpg',
+    ],
+    // Android: /data/data/<package> links to /data/user/0/<package>.
+    [
+      'file:///data/user/0/by.flagman.drive/cache/',
+      'file:///data/data/by.flagman.drive/cache/x.jpg',
+    ],
+    [
+      'file:///data/user/0/by.flagman.drive/cache/',
+      'file:/data/user/0/by.flagman.drive/cache/x.jpg',
+    ],
+    [
+      'file:///data/user/0/by.flagman.drive/cache/',
+      'file:///data/user/0/by.flagman.drive/cache/a%20b.jpg',
+    ],
+  ])('recognises the cache %s in another spelling: %s', (cache, uri) => {
+    mockCache.uri = cache;
+
+    discardPhoto(uri);
+
+    expect(mockDeleted).toEqual([uri]);
+  });
+
+  it.each([
+    'file:///cache/../storage/DCIM/original.jpg',
+    'file:///cache-other/x.jpg',
+    'content://media/external/images/media/42',
+  ])('leaves %s alone', (uri) => {
+    discardPhoto(uri);
+
+    expect(mockDeleted).toEqual([]);
   });
 
   it('releases a blob URL on the web', () => {
@@ -143,5 +190,14 @@ describe('discardPhoto', () => {
 
     expect(revoke).toHaveBeenCalledWith('blob:http://localhost:8081/1234');
     expect(mockDeleted).toEqual([]);
+  });
+});
+
+describe('canonicalPath', () => {
+  it('rejects what is not a plain absolute path', () => {
+    expect(canonicalPath('content://media/1')).toBeNull();
+    expect(canonicalPath('file:///a/../b')).toBeNull();
+    expect(canonicalPath('file:///a/%E0%A4%A')).toBeNull();
+    expect(canonicalPath('file:///private/var/x')).toBe('/var/x');
   });
 });
