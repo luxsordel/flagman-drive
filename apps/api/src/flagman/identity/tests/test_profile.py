@@ -187,6 +187,7 @@ def test_email_is_lowercased_and_can_be_removed(person: Callable[[], Person]) ->
         ({"first_name": None}, "first_name"),
         ({"last_name": "   "}, "last_name"),
         ({"first_name": "x" * 101}, "first_name"),
+        ({"first_name": "x" * 1001}, "first_name"),
         ({"birth_date": None}, "birth_date"),
         ({"birth_date": "1990-05-17T00:00:00"}, "birth_date"),
         ({"birth_date": "1990-05-17T00:00:00Z"}, "birth_date"),

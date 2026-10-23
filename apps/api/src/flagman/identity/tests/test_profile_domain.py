@@ -62,10 +62,12 @@ def test_spaces_inside_become_one_plain_space(name: str) -> None:
         f"An{chr(0x0A)}na",  # newline inside
         f"An{chr(0x200B)}na",  # zero-width space
         f"Anna{chr(0x202E)}",  # right-to-left override
+        f"An{chr(0x2028)}na",  # line separator
+        f"An{chr(0x2029)}na",  # paragraph separator
     ],
 )
 def test_invisible_characters_are_rejected(name: str) -> None:
-    with pytest.raises(ValueError, match="control or format"):
+    with pytest.raises(ValueError, match="control, format or line break"):
         normalize_name(name)
 
 

@@ -270,6 +270,7 @@
           "first_name": {
             "description": "As in the documents; at most 100 characters.",
             "examples": ["Анна"],
+            "maxLength": 1000,
             "title": "First Name",
             "type": "string"
           },
@@ -279,6 +280,7 @@
           "last_name": {
             "description": "As in the documents; at most 100 characters.",
             "examples": ["Анна"],
+            "maxLength": 1000,
             "title": "Last Name",
             "type": "string"
           }

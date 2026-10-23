@@ -208,10 +208,14 @@ class StaffProfile(BaseModel):
 
 
 # Client profile (#33).
+# The real limit is NAME_MAX_LENGTH, which normalize_name checks after trimming spaces. This one
+# only stops a huge string before it is normalized character by character.
+_NAME_INPUT_MAX_LENGTH = 1000
+
 PersonName = Annotated[
     str,
-    # No max_length here: it would count the spaces normalize_name trims, so it checks the length.
     Field(
+        max_length=_NAME_INPUT_MAX_LENGTH,
         description=f"As in the documents; at most {NAME_MAX_LENGTH} characters.",
         examples=["Анна"],
     ),

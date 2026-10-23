@@ -492,19 +492,25 @@ class BirthDateInvalidError(AppError):
     title = "Invalid birth date"
 
 
+def _is_refused_in_name(char: str) -> bool:
+    category = unicodedata.category(char)
+    return category.startswith("C") or category in {"Zl", "Zp"}
+
+
 def normalize_name(name: str) -> str:
     """Brings a name to one canonical form; rejects empty, overlong and invisible-character names.
 
     An operator compares the name with the documents, so two names that look the same must also
     be the same string: NFC joins a letter and its combining mark (E + U+0308 is U+00CB), every
     kind of space becomes a plain one, and format characters (zero-width, bidi overrides) are
-    refused.
+    refused. So are line and paragraph separators: like a newline, they would break the name in
+    two in the admin panel and on a contract.
     """
     name = unicodedata.normalize("NFC", name).strip()
     if not name:
         raise ValueError("name must not be empty")
-    if any(unicodedata.category(char).startswith("C") for char in name):
-        raise ValueError("name must not contain control or format characters")
+    if any(_is_refused_in_name(char) for char in name):
+        raise ValueError("name must not contain control, format or line break characters")
     spaced = "".join(" " if unicodedata.category(char) == "Zs" else char for char in name)
     name = " ".join(part for part in spaced.split(" ") if part)
     if len(name) > NAME_MAX_LENGTH:
