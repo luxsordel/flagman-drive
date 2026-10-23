@@ -1,13 +1,26 @@
+from pathlib import Path
 from typing import Any
 
 import pytest
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.migration import MigrationContext
+from alembic.script import ScriptDirectory
 from sqlalchemy import text
 from sqlalchemy.engine import Connection
 
 from flagman.core.config import Settings
 from flagman.core.db import Base, create_engine
+
+ALEMBIC_INI = Path(__file__).parents[1] / "alembic.ini"
+
+
+def test_migrations_have_a_single_head() -> None:
+    # Two branches that each add a migration on the same parent pass CI apart and break
+    # `alembic upgrade head` once both are merged; after a sync with main this fails instead.
+    heads = ScriptDirectory.from_config(Config(ALEMBIC_INI)).get_heads()
+
+    assert len(heads) == 1, f"several Alembic heads, chain one after another: {heads}"
 
 
 @pytest.mark.integration

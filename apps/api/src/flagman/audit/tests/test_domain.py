@@ -39,6 +39,19 @@ def test_details_reject_phones_and_emails(value: str) -> None:
     assert value not in str(error.value)
 
 
+@pytest.mark.parametrize("value", [375291234567, -375291234567, 291234567])
+def test_details_reject_phones_passed_as_numbers(value: int) -> None:
+    with pytest.raises(ValueError, match="looks like a phone number") as error:
+        validate_details({"phone": value})
+
+    assert str(value) not in str(error.value)
+
+
+@pytest.mark.parametrize("value", [True, 0, -1, 12345678])
+def test_details_keep_short_numbers_and_flags(value: int) -> None:
+    assert validate_details({"count": value}) == {"count": value}
+
+
 def test_details_reject_too_long_strings() -> None:
     with pytest.raises(ValueError, match="longer than"):
         validate_details({"comment": "x" * (DETAILS_MAX_STRING_LENGTH + 1)})
@@ -49,7 +62,7 @@ def test_details_reject_too_many_keys() -> None:
         validate_details({f"key_{index}": index for index in range(DETAILS_MAX_KEYS + 1)})
 
 
-@pytest.mark.parametrize("key", ["Reason", "1st", "with space", "", "x" * 65])
+@pytest.mark.parametrize("key", ["Reason", "1st", "with space", "", "x" * 65, "reason\n"])
 def test_details_reject_keys_that_are_not_snake_case(key: str) -> None:
     with pytest.raises(ValueError, match="snake_case"):
         validate_details({key: 1})
