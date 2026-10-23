@@ -63,7 +63,7 @@ export class ProfileStore {
     const generation = this.generation;
     this.savesInFlight += 1;
     this.setState({ ...this.state, saving: true });
-    const result = await this.api.updateProfile(update).finally(() => {
+    const result = await settle(this.api.updateProfile(update)).finally(() => {
       if (generation === this.generation) this.savesInFlight -= 1;
     });
     if (generation !== this.generation) return result;
@@ -89,7 +89,7 @@ export class ProfileStore {
     const generation = this.generation;
     const saves = this.saves;
     this.setState({ ...this.state, loading: true, loadError: null });
-    const result = await this.api.getProfile();
+    const result = await settle(this.api.getProfile());
     if (generation !== this.generation) return;
     if (saves !== this.saves) {
       this.setState({ ...this.state, loading: false });
@@ -106,6 +106,11 @@ export class ProfileStore {
     this.state = state;
     for (const listener of this.listeners) listener();
   }
+}
+
+// A rejected request would leave `loading` or `saving` on and the screen locked until sign-out.
+function settle(request: Promise<ProfileResult>): Promise<ProfileResult> {
+  return request.catch(() => ({ ok: false, error: { kind: 'network' } }));
 }
 
 /** The app speaks the language kept in the profile; the server will sync it across devices. */

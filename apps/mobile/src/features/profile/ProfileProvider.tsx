@@ -2,7 +2,7 @@ import { getLocales } from 'expo-localization';
 import i18next from 'i18next';
 import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from 'react';
 
-import { detectLanguage } from '../../i18n';
+import { detectLanguage, type Language } from '../../i18n';
 import type { AuthSession } from '../auth/session/authSession';
 import { createMockProfileApi, type Profile, type ProfileApi } from './profileApi';
 import { followProfileLanguage, ProfileStore, type ProfileState } from './profileStore';
@@ -16,14 +16,17 @@ export function createAppProfileStore(session: AuthSession): ProfileStore {
     getProfile: () => current().getProfile(),
     updateProfile: (update) => current().updateProfile(update),
   });
+  const applyLanguage = (language: Language) => {
+    if (i18next.language !== language) void i18next.changeLanguage(language);
+  };
   session.subscribe(() => {
     if (session.getStatus() !== 'signedOut') return;
     mock = null;
     store.reset();
+    // The sign-in screen and the next client must not inherit the previous client's choice.
+    applyLanguage(detectLanguage(getLocales()));
   });
-  followProfileLanguage(store, (language) => {
-    if (i18next.language !== language) void i18next.changeLanguage(language);
-  });
+  followProfileLanguage(store, applyLanguage);
   return store;
 }
 

@@ -21,6 +21,7 @@ export type ProfileUpdate = Partial<Omit<Profile, 'phone'>>;
 
 export type ProfileResult = { ok: true; profile: Profile } | { ok: false; error: ProfileError };
 
+/** Failures come back as `{ ok: false }`, like KycApi; the store still guards against a throw. */
 export interface ProfileApi {
   getProfile(): Promise<ProfileResult>;
   updateProfile(update: ProfileUpdate): Promise<ProfileResult>;

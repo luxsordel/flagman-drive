@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import i18next from 'i18next';
+import { AccessibilityInfo } from 'react-native';
 
 import { initI18n } from '../../i18n';
 import { AuthProvider } from '../auth/session/AuthProvider';
@@ -224,22 +225,36 @@ describe('ProfileScreen', () => {
   });
 
   it('lets the client leave while a save is in flight', async () => {
-    const { api } = await renderProfile();
+    const { api, store } = await renderProfile();
     let answer: (result: ProfileResult) => void = () => undefined;
     api.updateProfile.mockReturnValue(
       new Promise((resolve) => {
         answer = resolve;
       }),
     );
-    const errors = jest.spyOn(console, 'error');
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
 
     await fireEvent.press(saveButton());
     await screen.unmount();
     answer(ok(profile()));
-    await Promise.resolve();
 
-    expect(errors).not.toHaveBeenCalled();
-    errors.mockRestore();
+    await waitFor(() => {
+      expect(store.getState().saving).toBe(false);
+    });
+    // The confirmation belongs to a screen that is gone: nothing may be announced.
+    expect(announce).not.toHaveBeenCalled();
+    announce.mockRestore();
+  });
+
+  it('sends one language choice at a time', async () => {
+    const { api } = await renderProfile();
+    api.updateProfile.mockReturnValue(new Promise(() => undefined));
+
+    await fireEvent.press(screen.getByRole('radio', { name: 'English' }));
+    await fireEvent.press(screen.getByRole('radio', { name: 'Русский' }));
+
+    expect(api.updateProfile).toHaveBeenCalledTimes(1);
+    expect(api.updateProfile).toHaveBeenCalledWith({ language: 'en' });
   });
 
   it('offers a retry when the profile does not load', async () => {

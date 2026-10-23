@@ -78,6 +78,21 @@ describe('createAppProfileStore', () => {
     });
   });
 
+  it('gives the sign-in screen the device language back at sign-out', async () => {
+    const setup = testSession();
+    const store = createAppProfileStore(setup.session);
+    await signIn(setup, '+375291234567');
+    const device = detectLanguage(getLocales());
+    const other = device === 'en' ? 'ru' : 'en';
+    await settle(store.save({ language: other }));
+    expect(i18next.language).toBe(other);
+
+    setup.api.on('/auth/logout', new Response(null, { status: 204 }));
+    await setup.session.signOut();
+
+    expect(i18next.language).toBe(device);
+  });
+
   it('switches the app language to the one kept in the profile', async () => {
     const setup = testSession();
     const store = createAppProfileStore(setup.session);

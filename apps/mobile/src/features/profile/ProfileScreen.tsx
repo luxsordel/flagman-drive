@@ -242,6 +242,8 @@ function LanguagePicker({ profile, saving }: SectionProps) {
   const [error, setError] = useState<ProfileError | null>(null);
 
   async function choose(language: Language) {
+    // As in the form: a second tap can come before `disabled` reaches the screen.
+    if (store.getState().saving) return;
     setChoosing(language);
     setError(null);
     // The interface switches once the profile keeps the choice (see followProfileLanguage).

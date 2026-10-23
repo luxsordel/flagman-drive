@@ -128,6 +128,25 @@ describe('ProfileStore', () => {
     expect(store.getState().saving).toBe(false);
   });
 
+  it('treats a request that throws as a network failure and unlocks', async () => {
+    const { api, store } = setup();
+    api.getProfile.mockRejectedValue(new Error('no token'));
+    api.updateProfile.mockRejectedValue(new Error('no token'));
+
+    await store.load();
+    await expect(store.save({ language: 'en' })).resolves.toEqual({
+      ok: false,
+      error: { kind: 'network' },
+    });
+
+    expect(store.getState()).toEqual({
+      profile: null,
+      loading: false,
+      loadError: { kind: 'network' },
+      saving: false,
+    });
+  });
+
   it('forgets the profile at sign-out', async () => {
     const { api, store } = setup();
     api.getProfile.mockResolvedValue(ok(profile()));
