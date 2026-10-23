@@ -71,7 +71,7 @@ repo=$(gh_retry repo view --json nameWithOwner --jq .nameWithOwner)
 # our own commits apart from the author's.
 my_email=$(git config user.email || true)
 # It goes into a jq string: a quote or backslash would break the filter on every push.
-[[ $my_email =~ ^[^\"\\]*$ ]] || my_email=""
+case $my_email in *'"'* | *\\*) my_email="" ;; esac
 # Bot comments (Dependabot, Actions) are not a reply from a teammate and must not wake anyone.
 others="select((.login // \"\") as \$l | \$l != \"$me\" and (\$l | test(\"^(dependabot|github-actions)\$|\\\\[bot\\\\]\$\") | not))"
 
