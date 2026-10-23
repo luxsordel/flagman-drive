@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { bodyFont } from '../theme/fonts';
 import { useTheme } from '../theme/theme';
+import { disabledOpacity } from './states';
 
 export interface ButtonProps {
   title: string;
@@ -45,7 +46,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  // Opacity instead of a separate token: the disabled state keeps the brand color recognisable.
-  disabled: { opacity: 0.5 },
+  disabled: { opacity: disabledOpacity },
   title: { fontFamily: bodyFont(600), fontSize: fontSize.md },
 });
