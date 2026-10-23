@@ -9,7 +9,7 @@ export type TotpEnrollment = components['schemas']['StaffTotpEnrollment'];
 /**
  * The sign-in steps before a session exists (#32): password, then the first 2FA setup if needed,
  * then the TOTP code. The challenge token links the steps; keep it in memory only.
- * Each call rejects with ApiError when the API refuses, with the fetch error when it is
+ * Each call rejects with ApiError when the API refuses, with NetworkError when it is
  * unreachable.
  */
 export interface StaffSignInApi {

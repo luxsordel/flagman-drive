@@ -20,7 +20,7 @@ export const auditPageSize = 50;
 export interface AuditLogApi {
   /**
    * Newest events first; `cursor` is `next_cursor` of the previous page.
-   * Rejects with ApiError when the API refuses, with the fetch error when it is unreachable.
+   * Rejects with ApiError when the API refuses, with NetworkError when it is unreachable.
    */
   list(filter: AuditLogFilter, cursor?: string): Promise<AuditEventPage>;
 }

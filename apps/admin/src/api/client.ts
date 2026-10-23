@@ -1,12 +1,10 @@
-import { createApiClient } from '@flagman/api-client';
+import { createApiClient, parseRetryAfter, problemSlug } from '@flagman/api-client';
 
 import type { StaffSession } from '../auth/session';
 
 export type AdminApiClient = ReturnType<typeof createApiClient>;
 
-const problemTypePrefix = 'urn:flagman:problem:';
-
-/** The API answered with an error status; network failures reject with the fetch error instead. */
+/** The API answered with an error status; failures to reach it reject with NetworkError instead. */
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -44,17 +42,12 @@ const fetchOrNetworkError = (request: Request): Promise<Response> =>
 
 /** Builds an ApiError from a failed response and the body openapi-fetch parsed from it. */
 export function toApiError(response: Response, body: unknown): ApiError {
-  const type =
-    typeof body === 'object' && body !== null && 'type' in body && typeof body.type === 'string'
-      ? body.type
-      : undefined;
-  // Delta-seconds only, as the API sends it; an HTTP date or anything else is ignored.
-  const retryAfter = response.headers.get('Retry-After')?.trim() ?? '';
-  const retryAfterSeconds = /^\d+$/.test(retryAfter) ? Number(retryAfter) : 0;
+  const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
   return new ApiError(
     response.status,
-    type?.startsWith(problemTypePrefix) ? type.slice(problemTypePrefix.length) : undefined,
-    retryAfterSeconds > 0 ? retryAfterSeconds : undefined,
+    problemSlug(body) ?? undefined,
+    // "0" asks for no wait at all: the form then shows no countdown.
+    retryAfterSeconds ? retryAfterSeconds : undefined,
   );
 }
 
