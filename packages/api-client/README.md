@@ -1,7 +1,8 @@
 # @flagman/api-client
 
 Типизированный клиент API, **сгенерированный** из OpenAPI бэкенда. Файлы `openapi.json` и `src/generated/`
-руками не правятся — только перегенерируются. Обёртка `src/index.ts` — единственный написанный вручную код.
+руками не правятся — только перегенерируются. Написанный вручную код — обёртка `src/index.ts` и разбор ошибок
+`src/problems.ts`.
 
 Формат ошибок — Problem Details ([ADR-0006](../../docs/adr/0006-api-error-format.md)), тип `Problem`.
 
@@ -71,6 +72,20 @@ if (error) {
   console.warn(error.title, error.request_id);
 } else {
   console.log(data.status); // 'ok' | 'fail'
+}
+```
+
+Slug ошибки и `Retry-After` разбираются общими функциями пакета, а не в каждом приложении
+([ADR-0006](../../docs/adr/0006-api-error-format.md)):
+
+```ts
+import { parseRetryAfter, problemSlug } from '@flagman/api-client';
+
+const { error, response } = await api.POST('/auth/otp/request', { body });
+
+if (error) {
+  const slug = problemSlug(error); // 'rate-limited' или null, если пришёл не Problem
+  const retryAfter = parseRetryAfter(response.headers.get('Retry-After')); // секунды или null
 }
 ```
 
