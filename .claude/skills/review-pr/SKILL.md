@@ -24,16 +24,33 @@ Argument: PR number. If none is given, list open PRs where the current user is a
    - Tests cover the new logic; no disabled checks.
    - i18n for UI strings, design tokens instead of hard-coded styles.
    - Docs/ADR updated when needed.
-3. Report findings to the user grouped as **must fix / should fix / nit**, each with file:line and a concrete
-   suggestion. Say explicitly if you found nothing serious.
+3. Sort the findings by the bar below into **must fix** and **nit**, each with file:line and a concrete
+   suggestion. Say explicitly if nothing blocks the PR.
 4. Only if the user asks: post the review with `gh pr review <n> --comment|--request-changes|--approve -b "..."`.
    Never approve on your own initiative here: this skill is the manual review, where the human decides on one PR.
    Automatic approval exists only in `/review-open-prs`, under its own rules (green CI, nothing blocking left,
-   no security-sensitive or process changes). Post must-fix and should-fix items as inline comments on the
-   relevant lines when the user agrees, so the author can resolve them one by one.
+   no security-sensitive or process changes). Post must-fix items as inline comments on the relevant lines when
+   the user agrees, so the author can resolve them one by one. Nits go only as a short list in the review body.
+   With no must-fix, suggest approving right away, nits included, instead of a comment that waits for a fix.
 5. After an approval, tell the user what happens next: if the author turned on auto-merge, the PR merges
    itself once CI is green; otherwise someone presses "Squash and merge". If the PR is behind main, say so.
-6. If the posted review left must-fix or should-fix items, follow the fix — see below.
+6. If the posted review left must-fix items, follow the fix — see below. Nits alone are never followed.
+
+## What blocks a PR
+
+Every extra round costs both sides time and limits, so only a real defect blocks. A finding is **must fix**
+only if merging the PR as it is would:
+- break behaviour: a bug, or an edge case that can actually happen and is not handled;
+- open a security hole (`docs/03-security.md`);
+- break a written rule of `CLAUDE.md`: layers and module boundaries, ports, money and time, the rentals state
+  machine, `extra="forbid"`, secrets and PII, i18n and design tokens, no disabled checks;
+- leave new logic without tests, or with a test that does not check what it claims;
+- leave an acceptance criterion of the linked issue unmet.
+
+Everything else is a **nit**: naming, comment wording, "could be simpler", small refactors, style the linters
+accept, problems that only might appear later. Test: "what goes wrong if this is merged as is?" — if you cannot
+name a concrete failure or a broken rule, it is a nit. Drop pure matters of taste entirely and keep at most
+five nits. A nit is never posted inline, never blocks an approval and nobody waits for it to be fixed.
 
 ## Following the fix
 
@@ -54,16 +71,17 @@ them and the round summaries need no new confirmation. Approving still does (ste
    the reviewed head (`git fetch origin <headRefName>`, then
    `git log --first-parent --no-merges -p <reviewed>..origin/<headRefName>`: without `--first-parent` the log also
    lists the commits a `/sync` brought in from `main`), then go through your unresolved threads — fixed ones get a reply with the commit and are
-   resolved, judged by the code and not by the author's reply. Check the changed lines by the checklist of
-   step 2: a fix can break something else; new problems go as new inline comments. Comments are in Russian,
-   as in `/review-open-prs`.
+   resolved, judged by the code and not by the author's reply. A round checks the fix, it is not a new review:
+   look only at the lines the fix changed, and comment only on a must-fix there (a fix can break something
+   else). Code you already reviewed gets no new findings, and nits are not raised in a round at all.
+   Comments are in Russian, as in `/review-open-prs`.
 4. Decide what is next:
-   - Something is still open → post the round summary the way step 5 of `/review-open-prs` does (COMMENT, or
-     REQUEST_CHANGES while a must-fix is open), note the new reviewed head and start the watcher again.
-   - Everything is fixed → do not approve on your own. Tell the user (and send a push notification if the tool
+   - A must-fix is still open after the first round → post the round summary the way step 5 of
+     `/review-open-prs` does, note the new reviewed head and start the watcher again.
+   - No must-fix is open → do not approve on your own. Tell the user (and send a push notification if the tool
      is available) in two or three lines what was fixed and the CI state, and ask whether to approve. Approve
-     only on their yes, then continue with step 5 above.
-   - The third round still leaves open items, or a disagreement neither side gives up → stop watching, post a
-     summary that hands the PR to the humans and tell the user. Two agents must not argue in a loop.
+     only on their yes, then continue with step 5 above. Unfixed nits do not hold this up.
+   - The second round still leaves a must-fix open, or a disagreement neither side gives up → stop watching,
+     post a summary that hands the PR to the humans and tell the user. Two agents must not argue in a loop.
 5. Rounds run without the user in the conversation: ask them nothing mid-round except the approval. Never push
    to the author's branch: the fix is theirs.
