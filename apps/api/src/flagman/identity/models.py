@@ -1,7 +1,16 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, LargeBinary, String
+from sqlalchemy import (
+    BigInteger,
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    LargeBinary,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
@@ -11,14 +20,25 @@ HASH_LENGTH = 64  # hex SHA-256
 EMAIL_LENGTH = 254
 PASSWORD_HASH_LENGTH = 255  # argon2 encoded hash with parameters, about 100 characters today
 ROLE_LENGTH = 16
+NAME_LENGTH = 100  # NAME_MAX_LENGTH in domain
+LANGUAGE_LENGTH = 2
 
 
 class User(Base):
+    """A client; the profile fields stay empty until the client fills them in (#33)."""
+
     __tablename__ = "users"
+    __table_args__ = (CheckConstraint("language IN ('ru', 'en')", name="language_known"),)
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     phone: Mapped[str] = mapped_column(String(PHONE_LENGTH), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    first_name: Mapped[str | None] = mapped_column(String(NAME_LENGTH))
+    last_name: Mapped[str | None] = mapped_column(String(NAME_LENGTH))
+    birth_date: Mapped[date | None] = mapped_column(Date)
+    # Not unique: a contact address, not a way to sign in.
+    email: Mapped[str | None] = mapped_column(String(EMAIL_LENGTH))
+    language: Mapped[str] = mapped_column(String(LANGUAGE_LENGTH), server_default="ru")
 
 
 class PendingOtp(Base):

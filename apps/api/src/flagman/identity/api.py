@@ -11,13 +11,20 @@ from flagman.core.db import get_session
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.ratelimit import RateLimiter, get_rate_limiter
 from flagman.core.resources import Resources, get_resources
-from flagman.identity.dependencies import CurrentStaff, get_current_staff
+from flagman.identity.dependencies import (
+    CurrentClient,
+    CurrentStaff,
+    get_current_client,
+    get_current_staff,
+)
 from flagman.identity.domain import (
     REFRESH_TOKEN_TTL,
     RefreshTokenInvalidError,
 )
 from flagman.identity.ports import SmsSender, create_sms_sender
 from flagman.identity.schemas import (
+    ClientProfile,
+    ClientProfileUpdate,
     LogoutRequest,
     OtpRequest,
     OtpRequestAccepted,
@@ -34,7 +41,12 @@ from flagman.identity.schemas import (
     StaffTotpRequest,
     TokenPair,
 )
-from flagman.identity.service import SignInService, StaffSignInService, StaffTokens
+from flagman.identity.service import (
+    ClientProfileService,
+    SignInService,
+    StaffSignInService,
+    StaffTokens,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -206,7 +218,7 @@ Origin = Annotated[RequestOrigin, Depends(get_request_origin)]
 
 
 def _no_store(response: Response) -> None:
-    # Tokens and the TOTP secret must not stay in a browser or proxy cache.
+    # Tokens, the TOTP secret and personal data must not stay in a browser or proxy cache.
     response.headers["Cache-Control"] = "no-store"
 
 
@@ -369,3 +381,53 @@ async def staff_me(
     staff: Annotated[CurrentStaff, Depends(get_current_staff)], service: StaffService
 ) -> StaffProfile:
     return await service.get_profile(staff.staff_id)
+
+
+# The client's own profile (#33). No id in the path: the user always comes from the token,
+# so one client cannot even name another one's profile.
+profile_router = APIRouter(
+    prefix="/me",
+    tags=["profile"],
+    responses={
+        HTTPStatus.UNAUTHORIZED: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in.",
+        }
+    },
+)
+
+
+def get_client_profile_service(
+    db: Annotated[AsyncSession, Depends(get_session)],
+) -> ClientProfileService:
+    return ClientProfileService(db=db)
+
+
+Client = Annotated[CurrentClient, Depends(get_current_client)]
+ProfileService = Annotated[ClientProfileService, Depends(get_client_profile_service)]
+
+
+@profile_router.get("", summary="The signed-in client's profile", dependencies=[Depends(_no_store)])
+async def get_my_profile(client: Client, service: ProfileService) -> ClientProfile:
+    return await service.get_profile(client.user_id)
+
+
+@profile_router.patch(
+    "",
+    summary="Change the signed-in client's profile",
+    description="Only the fields in the body change. The phone cannot be changed here.",
+    dependencies=[Depends(_no_store)],
+    responses={
+        HTTPStatus.UNPROCESSABLE_ENTITY: {
+            "model": Problem,
+            "description": (
+                "`urn:flagman:problem:validation-error`: see `errors`. "
+                "`urn:flagman:problem:birth-date-invalid`: in the future or too long ago."
+            ),
+        },
+    },
+)
+async def update_my_profile(
+    client: Client, body: ClientProfileUpdate, service: ProfileService
+) -> ClientProfile:
+    return await service.update_profile(client.user_id, body, datetime.now(UTC))

@@ -1,6 +1,6 @@
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
 import structlog
@@ -48,6 +48,7 @@ from flagman.identity.domain import (
     TotpEnrollmentNotStartedError,
     TotpInvalidError,
     TotpResetRequiredError,
+    check_birth_date,
     check_password_policy,
     decide_refresh,
     decrypt_totp_secret,
@@ -69,8 +70,10 @@ from flagman.identity.domain import (
     verify_password,
 )
 from flagman.identity.ports import SmsSender
-from flagman.identity.repository import StaffRecord
+from flagman.identity.repository import ClientProfileRecord, StaffRecord
 from flagman.identity.schemas import (
+    ClientProfile,
+    ClientProfileUpdate,
     OtpRequestAccepted,
     StaffAccessToken,
     StaffChallengeIssued,
@@ -232,6 +235,50 @@ class SignInService:
             expires_in=int(ACCESS_TOKEN_TTL.total_seconds()),
             refresh_token=refresh_token,
         )
+
+
+def _client_profile(record: ClientProfileRecord) -> ClientProfile:
+    return ClientProfile(
+        first_name=record.first_name,
+        last_name=record.last_name,
+        birth_date=record.birth_date,
+        email=record.email,
+        language=record.language,
+        phone=record.phone,
+    )
+
+
+@dataclass(frozen=True)
+class ClientProfileService:
+    """The signed-in client's own profile: the user id always comes from the access token."""
+
+    db: AsyncSession
+
+    async def get_profile(self, user_id: UUID) -> ClientProfile:
+        async with self.db.begin():
+            record = await repository.get_client_profile(self.db, user_id)
+        if record is None:
+            raise AccessTokenInvalidError
+        return _client_profile(record)
+
+    async def update_profile(
+        self, user_id: UUID, update: ClientProfileUpdate, now: datetime
+    ) -> ClientProfile:
+        if update.birth_date is not None:
+            # The UTC date rather than Minsk's: for three hours a day a birth date of "today" is
+            # turned down, which no adult client ever sends.
+            check_birth_date(update.birth_date, now.date())
+        async with self.db.begin():
+            record = await repository.update_client_profile(self.db, user_id, update.changes())
+        if record is None:
+            raise AccessTokenInvalidError
+        return _client_profile(record)
+
+
+async def get_client_birth_date(db: AsyncSession, user_id: UUID) -> date | None:
+    """For the KYC age check (#35); runs in the caller's transaction."""
+    record = await repository.get_client_profile(db, user_id)
+    return record.birth_date if record is not None else None
 
 
 def _verify_password_or_dummy(password_hash: str | None, password: str) -> bool:
