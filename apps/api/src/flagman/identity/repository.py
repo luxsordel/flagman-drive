@@ -1,12 +1,13 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flagman.identity.domain import OtpChallenge, RefreshTokenState, StaffRole
+from flagman.identity.domain import Language, OtpChallenge, RefreshTokenState, StaffRole
 from flagman.identity.models import (
     AuthSession,
     PendingOtp,
@@ -58,6 +59,49 @@ async def get_or_create_user(db: AsyncSession, phone: str, now: datetime) -> UUI
     if existing is None:
         raise RuntimeError("user vanished between insert and select")
     return existing
+
+
+@dataclass(frozen=True)
+class ClientProfileRecord:
+    phone: str
+    first_name: str | None
+    last_name: str | None
+    birth_date: date | None
+    email: str | None
+    language: Language
+
+
+PROFILE_FIELDS = frozenset({"first_name", "last_name", "birth_date", "email", "language"})
+
+
+def _client_profile_record(row: User) -> ClientProfileRecord:
+    return ClientProfileRecord(
+        phone=row.phone,
+        first_name=row.first_name,
+        last_name=row.last_name,
+        birth_date=row.birth_date,
+        email=row.email,
+        language=Language(row.language),
+    )
+
+
+async def get_client_profile(db: AsyncSession, user_id: UUID) -> ClientProfileRecord | None:
+    row = await db.scalar(select(User).where(User.id == user_id))
+    return _client_profile_record(row) if row is not None else None
+
+
+async def update_client_profile(
+    db: AsyncSession, user_id: UUID, changes: Mapping[str, str | date | None]
+) -> ClientProfileRecord | None:
+    """Sets only the given fields; None when the user does not exist."""
+    # The phone is how the client signs in: it must never change through the profile.
+    unknown = changes.keys() - PROFILE_FIELDS
+    if unknown:
+        raise ValueError(f"not profile fields: {sorted(unknown)}")
+    if not changes:
+        return await get_client_profile(db, user_id)
+    row = await db.scalar(update(User).where(User.id == user_id).values(**changes).returning(User))
+    return _client_profile_record(row) if row is not None else None
 
 
 async def create_session(

@@ -17,6 +17,7 @@
       "Bash(gh project field-list:*)",
       "Bash(gh project view:*)",
       "Bash(bash scripts/board-status.sh:*)",
+      "Bash(bash scripts/wait-pr-activity.sh:*)",
       "Bash(gh issue list:*)",
       "Bash(gh pr view:*)",
       "Bash(gh pr list:*)",
