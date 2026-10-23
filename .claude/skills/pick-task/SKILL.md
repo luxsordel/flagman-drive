@@ -15,7 +15,8 @@ This skill only reads and recommends. It does not assign issues or move them on 
    - `git fetch --prune origin`.
    - candidates — open issues without an assignee:
      `gh issue list --state open --limit 100 --search "no:assignee" --json number,title,labels,milestone,body`.
-     Issues assigned to the user that have no PR yet go first in the report: finishing started work beats new work.
+   - the user's own unfinished work: `gh issue list --assignee @me --state open --json number,title,labels,milestone`.
+     Those without an open PR go first in the report: finishing started work beats new work.
    - work in progress of others:
      - open PRs: `gh pr list --state open --json number,title,author,headRefName,files,closingIssuesReferences`;
      - assigned open issues without a PR: `gh issue list --state open --limit 100 --json number,title,assignees,body --jq '[.[] | select(.assignees | length > 0)]'`

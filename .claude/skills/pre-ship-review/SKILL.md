@@ -12,13 +12,15 @@ or the "we agreed on this" from this session. So the review runs in a subagent, 
 own explanations — only where to look.
 
 1. Refuse on `main`. Take the issue number from the branch name (`<type>/<n>-<slug>`).
-   `git fetch origin`. If there are uncommitted changes, they are part of the review: the subagent reads
-   `git diff origin/main` (working tree), not only commits.
+   `git fetch origin`. The review compares against the fork point, not the tip of `main`: otherwise everything
+   that landed in `main` after the branch shows up as deletions. `git diff $(git merge-base origin/main HEAD)`
+   also includes uncommitted changes, which are part of the review.
 2. Launch one subagent (Agent tool, `general-purpose`, no fork — it must start with an empty context).
    Prompt it with this, filling in the branch, the issue and the repo path:
 
    > You are a strict senior reviewer on the FLAGMAN Drive team. Review the changes of branch `<branch>` in
-   > `<repo path>` against `origin/main` (`git diff origin/main`, including uncommitted changes) for issue
+   > `<repo path>` against its fork point (`git diff $(git merge-base origin/main HEAD)`, including
+   > uncommitted changes) for issue
    > #<n> (`gh issue view <n> --comments`). Do not edit files, commit, push or post anything.
    > Read first: `CLAUDE.md`, `docs/03-security.md`, `.github/pull_request_template.md`, the docs and ADRs
    > for the area the diff touches, and the checklist in `.claude/skills/review-pr/SKILL.md` (step 2).
