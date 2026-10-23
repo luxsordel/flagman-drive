@@ -53,8 +53,9 @@ export function AuditLogPage() {
     );
   };
 
-  const hasFilters = Object.keys(filter).length > 0;
-  // `min` and `max` do not stop a typed or linked range: the API would answer an empty list.
+  // Counted in the address, not in the parsed filter: dropped malformed values stay there too.
+  const hasFilters = params.toString() !== '';
+  // `min` and `max` do not stop a typed or linked range, and the API rejects it with 422.
   const invertedRange =
     filter.from !== undefined && filter.to !== undefined && filter.from > filter.to;
 

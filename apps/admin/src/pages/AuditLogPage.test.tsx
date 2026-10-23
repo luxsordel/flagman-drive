@@ -120,6 +120,18 @@ describe('audit log page', () => {
     expect(screen.queryByRole('button', { name: ru.audit.reset })).toBeNull();
   });
 
+  it('offers to reset an address with only malformed filters', async () => {
+    const auditLog = fakeAuditLogApi();
+    renderAt('/audit?staff=not-a-uuid', testStaff(), { auditLog });
+    await screen.findByText(ru.audit.empty);
+
+    await userEvent.click(screen.getByRole('button', { name: ru.audit.reset }));
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: ru.audit.reset })).toBeNull();
+    });
+  });
+
   it('loads the next page by the cursor and stops on the last one', async () => {
     const auditLog = fakeAuditLogApi(
       { items: [auditEvent()], next_cursor: 'cursor-2' },
