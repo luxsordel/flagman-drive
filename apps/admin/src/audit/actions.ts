@@ -5,8 +5,15 @@ type ActionLabelKey = keyof typeof ru.audit.actions;
 
 // A Record, so an action added to the API fails the type check here until it gets a label.
 const labelKeys: Record<AuditAction, ActionLabelKey> = {
+  'staff.created': 'staffCreated',
   'staff.signed_in': 'staffSignedIn',
   'staff.sign_in_failed': 'staffSignInFailed',
+  'staff.signed_out': 'staffSignedOut',
+  'staff.totp_enrollment_started': 'staffTotpEnrollmentStarted',
+  'staff.totp_enrolled': 'staffTotpEnrolled',
+  'staff.totp_reset': 'staffTotpReset',
+  'staff.password_changed': 'staffPasswordChanged',
+  'staff.disabled': 'staffDisabled',
 };
 
 export const auditActions = Object.keys(labelKeys) as AuditAction[];
