@@ -87,7 +87,8 @@
   - `staff.signed_in`, `staff.signed_out`, `staff.totp_enrollment_started` (выдан новый секрет),
     `staff.totp_enrolled`;
   - `staff.sign_in_failed` с шагом (`password`, `totp`) и причиной (`wrong_password`, `unknown_email`,
-    `disabled`, `wrong_code`). При неизвестном email действующее лицо — `system`, самого email в записи нет;
+    `disabled`, `wrong_code`, `challenge_used` — верный код с уже использованным challenge). При неизвестном
+    email действующее лицо — `system`, самого email в записи нет;
   - `staff.created`, `staff.password_changed`, `staff.totp_reset`, `staff.disabled` — от имени `system`.
   - Неудачная попытка записывается в базу до того, как API вернёт ошибку.
 - **Сотрудников создаёт команда `flagman-staff`** (`flagman.identity.cli`), пока нет управления в интерфейсе.
@@ -97,7 +98,8 @@
   - `flagman-staff set-password --email …` задаёт новый пароль (забыт или утёк).
   - `flagman-staff reset-totp --email …` сбрасывает 2FA (потерян телефон, сменился ключ).
   - `flagman-staff disable --email …` закрывает вход (сотрудник уволился, аккаунт взломан). Включить аккаунт обратно
-    можно будет в интерфейсе управления сотрудниками.
+    можно будет в интерфейсе управления сотрудниками. Повторный `disable` ничего не меняет и событие
+    не пишет.
   - Последние три команды завершают все сессии сотрудника и пишут событие в аудит. Уже выданный access-токен
     работает ещё до 15 минут, и команды прямо пишут об этом в выводе.
 

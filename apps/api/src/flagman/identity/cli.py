@@ -25,6 +25,7 @@ from flagman.identity.domain import (
     EMAIL_PATTERN,
     STAFF_ACCESS_TOKEN_TTL,
     PasswordPolicyError,
+    StaffAlreadyDisabledError,
     StaffEmailTakenError,
     StaffNotFoundError,
     StaffRole,
@@ -117,9 +118,14 @@ async def _run(args: argparse.Namespace, stdin: TextIO, stdout: TextIO) -> int:
                     # The setup needs only the password, see docs/adr/0011.
                     stdout.write("Suspected break-in? Run set-password as well.\n")
                 case "disable":
-                    staff_id = await service.disable_staff(db, args.email, now)
-                    stdout.write(f"Disabled {staff_id}; every session ended.\n")
-                    stdout.write(_TOKENS_STILL_VALID)
+                    try:
+                        staff_id = await service.disable_staff(db, args.email, now)
+                    except StaffAlreadyDisabledError:
+                        # The goal is reached either way, so this is not an error.
+                        stdout.write("Already disabled; nothing changed.\n")
+                    else:
+                        stdout.write(f"Disabled {staff_id}; every session ended.\n")
+                        stdout.write(_TOKENS_STILL_VALID)
     finally:
         await engine.dispose()
     return EXIT_OK

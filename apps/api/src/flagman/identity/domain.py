@@ -317,6 +317,10 @@ class StaffNotFoundError(LookupError):
     pass
 
 
+class StaffAlreadyDisabledError(ValueError):
+    pass
+
+
 def normalize_email(email: str) -> str:
     # Case-insensitive in practice everywhere, so one person cannot get two accounts.
     return email.strip().lower()

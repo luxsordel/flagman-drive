@@ -194,9 +194,11 @@ def test_first_sign_in_sets_up_2fa_and_opens_a_session(
     assert me.status_code == HTTPStatus.OK
     assert me.json() == {"id": str(operator.id), "email": operator.email, "role": "operator"}
     actions = [action for action, _ in _events(integration_settings, operator.id)]
-    assert actions[0] == "staff.totp_enrollment_started"
-    # One transaction, one now(): the order of the last two events is not defined.
-    assert sorted(actions[1:]) == ["staff.signed_in", "staff.totp_enrolled"]
+    assert actions == [
+        "staff.totp_enrollment_started",
+        "staff.totp_enrolled",
+        "staff.signed_in",
+    ]
 
 
 def test_refresh_token_comes_only_in_a_strict_cookie(client: TestClient, operator: Staff) -> None:
@@ -525,7 +527,9 @@ def test_session_ends_12_hours_after_sign_in_however_it_is_used(
     assert _problem(response) == "refresh-token-invalid"
 
 
-def test_challenge_opens_only_one_session(client: TestClient, operator: Staff) -> None:
+def test_challenge_opens_only_one_session(
+    client: TestClient, operator: Staff, integration_settings: Settings
+) -> None:
     challenge = _challenge(client, operator)["challenge_token"]
     secret = _enroll(client, challenge)
     assert _totp(client, challenge, _code(secret)).status_code == HTTPStatus.OK
@@ -535,6 +539,11 @@ def test_challenge_opens_only_one_session(client: TestClient, operator: Staff) -
 
     assert response.status_code == HTTPStatus.UNAUTHORIZED
     assert _problem(response) == "staff-challenge-invalid"
+    # The refusal is committed to the audit log, not rolled back with the transaction.
+    assert _events(integration_settings, operator.id)[-1] == (
+        "staff.sign_in_failed",
+        {"step": "totp", "reason": "challenge_used"},
+    )
     fresh = _challenge(client, operator)["challenge_token"]
     assert _totp(client, fresh, _code(secret, steps_ahead=1)).status_code == HTTPStatus.OK
 
@@ -718,6 +727,18 @@ def test_disable_blocks_sign_in_and_ends_sessions(
     assert response.status_code == HTTPStatus.UNAUTHORIZED
     assert _problem(response) == "staff-credentials-invalid"
     assert _system_events(integration_settings, operator.id)[-1] == "staff.disabled"
+
+
+def test_disabling_twice_changes_nothing(
+    command_env: None, operator: Staff, integration_settings: Settings
+) -> None:
+    _run_command("disable", "--email", operator.email)
+
+    code, output = _run_command("disable", "--email", operator.email)
+
+    assert code == cli.EXIT_OK
+    assert "Already disabled" in output
+    assert _system_events(integration_settings, operator.id).count("staff.disabled") == 1
 
 
 def test_reset_totp_warns_about_tokens_and_the_password(command_env: None, operator: Staff) -> None:
