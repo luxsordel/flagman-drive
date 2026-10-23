@@ -14,7 +14,12 @@ export function Screen({ children }: { children: ReactNode }) {
         style={styles.fill}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          // Not every keyboard has a return key (a phone number pad): dragging puts it away.
+          keyboardDismissMode="on-drag"
+        >
           {children}
         </ScrollView>
       </KeyboardAvoidingView>

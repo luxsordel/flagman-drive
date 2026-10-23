@@ -1,4 +1,4 @@
-import { detectLanguage, resources } from './index';
+import { detectLanguage, languageNames, languages, resources } from './index';
 
 /** Dotted paths of every string, e.g. `auth.login.title`. */
 function keys(tree: object, prefix = ''): string[] {
@@ -23,6 +23,13 @@ describe('locales', () => {
       );
       expect(values.every((value) => typeof value === 'string' && value.trim() !== '')).toBe(true);
     }
+  });
+});
+
+describe('languages', () => {
+  it('lists every bundled language, each with its own name', () => {
+    expect([...languages].sort()).toEqual(Object.keys(resources).sort());
+    expect(Object.keys(languageNames).sort()).toEqual(Object.keys(resources).sort());
   });
 });
 

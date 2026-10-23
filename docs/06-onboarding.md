@@ -69,12 +69,14 @@ Docker Desktop должен быть запущен. Все команды — �
    ```
 
 2. Заполнить в `.env` пустые значения: `API_ENV` (локально `dev`), `POSTGRES_PASSWORD`, `REDIS_PASSWORD`,
-   `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `API_JWT_SECRET`, `API_OTP_PEPPER`.
+   `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `API_JWT_SECRET`, `API_OTP_PEPPER`, `API_TOTP_ENCRYPTION_KEY`.
    Для локальной разработки придумайте их сами, например `openssl rand -hex 24` в Git Bash.
    `API_JWT_SECRET` и `API_OTP_PEPPER` — не короче 32 символов и разные (`openssl rand -hex 32` даёт 64),
-   иначе API не стартует. Если `.env` у вас уже был, перенесите в него из `.env.example` новые строки
+   иначе API не стартует. `API_TOTP_ENCRYPTION_KEY` — ровно 32 байта в base64: `openssl rand -base64 32`.
+   Если `.env` у вас уже был, перенесите в него из `.env.example` новые строки
    `API_JWT_SECRET`, `API_OTP_PEPPER`, `SMS_BACKEND`, `SMS_FIXED_CODE`, `SMS_FIXED_PHONES`,
-   `S3_ENDPOINT_URL`, `S3_REGION` и `S3_PUBLIC_URL`; последние три локально можно оставить пустыми.
+   `API_TOTP_ENCRYPTION_KEY`, `S3_ENDPOINT_URL`, `S3_REGION` и `S3_PUBLIC_URL`; последние три локально можно
+   оставить пустыми.
    На сервере пилота `API_ENV=prod`, а `S3_PUBLIC_URL` — `https`-адрес хранилища, по которому клиенты
    открывают фото документов ([ADR-0012](adr/0012-kyc-document-storage.md)).
    Пустое значение — ошибка запуска, это сделано специально (SeaweedFS без ключей открыт анонимно).
