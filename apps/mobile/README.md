@@ -67,13 +67,14 @@ npm run check:bundle --workspace @flagman/mobile
 
 ## Структура
 
-| Путь                | Что там                                                                          |
-| ------------------- | -------------------------------------------------------------------------------- |
-| `src/app/`          | Маршруты Expo Router (файл = экран). Только связывают экраны из `features/`      |
-| `src/features/<x>/` | Экраны и логика по областям: `auth`, `home`, позже `map`, `rental`, `documents`  |
-| `src/ui/`           | Базовые компоненты (`AppText`, `Button`, `TextField`) — только на дизайн-токенах |
-| `src/theme/`        | Тема по системной настройке (`useTheme`), шрифты Oswald и Open Sans              |
-| `src/i18n/`         | i18next: `locales/ru.ts` — эталон, `en.ts` обязан иметь те же ключи              |
+| Путь                | Что там                                                                      |
+| ------------------- | ---------------------------------------------------------------------------- |
+| `src/app/`          | Маршруты Expo Router (файл = экран). Только связывают экраны из `features/`  |
+| `src/features/<x>/` | Экраны и логика по областям: `auth`, `home`, `kyc`, позже `map`, `rental`    |
+| `src/api/`          | Общее для запросов к API: разбор ошибок Problem Details (ADR-0006)           |
+| `src/ui/`           | Базовые компоненты (`AppText`, `Button`, `Card`…) — только на дизайн-токенах |
+| `src/theme/`        | Тема по системной настройке (`useTheme`), шрифты Oswald и Open Sans          |
+| `src/i18n/`         | i18next: `locales/ru.ts` — эталон, `en.ts` обязан иметь те же ключи          |
 
 ## Правила
 
@@ -85,3 +86,6 @@ npm run check:bundle --workspace @flagman/mobile
 - Зависимости Expo ставятся только `npx expo install <пакет>` из `apps/mobile`, а обновление SDK —
   отдельным PR. Почему и как — [ADR-0008](../../docs/adr/0008-expo-sdk-dependency-policy.md).
 - Карты (MapLibre) не работают в Expo Go — для них понадобится dev build (ADR-0001).
+- Фото документов (`src/features/kyc/photos.ts`) перекодируются в JPEG и после отправки или замены сразу
+  удаляются из кэша приложения (`discardPhoto`); камера не сохраняет снимок в галерею. Не храните фото
+  и ссылки на них ни в состоянии дольше экрана, ни в логах.
