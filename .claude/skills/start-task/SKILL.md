@@ -9,10 +9,9 @@ Talk to the user in Russian (see «Язык» in CLAUDE.md), even though this sk
 
 GitHub calls can fail on a flaky network: retry a failed `gh` call a few times before reporting an error.
 
-Argument: GitHub issue number (e.g. `123`). If none is given, show the user the open issues assigned to them
-(`gh issue list --assignee @me --state open`) and the free ones (`gh issue list --label ready --state open
---search "no:assignee"`), recommend one that does not touch the same files as issues other people have
-in progress, and ask which one to take.
+Argument: GitHub issue number (e.g. `123`). If none is given, pick one the way `/pick-task` does
+(`.claude/skills/pick-task/SKILL.md`): the user's own unfinished issues first, then free issues that do not
+conflict with open PRs and work in progress; ask which one to take.
 
 1. `gh issue view <n> --comments` — read the goal and acceptance criteria. If the issue is closed, stop.
    If there are no acceptance criteria, stop and propose them; add them to the issue only after the user confirms.
