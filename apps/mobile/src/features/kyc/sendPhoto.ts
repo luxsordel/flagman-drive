@@ -5,10 +5,13 @@ export interface PhotoResponse {
   retryAfter: string | null;
 }
 
+/** Bytes on a phone, a Blob in the browser: see readPhoto. */
+export type PhotoBody = Blob | Uint8Array<ArrayBuffer>;
+
 export interface SendPhotoOptions {
   url: string;
   accessToken: string;
-  photo: Blob;
+  photo: PhotoBody;
   /** Share of the photo sent so far, 0..1. */
   onProgress?: (sent: number) => void;
   signal?: AbortSignal;
