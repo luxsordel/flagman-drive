@@ -6,6 +6,12 @@ const offsetFormat = new Intl.DateTimeFormat('en-US', {
   timeZoneName: 'longOffset',
 });
 
+/**
+ * The log has nothing earlier: the pilot started in 2026. Older days also carry historical Minsk
+ * offsets such as `+01:50:16` for year 1, which the API does not accept.
+ */
+export const firstLogDay = '2026-01-01';
+
 const calendarDayShape = /^\d{4}-\d{2}-\d{2}$/;
 
 /**

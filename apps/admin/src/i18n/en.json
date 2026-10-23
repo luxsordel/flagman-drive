@@ -87,6 +87,7 @@
     "loadMore": "Show more",
     "loadingMore": "Loading…",
     "moreFailed": "Could not load more events. Please try again.",
-    "invertedRange": "\"From\" is later than \"To\": swap the dates."
+    "invertedRange": "\"From\" is later than \"To\": swap the dates.",
+    "rejected": "The server did not accept this log request. Change or reset the filters."
   }
 }

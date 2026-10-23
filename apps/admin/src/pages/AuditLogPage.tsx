@@ -6,7 +6,7 @@ import { ApiError } from '../api/client';
 import { useApis } from '../api/context';
 import { actionLabelKey, auditActions, isAuditAction } from '../audit/actions';
 import type { AuditEvent, AuditLogFilter } from '../audit/api';
-import { formatMinskTime, isCalendarDay } from '../audit/minskTime';
+import { firstLogDay, formatMinskTime, isCalendarDay } from '../audit/minskTime';
 import { useAuth } from '../auth/context';
 
 // Filters live in the address, so a filtered log can be reloaded or sent to a colleague.
@@ -14,6 +14,9 @@ const filterParams = { actorId: 'staff', action: 'action', from: 'from', to: 'to
 type FilterKey = keyof typeof filterParams;
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Days before the log began can only narrow it to nothing, or break the request (see firstLogDay).
+const isLogDay = (value: string): boolean => isCalendarDay(value) && value >= firstLogDay;
 
 // Malformed values from a hand-edited address are dropped rather than sent to the API.
 function parseFilter(params: URLSearchParams): AuditLogFilter {
@@ -24,8 +27,8 @@ function parseFilter(params: URLSearchParams): AuditLogFilter {
   return {
     ...(actorId && uuid.test(actorId) ? { actorId } : {}),
     ...(action && isAuditAction(action) ? { action } : {}),
-    ...(from && isCalendarDay(from) ? { from } : {}),
-    ...(to && isCalendarDay(to) ? { to } : {}),
+    ...(from && isLogDay(from) ? { from } : {}),
+    ...(to && isLogDay(to) ? { to } : {}),
   };
 }
 
@@ -88,6 +91,7 @@ export function AuditLogPage() {
             className="field"
             type="date"
             value={filter.from ?? ''}
+            min={firstLogDay}
             max={filter.to}
             onChange={(event) => {
               setFilter('from', event.target.value);
@@ -100,7 +104,7 @@ export function AuditLogPage() {
             className="field"
             type="date"
             value={filter.to ?? ''}
-            min={filter.from}
+            min={filter.from ?? firstLogDay}
             onChange={(event) => {
               setFilter('to', event.target.value);
             }}
@@ -152,7 +156,8 @@ export function AuditLogPage() {
   );
 }
 
-type ListStatus = 'loading' | 'ready' | 'failed' | 'forbidden' | 'loadingMore' | 'moreFailed';
+type ListStatus =
+  'loading' | 'ready' | 'failed' | 'forbidden' | 'rejected' | 'loadingMore' | 'moreFailed';
 
 interface ListState {
   status: ListStatus;
@@ -177,16 +182,17 @@ function AuditEventList({
   });
   const [attempt, setAttempt] = useState(0);
 
-  // Retrying cannot fix a refusal, so only network and server failures offer it.
+  // Retrying cannot fix a refusal (any 4xx), so only network and server failures offer it.
   const fail = useCallback(
     (error: unknown, status: 'failed' | 'moreFailed'): void => {
-      if (error instanceof ApiError && error.status === 401) {
+      const refusal = error instanceof ApiError && error.status >= 400 && error.status < 500;
+      if (refusal && error.status === 401) {
         // The session refreshes the token ahead of expiry, so a 401 means it is over: sign in again.
         void signOut();
         return;
       }
-      const forbidden = error instanceof ApiError && error.status === 403;
-      setState((previous) => ({ ...previous, status: forbidden ? 'forbidden' : status }));
+      const next: ListStatus = !refusal ? status : error.status === 403 ? 'forbidden' : 'rejected';
+      setState((previous) => ({ ...previous, status: next }));
     },
     [signOut],
   );
@@ -238,6 +244,13 @@ function AuditEventList({
     return (
       <p role="alert" className="list-error">
         {t('forbidden.text')}
+      </p>
+    );
+  }
+  if (state.status === 'rejected') {
+    return (
+      <p role="alert" className="list-error">
+        {t('audit.rejected')}
       </p>
     );
   }

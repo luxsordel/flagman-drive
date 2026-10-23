@@ -182,6 +182,23 @@ describe('audit log page', () => {
     expect(screen.queryByRole('button', { name: ru.audit.retry })).toBeNull();
   });
 
+  it('does not offer a retry for any other refusal of the request', async () => {
+    const auditLog = fakeAuditLogApi();
+    auditLog.list.mockRejectedValueOnce(new ApiError(422));
+    renderAt('/audit', testStaff(), { auditLog });
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ru.audit.rejected);
+    expect(screen.queryByRole('button', { name: ru.audit.retry })).toBeNull();
+  });
+
+  it('ignores days before the log began', async () => {
+    const auditLog = fakeAuditLogApi();
+    renderAt('/audit?from=0001-01-01&to=2025-12-31', testStaff(), { auditLog });
+    await screen.findByText(ru.audit.empty);
+
+    expect(auditLog.list).toHaveBeenCalledWith({});
+  });
+
   it('sends to the sign-in page when the API no longer accepts the session', async () => {
     const auditLog = fakeAuditLogApi();
     auditLog.list.mockRejectedValueOnce(new ApiError(401));
