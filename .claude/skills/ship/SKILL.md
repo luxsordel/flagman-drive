@@ -47,3 +47,21 @@ GitHub calls can fail on a flaky network: retry a failed `gh` call a few times b
 12. Move the issue to **Review** on the board: `bash scripts/board-status.sh <issue> Review`.
     If it fails, say so instead of failing the whole ship.
 13. Print the PR URL, the requested reviewers and whether auto-merge is on.
+14. Wait for the review so you can fix the comments without the user relaying them. In the Claude desktop app
+    offer to turn on Auto-fix for the PR (it wakes the session on review comments and CI failures). Elsewhere,
+    or if the user declines Auto-fix, start `bash scripts/wait-pr-activity.sh <n>` with the Bash tool in the
+    background (`run_in_background`); it exits when someone else reviews or comments.
+
+## Addressing review comments
+
+When review comments arrive (Auto-fix event, the watcher exits, or the user asks):
+
+1. Read the unresolved threads (`gh pr view <n> --comments`, inline threads via `gh api graphql`, see
+   `review-pr`). Fix must-fix and should-fix items; for a comment you disagree with, reply with the reason
+   instead of changing the code. Nits: fix if cheap.
+2. Run the checks of step 3, commit (Conventional Commits) and push. The fix commits need no new confirmation:
+   the user agreed to ship this PR.
+3. Reply in every thread you handled: what changed and the commit SHA. Do not resolve the threads — the
+   reviewer resolves them after checking.
+4. Re-request the review from everyone whose threads you handled: `gh pr edit <n> --add-reviewer <login>`.
+   This is the signal the reviewer's watcher waits for. Then go back to waiting (step 14).
