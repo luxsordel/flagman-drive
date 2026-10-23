@@ -1,4 +1,4 @@
-import { parseRetryAfter, problemSlug } from '../../api/problems';
+import { parseRetryAfter, problemSlug } from '@flagman/api-client';
 
 /** What went wrong with the documents, in the terms the screens explain to the user. */
 export type KycErrorKind =
