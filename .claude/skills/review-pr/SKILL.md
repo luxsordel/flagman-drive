@@ -27,7 +27,9 @@ Argument: PR number. If none is given, list open PRs where the current user is a
 3. Report findings to the user grouped as **must fix / should fix / nit**, each with file:line and a concrete
    suggestion. Say explicitly if you found nothing serious.
 4. Only if the user asks: post the review with `gh pr review <n> --comment|--request-changes|--approve -b "..."`.
-   Never approve on your own initiative. Post must-fix and should-fix items as inline comments on the
+   Never approve on your own initiative here: this skill is the manual review, where the human decides on one PR.
+   Automatic approval exists only in `/review-open-prs`, under its own rules (green CI, nothing blocking left,
+   no security-sensitive or process changes). Post must-fix and should-fix items as inline comments on the
    relevant lines when the user agrees, so the author can resolve them one by one.
 5. After an approval, tell the user what happens next: if the author turned on auto-merge, the PR merges
    itself once CI is green; otherwise someone presses "Squash and merge". If the PR is behind main, say so.

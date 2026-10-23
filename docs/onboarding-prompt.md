@@ -31,7 +31,7 @@
 
 4. Найди приглашение в репозиторий luxsordel/flagman-drive (gh api user/repository_invitations). Покажи его мне и после моего «да» прими. Если приглашения нет, скажи, что его нужно попросить у владельца репозитория.
 
-5. Склонируй репозиторий в %USERPROFILE%\Documents\flagman-drive и переведи эту сессию в эту папку. Убедись, что подхватились CLAUDE.md, .claude/settings.json и команды из .claude/skills (start-task, ship, review-pr, sync, project-status, demo, new-adr, weekly-update).
+5. Склонируй репозиторий в %USERPROFILE%\Documents\flagman-drive и переведи эту сессию в эту папку. Убедись, что подхватились CLAUDE.md, .claude/settings.json и команды из .claude/skills (start-task, pick-task, pre-ship-review, ship, review-pr, review-open-prs, sync, project-status, demo, new-adr, weekly-update).
 
 6. Прочитай README.md, CLAUDE.md и все файлы docs/ (включая adr/). Объясни мне простым языком:
    - что за проект, какая цель у текущего этапа и что считается успехом;
