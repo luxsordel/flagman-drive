@@ -1,4 +1,4 @@
-"""Sign-in rules: one-time codes, passwords, TOTP, access tokens and refresh token rotation.
+"""Sign-in rules (one-time codes, passwords, TOTP, tokens) and client profile rules.
 
 No I/O here.
 """
@@ -6,9 +6,10 @@ No I/O here.
 import hashlib
 import hmac
 import secrets
+import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from functools import cache
 from http import HTTPStatus
@@ -469,3 +470,59 @@ def read_staff_access_token(token: str, secret: str) -> StaffAccessClaims:
         )
     except (ValueError, TypeError) as exc:
         raise AccessTokenInvalidError from exc
+
+
+# Client profile (#33). Only plausibility checks here: the age and driving experience needed to
+# rent are KYC rules (#35), checked by an operator against the documents.
+
+NAME_MAX_LENGTH = 100
+BIRTH_DATE_MAX_AGE_YEARS = 120
+
+
+class Language(StrEnum):
+    RU = "ru"
+    EN = "en"
+
+
+class BirthDateInvalidError(AppError):
+    """In the future or implausibly long ago; the format itself is checked by the schema."""
+
+    status = HTTPStatus.UNPROCESSABLE_ENTITY
+    slug = "birth-date-invalid"
+    title = "Invalid birth date"
+
+
+def _is_refused_in_name(char: str) -> bool:
+    category = unicodedata.category(char)
+    return category.startswith("C") or category in {"Zl", "Zp"}
+
+
+def normalize_name(name: str) -> str:
+    """Brings a name to one canonical form; rejects empty, overlong and invisible-character names.
+
+    An operator compares the name with the documents, so two names that look the same must also
+    be the same string: NFC joins a letter and its combining mark (E + U+0308 is U+00CB), every
+    kind of space becomes a plain one, and format characters (zero-width, bidi overrides) are
+    refused. So are line and paragraph separators: like a newline, they would break the name in
+    two in the admin panel and on a contract.
+    """
+    name = unicodedata.normalize("NFC", name).strip()
+    if not name:
+        raise ValueError("name must not be empty")
+    if any(_is_refused_in_name(char) for char in name):
+        raise ValueError("name must not contain control, format or line break characters")
+    spaced = "".join(" " if unicodedata.category(char) == "Zs" else char for char in name)
+    name = " ".join(part for part in spaced.split(" ") if part)
+    if len(name) > NAME_MAX_LENGTH:
+        raise ValueError(f"name must be at most {NAME_MAX_LENGTH} characters")
+    return name
+
+
+def check_birth_date(birth_date: date, today: date) -> None:
+    if birth_date > today:
+        raise BirthDateInvalidError("The birth date must not be in the future.")
+    # A whole calendar year as the bound: no leap-day arithmetic, and a few months of slack
+    # on an already implausible age do not matter.
+    earliest = date(today.year - BIRTH_DATE_MAX_AGE_YEARS, 1, 1)
+    if birth_date < earliest:
+        raise BirthDateInvalidError(f"The birth date must not be before {earliest.isoformat()}.")

@@ -1,14 +1,21 @@
+import re
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from flagman.identity.domain import (
     EMAIL_MAX_LENGTH,
     EMAIL_PATTERN,
+    NAME_MAX_LENGTH,
     PASSWORD_MAX_LENGTH,
+    Language,
     StaffNextStep,
     StaffRole,
+    normalize_email,
+    normalize_name,
 )
 
 # The pilot runs in Belarus only: +375 and one of the mobile operator codes 25, 29, 33, 44.
@@ -198,3 +205,92 @@ class StaffProfile(BaseModel):
     id: UUID
     email: str
     role: StaffRole
+
+
+# Client profile (#33).
+# The real limit is NAME_MAX_LENGTH, which normalize_name checks after trimming spaces. This one
+# only stops a huge string before it is normalized character by character.
+_NAME_INPUT_MAX_LENGTH = 1000
+
+PersonName = Annotated[
+    str,
+    Field(
+        max_length=_NAME_INPUT_MAX_LENGTH,
+        description=f"As in the documents; at most {NAME_MAX_LENGTH} characters.",
+        examples=["Анна"],
+    ),
+    AfterValidator(normalize_name),
+]
+
+_DATE_STRING = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
+def _require_date_string(value: object) -> object:
+    # Pydantic would also read a number as a Unix timestamp and cut a datetime string down to its
+    # date; a birth date is only ever `YYYY-MM-DD`. Not `strict=True`: FastAPI validates the
+    # parsed body, where strict refuses strings too.
+    if not isinstance(value, str) or not _DATE_STRING.fullmatch(value):
+        raise ValueError("birth date must be a YYYY-MM-DD string")
+    return value
+
+
+# Only the format: whether the date is plausible depends on today, which the service is given.
+BirthDate = Annotated[date, Field(examples=["1990-05-17"]), BeforeValidator(_require_date_string)]
+ContactEmail = Annotated[
+    str,
+    Field(max_length=EMAIL_MAX_LENGTH, pattern=EMAIL_PATTERN, examples=["anna@example.com"]),
+    AfterValidator(normalize_email),
+]
+
+
+class ClientProfile(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    first_name: str | None = Field(description="Null until the client fills it in.")
+    last_name: str | None = Field(description="Null until the client fills it in.")
+    birth_date: date | None = Field(description="Null until the client fills it in.")
+    email: str | None
+    language: Language = Field(description="Language of the app.")
+    phone: str = Field(
+        description="The number the client signs in with; not changed through the profile.",
+        examples=["+375291234567"],
+    )
+
+
+# Of the fields a client sets, only email may be cleared: names and the birth date are needed
+# for KYC, and the language always has a value.
+_NOT_CLEARABLE = ("first_name", "last_name", "birth_date", "language")
+
+
+class ClientProfileUpdate(BaseModel):
+    """Fields left out stay as they are; `phone` is not accepted."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    # SkipJsonSchema: None is only the "not sent" default, the schema does not offer null.
+    first_name: PersonName | SkipJsonSchema[None] = None
+    last_name: PersonName | SkipJsonSchema[None] = None
+    birth_date: BirthDate | SkipJsonSchema[None] = Field(
+        default=None,
+        description=(
+            "Not in the future and not before 1 January 120 years ago, "
+            "else `urn:flagman:problem:birth-date-invalid`."
+        ),
+    )
+    email: ContactEmail | None = Field(default=None, description="Null removes the email.")
+    language: Language | SkipJsonSchema[None] = None
+
+    # Runs only for fields the client sent: defaults are not validated.
+    @field_validator(*_NOT_CLEARABLE)
+    @classmethod
+    def _reject_null(cls, value: object) -> object:
+        if value is None:
+            raise ValueError("must not be null")
+        return value
+
+    def changes(self) -> dict[str, str | date | None]:
+        """Only the fields the client sent, with the language as its plain value."""
+        return {
+            name: value.value if isinstance(value, Language) else value
+            for name, value in self.model_dump(include=self.model_fields_set).items()
+        }
