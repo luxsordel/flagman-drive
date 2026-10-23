@@ -2,7 +2,8 @@ import type { components } from '@flagman/api-client';
 
 import type { ApiClient } from '../auth/session/authSession';
 import { kycErrorFromResponse, type KycError } from './kycErrors';
-import { sendPhoto } from './sendPhoto';
+import { readPhoto } from './readPhoto';
+import { sendPhoto, type PhotoBody } from './sendPhoto';
 
 export type KycApplication = components['schemas']['KycApplicationOut'];
 export type DocumentKind = components['schemas']['DocumentKind'];
@@ -32,7 +33,7 @@ export interface KycApiOptions {
   /** Null once signed out; throws when the API cannot be reached (see AuthSession). */
   getAccessToken: () => Promise<string | null>;
   /** Reads the picked photo; a local file URI on a phone, a blob or data URI on the web. */
-  loadPhoto?: (uri: string) => Promise<Blob>;
+  loadPhoto?: (uri: string) => Promise<PhotoBody>;
   createXhr?: () => XMLHttpRequest;
 }
 
@@ -42,7 +43,7 @@ export function createKycApi({
   api,
   baseUrl,
   getAccessToken,
-  loadPhoto = loadBlob,
+  loadPhoto = readPhoto,
   createXhr,
 }: KycApiOptions): KycApi {
   const origin = baseUrl.replace(/\/+$/, '');
@@ -89,11 +90,6 @@ export function createKycApi({
       };
     },
   };
-}
-
-async function loadBlob(uri: string): Promise<Blob> {
-  const response = await fetch(uri);
-  return response.blob();
 }
 
 async function send(request: Sent<KycApplication>): Promise<KycResult> {
