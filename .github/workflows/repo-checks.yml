@@ -21,6 +21,21 @@ jobs:
           docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:v8.21.2 \
             git /repo --redact --verbose --exit-code 1
 
+  shell-scripts:
+    name: Shell scripts (shellcheck + tests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # shellcheck comes preinstalled on the GitHub Ubuntu runners.
+      - name: Run shellcheck
+        run: shellcheck scripts/*.sh scripts/tests/*.sh
+      - name: Run script tests
+        run: |
+          for t in scripts/tests/*.test.sh; do
+            echo "== $t"
+            bash "$t"
+          done
+
   pr-title:
     name: PR title follows Conventional Commits
     if: github.event_name == 'pull_request'
