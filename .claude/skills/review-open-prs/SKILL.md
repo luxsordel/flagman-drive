@@ -32,12 +32,16 @@ rules below. It is not a permission to merge, close, push to, or edit anyone els
    - **new** — the user has not reviewed it yet → full review (step 3);
    - **updated** — the user reviewed it, and there are commits after the user's last review → re-review
      only the author's own commits since then, not what came from `main` via `/sync`:
-     `git fetch origin <headRefName>`, then `git log --no-merges -p <reviewed commit>..origin/<headRefName>`
-     (or `git range-diff` when the author rewrote history). This checks the fix, it is not a new review: as in
-     a round of `/review-pr` (its «Following the fix», step 3), comment only on a must-fix in the lines the fix
-     changed, and raise no nits. Then go through the user's threads (step 4). At most two such rounds: if the
-     user has already reviewed the PR twice and a must-fix is still open after this one, post a COMMENT that
-     hands the PR to the humans instead of another REQUEST_CHANGES, and list it for the user;
+     `git fetch origin <headRefName>`, then
+     `git log --first-parent --no-merges -p <reviewed commit>..origin/<headRefName>` (without `--first-parent`
+     the log also lists the commits a `/sync` brought in from `main`; `git range-diff` when the author rewrote
+     history). This checks the fix, it is not a new review: as in a round of `/review-pr` (its «Following the
+     fix», step 3), comment only on a must-fix in the lines the fix changed or a must-fix missed earlier, and
+     raise no nits. Then go through the user's threads (step 4). At most two such rounds. Count them by the
+     user's reviews in state `CHANGES_REQUESTED` (`reviews[].state` from step 1), not by all reviews: thread
+     replies and COMMENT reviews also show up there. If the user already has two `CHANGES_REQUESTED` reviews on
+     the PR and a must-fix is still open after this round, post a COMMENT that hands the PR to the humans
+     instead of another REQUEST_CHANGES, and list it for the user;
    - **replied** — no new commits, but the author answered in the user's threads → step 4 only;
    - **done** — the user already approved the current head and nobody asked anything → skip, mention in the report.
 3. Review each PR by the checklist of `/review-pr` (step 2 of `.claude/skills/review-pr/SKILL.md`):

@@ -31,7 +31,8 @@ Argument: PR number. If none is given, list open PRs where the current user is a
    Automatic approval exists only in `/review-open-prs`, under its own rules (green CI, nothing blocking left,
    no security-sensitive or process changes). Post must-fix items as inline comments on the relevant lines when
    the user agrees, so the author can resolve them one by one. Nits go only as a short list in the review body.
-   With no must-fix, suggest approving right away, nits included, instead of a comment that waits for a fix.
+   With no must-fix and every required CI check passed, suggest approving right away, nits included, instead of
+   a comment that waits for a fix.
 5. After an approval, tell the user what happens next: if the author turned on auto-merge, the PR merges
    itself once CI is green; otherwise someone presses "Squash and merge". If the PR is behind main, say so.
 6. If the posted review left must-fix items, follow the fix — see below. Nits alone are never followed.
@@ -42,8 +43,9 @@ Every extra round costs both sides time and limits, so only a real defect blocks
 only if merging the PR as it is would:
 - break behaviour: a bug, or an edge case that can actually happen and is not handled;
 - open a security hole (`docs/03-security.md`);
-- break a written rule of `CLAUDE.md`: layers and module boundaries, ports, money and time, the rentals state
-  machine, `extra="forbid"`, secrets and PII, i18n and design tokens, no disabled checks;
+- break a written rule of `CLAUDE.md`, for example layers and module boundaries, ports, money and time, the
+  rentals state machine, `extra="forbid"`, secrets and PII, i18n and design tokens, no disabled checks, no dead
+  code, an ADR for a new architectural decision;
 - leave new logic without tests, or with a test that does not check what it claims;
 - leave an acceptance criterion of the linked issue unmet.
 
@@ -70,10 +72,12 @@ them and the round summaries need no new confirmation. Approving still does (ste
 3. A round is steps 2 and 4 of `/review-open-prs` for this one PR: re-review only the author's own commits since
    the reviewed head (`git fetch origin <headRefName>`, then
    `git log --first-parent --no-merges -p <reviewed>..origin/<headRefName>`: without `--first-parent` the log also
-   lists the commits a `/sync` brought in from `main`), then go through your unresolved threads — fixed ones get a reply with the commit and are
-   resolved, judged by the code and not by the author's reply. A round checks the fix, it is not a new review:
-   look only at the lines the fix changed, and comment only on a must-fix there (a fix can break something
-   else). Code you already reviewed gets no new findings, and nits are not raised in a round at all.
+   lists the commits a `/sync` brought in from `main`), then go through your unresolved threads — fixed ones get
+   a reply with the commit and are resolved, judged by the code and not by the author's reply. A round checks the
+   fix, it is not a new review: read the lines the fix changed and comment only on a must-fix there (a fix can
+   break something else). Code you already reviewed gets no new nits; a new finding there is raised only if it
+   is a must-fix by the bar, so a real defect missed earlier still does not reach `main`. Nits are not raised in
+   a round at all.
    Comments are in Russian, as in `/review-open-prs`.
 4. Decide what is next:
    - A must-fix is still open after the first round → post the round summary the way step 5 of
