@@ -1,20 +1,15 @@
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
-import { Card } from '../../ui/Card';
 import { Screen } from '../../ui/Screen';
-import { useAuthSession } from '../auth/session/AuthProvider';
-import { KycErrorMessage } from '../kyc/KycErrorMessage';
-import { useKycApplication } from '../kyc/KycProvider';
+import { DocumentsCard } from '../kyc/DocumentsCard';
 
-/** Placeholder for signed-in clients until the map and profile screens arrive (#37). */
+/** Placeholder for signed-in clients until the map arrives. */
 export function HomeScreen() {
   const { t } = useTranslation();
-  const session = useAuthSession();
-  const [busy, setBusy] = useState(false);
+  const router = useRouter();
 
   return (
     <Screen>
@@ -23,40 +18,11 @@ export function HomeScreen() {
       <DocumentsCard />
       <Button
         variant="secondary"
-        title={t('auth.signOut')}
-        disabled={busy}
+        title={t('home.profile')}
         onPress={() => {
-          setBusy(true);
-          void session.signOut();
+          router.push('/profile');
         }}
       />
     </Screen>
-  );
-}
-
-function DocumentsCard() {
-  const { t } = useTranslation();
-  const router = useRouter();
-  const { application, loadError } = useKycApplication();
-  return (
-    <Card>
-      <AppText variant="label">{t('kyc.card.title')}</AppText>
-      {application === null && loadError !== null ? (
-        <KycErrorMessage error={loadError} />
-      ) : (
-        <AppText tone="muted">
-          {application === null
-            ? t('kyc.card.loading')
-            : t(`kyc.statusShort.${application.status}`)}
-        </AppText>
-      )}
-      <Button
-        variant="secondary"
-        title={t('kyc.card.open')}
-        onPress={() => {
-          router.push('/kyc');
-        }}
-      />
-    </Card>
   );
 }

@@ -7,6 +7,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { AuthProvider, createAppAuthSession } from '../features/auth/session/AuthProvider';
 import { createAppKycStore, KycProvider } from '../features/kyc/KycProvider';
+import { createAppProfileStore, ProfileProvider } from '../features/profile/ProfileProvider';
 import { initI18n } from '../i18n';
 import { fontAssets } from '../theme/fonts';
 import { navigationTheme, useTheme } from '../theme/theme';
@@ -18,6 +19,7 @@ export default function RootLayout() {
   const theme = useTheme();
   const [session] = useState(createAppAuthSession);
   const [kycStore] = useState(() => createAppKycStore(session));
+  const [profileStore] = useState(() => createAppProfileStore(session));
   const status = useSyncExternalStore(session.subscribe, session.getStatus);
   const [fontsLoaded, fontError] = useFonts(fontAssets);
   // A failed font load falls back to system fonts rather than leaving the splash up forever.
@@ -40,18 +42,21 @@ export default function RootLayout() {
       <ThemeProvider value={navigationTheme(theme)}>
         <AuthProvider session={session}>
           <KycProvider store={kycStore}>
-            <StatusBar style="auto" />
-            <Stack screenOptions={{ headerShown: false }}>
-              <Stack.Protected guard={signedIn}>
-                <Stack.Screen name="index" />
-                <Stack.Screen name="kyc/index" />
-                <Stack.Screen name="kyc/upload" />
-              </Stack.Protected>
-              <Stack.Protected guard={!signedIn}>
-                <Stack.Screen name="sign-in" />
-                <Stack.Screen name="code" />
-              </Stack.Protected>
-            </Stack>
+            <ProfileProvider store={profileStore}>
+              <StatusBar style="auto" />
+              <Stack screenOptions={{ headerShown: false }}>
+                <Stack.Protected guard={signedIn}>
+                  <Stack.Screen name="index" />
+                  <Stack.Screen name="kyc/index" />
+                  <Stack.Screen name="kyc/upload" />
+                  <Stack.Screen name="profile" />
+                </Stack.Protected>
+                <Stack.Protected guard={!signedIn}>
+                  <Stack.Screen name="sign-in" />
+                  <Stack.Screen name="code" />
+                </Stack.Protected>
+              </Stack>
+            </ProfileProvider>
           </KycProvider>
         </AuthProvider>
       </ThemeProvider>
