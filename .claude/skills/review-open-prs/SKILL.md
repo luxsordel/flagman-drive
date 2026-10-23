@@ -33,7 +33,11 @@ rules below. It is not a permission to merge, close, push to, or edit anyone els
    - **updated** — the user reviewed it, and there are commits after the user's last review → re-review
      only the author's own commits since then, not what came from `main` via `/sync`:
      `git fetch origin <headRefName>`, then `git log --no-merges -p <reviewed commit>..origin/<headRefName>`
-     (or `git range-diff` when the author rewrote history). Then go through the user's threads (step 4);
+     (or `git range-diff` when the author rewrote history). This checks the fix, it is not a new review: as in
+     a round of `/review-pr` (its «Following the fix», step 3), comment only on a must-fix in the lines the fix
+     changed, and raise no nits. Then go through the user's threads (step 4). At most two such rounds: if the
+     user has already reviewed the PR twice and a must-fix is still open after this one, post a COMMENT that
+     hands the PR to the humans instead of another REQUEST_CHANGES, and list it for the user;
    - **replied** — no new commits, but the author answered in the user's threads → step 4 only;
    - **done** — the user already approved the current head and nobody asked anything → skip, mention in the report.
 3. Review each PR by the checklist of `/review-pr` (step 2 of `.claude/skills/review-pr/SKILL.md`):
@@ -41,8 +45,9 @@ rules below. It is not a permission to merge, close, push to, or edit anyone els
    docs/ADR. Read the diff with `gh pr diff <n>` and open the surrounding code when the diff alone is not enough.
    When there are more than two PRs to review in full, review each in its own subagent in parallel
    (Agent tool, `general-purpose`): give it the PR number, the checklist file, and ask it to return findings
-   as **must fix / should fix / nit** with `path:line` and a concrete suggestion, without posting anything.
-   Check every finding you got back against the code before posting it: drop what is wrong or not about this diff.
+   as **must fix / nit** by the bar in «What blocks a PR» of that file, with `path:line` and a concrete
+   suggestion, without posting anything. Check every finding you got back against the code before posting it:
+   drop what is wrong or not about this diff, and move to nits what does not pass the bar.
 4. Go through every unresolved thread of the user:
    - the author fixed it (with or without a reply) — reply briefly that it is fixed, with the commit, and resolve
      the thread. A silently fixed thread must be resolved too, otherwise the PR never qualifies for approval;
@@ -50,14 +55,17 @@ rules below. It is not a permission to merge, close, push to, or edit anyone els
      resolve. If not, explain why with a concrete example. If it is a matter of taste, accept their choice;
    - a question you cannot answer from the code or the docs (product decision, requirements) — do not answer
      it; list it for the user;
-   - not fixed and no reply — leave it open; it counts as an open finding in step 5.
+   - not fixed and no reply — leave it open if it is a must-fix by the bar; it counts as an open finding in step 5.
+     If it does not pass the bar (an old nit, or a «should fix» from before the bar), reply that it does not
+     block and resolve it: an old minor thread must not hold the PR.
    Reply and resolve by thread id (the REST `/comments/<id>/replies` endpoint only accepts the first comment
    of a thread, so do not use it):
    ```bash
    gh api graphql -f query='mutation($id:ID!,$b:String!){addPullRequestReviewThreadReply(input:{pullRequestReviewThreadId:$id,body:$b}){comment{id}}}' -f id=<thread id> -f b="..."
    gh api graphql -f query='mutation($id:ID!){resolveReviewThread(input:{threadId:$id}){thread{isResolved}}}' -f id=<thread id>
    ```
-5. Post one review per PR, with must-fix and should-fix findings as inline comments on the lines.
+5. Post one review per PR, with must-fix findings as inline comments on the lines and nits only as a short
+   list in the body, marked «nit, не блокирует».
    Write the JSON to a file in the scratchpad directory, not in the repo:
    ```bash
    gh api repos/{owner}/{repo}/pulls/<n>/reviews --input <scratchpad>/review-<n>.json
@@ -67,12 +75,12 @@ rules below. It is not a permission to merge, close, push to, or edit anyone els
    Inline comments can only point at lines inside the diff hunks; GitHub rejects the whole review (422) otherwise.
    A finding about a line outside the diff goes into the review body with `path:line`.
    Pick the event:
-   - **APPROVE** — no must-fix and no should-fix left (new, or an unresolved thread of the user), the linked
-     issue's acceptance criteria are met, and every required CI check has already passed. Do not approve while
-     CI is pending: with auto-merge on, the PR would merge on green without anyone looking at the result.
-     Nits may go along with the approval as non-blocking comments, marked «nit:».
+   - **APPROVE** — no must-fix left (new, or an unresolved thread of the user), the linked issue's acceptance
+     criteria are met, and every required CI check has already passed. Do not approve while CI is pending: with
+     auto-merge on, the PR would merge on green without anyone looking at the result. Nits go along with the
+     approval in the body; do not hold the approval back to have them fixed.
    - **REQUEST_CHANGES** — at least one must-fix.
-   - **COMMENT** — should-fix only, CI red or still running, or an open question for the user from step 4.
+   - **COMMENT** — CI red or still running, or an open question for the user from step 4.
    Never approve when any of these is true; post a COMMENT and list the PR for the user instead:
    - the PR touches identity, kyc, payments, rentals or car commands and there is no evidence a security review
      was done: the template line `- [x] … /security-review` ticked, or a comment with the results of

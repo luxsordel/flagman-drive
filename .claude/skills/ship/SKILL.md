@@ -61,10 +61,12 @@ counts.
 
 1. If the watcher says the PR is merged or closed, nothing happened for 24 h (exit 3) or GitHub is unreachable
    (exit 1) — tell the user and stop.
-2. Read the unresolved threads with replies (the query in step 1 of `/review-open-prs`). Fix must-fix and
-   should-fix items; for a comment you disagree with, reply once with the reason instead of changing the code.
-   Nits: fix if cheap. Leave alone a thread where the reviewer handed the question to the humans, or kept their
-   position after your reason: do not answer it again.
+2. Read the unresolved threads with replies (the query in step 1 of `/review-open-prs`). Fix must-fix items
+   (the bar is «What blocks a PR» in `/review-pr`); for a comment you disagree with, reply once with the reason
+   instead of changing the code. Nits are optional and never a round of their own: fix one only if it is a
+   one-line change and you are pushing a must-fix fix anyway; otherwise leave it. A review with nits only, or an
+   approval with nits, needs no push, no reply and no re-request. Leave alone a thread where the reviewer handed
+   the question to the humans, or kept their position after your reason: do not answer it again.
 3. Run the checks of step 3, commit (Conventional Commits) and push. The fix commits need no new confirmation,
    the user agreed to ship this PR — unless the PR is already approved: then auto-merge may merge the push on
    green CI without anyone looking, so show the user the fix and push only after their yes.
@@ -73,5 +75,5 @@ counts.
 5. Re-request the review from everyone whose threads you handled: `gh pr edit <n> --add-reviewer <login>`.
    This is the signal the reviewer's watcher waits for. Then wait again:
    `bash scripts/wait-pr-activity.sh <n> --since <the time you noted> --since-sha <your new head>`.
-6. If the third round still brings new comments, or the reviewer did not accept your reason in a disagreement,
+6. If the second round still leaves a must-fix open, or the reviewer did not accept your reason in a disagreement,
    stop waiting and tell the user: the rest is for the humans.
