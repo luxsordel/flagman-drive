@@ -1,5 +1,8 @@
+import type { ComponentType } from 'react';
+
 import type { StaffRole } from './auth/staff';
 import type ru from './i18n/ru.json';
+import { AuditLogPage } from './pages/AuditLogPage';
 
 export type SectionKey = keyof typeof ru.nav;
 
@@ -8,6 +11,8 @@ export interface Section {
   path: string;
   /** Who sees the section; the API enforces the same roles on its endpoints. */
   roles: readonly StaffRole[];
+  /** Without one the section shows the placeholder. */
+  page?: ComponentType;
 }
 
 const everyone: readonly StaffRole[] = ['operator', 'technician', 'admin'];
@@ -23,7 +28,7 @@ export const sections: readonly Section[] = [
   { key: 'clients', path: '/clients', roles: support },
   { key: 'zones', path: '/zones', roles: adminOnly },
   { key: 'tariffs', path: '/tariffs', roles: adminOnly },
-  { key: 'audit', path: '/audit', roles: adminOnly },
+  { key: 'audit', path: '/audit', roles: adminOnly, page: AuditLogPage },
 ];
 
 export function sectionsFor(role: StaffRole): Section[] {
