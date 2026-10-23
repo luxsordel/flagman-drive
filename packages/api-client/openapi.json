@@ -175,6 +175,117 @@
         "title": "CheckStatus",
         "type": "string"
       },
+      "ClientProfile": {
+        "additionalProperties": false,
+        "properties": {
+          "birth_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null until the client fills it in.",
+            "title": "Birth Date"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null until the client fills it in.",
+            "title": "First Name"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language",
+            "description": "Language of the app."
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null until the client fills it in.",
+            "title": "Last Name"
+          },
+          "phone": {
+            "description": "The number the client signs in with; not changed through the profile.",
+            "examples": ["+375291234567"],
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": ["first_name", "last_name", "birth_date", "email", "language", "phone"],
+        "title": "ClientProfile",
+        "type": "object"
+      },
+      "ClientProfileUpdate": {
+        "additionalProperties": false,
+        "description": "Fields left out stay as they are; `phone` is not accepted.",
+        "properties": {
+          "birth_date": {
+            "description": "Not in the future and not before 1 January 120 years ago, else `urn:flagman:problem:birth-date-invalid`.",
+            "examples": ["1990-05-17"],
+            "format": "date",
+            "title": "Birth Date",
+            "type": "string"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "examples": ["anna@example.com"],
+                "maxLength": 254,
+                "pattern": "^[!-?A-~]+@[!-?A-~]+$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null removes the email.",
+            "title": "Email"
+          },
+          "first_name": {
+            "description": "As in the documents; at most 100 characters.",
+            "examples": ["Анна"],
+            "title": "First Name",
+            "type": "string"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "last_name": {
+            "description": "As in the documents; at most 100 characters.",
+            "examples": ["Анна"],
+            "title": "Last Name",
+            "type": "string"
+          }
+        },
+        "title": "ClientProfileUpdate",
+        "type": "object"
+      },
       "DocumentKind": {
         "description": "Values are stored as is and are part of the API path: renaming one breaks both.",
         "enum": ["license_front", "license_back", "passport", "selfie_with_license"],
@@ -307,6 +418,11 @@
       "KycStatus": {
         "enum": ["not_submitted", "pending", "approved", "rejected"],
         "title": "KycStatus",
+        "type": "string"
+      },
+      "Language": {
+        "enum": ["ru", "en"],
+        "title": "Language",
         "type": "string"
       },
       "LivenessResponse": {
@@ -1610,6 +1726,123 @@
         ],
         "summary": "A short-lived link to the client's own document photo",
         "tags": ["kyc"]
+      }
+    },
+    "/me": {
+      "get": {
+        "operationId": "get_my_profile_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The signed-in client's profile",
+        "tags": ["profile"]
+      },
+      "patch": {
+        "description": "Only the fields in the body change. The phone cannot be changed here.",
+        "operationId": "update_my_profile_me_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClientProfileUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientProfile"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:validation-error`: see `errors`. `urn:flagman:problem:birth-date-invalid`: in the future or too long ago."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change the signed-in client's profile",
+        "tags": ["profile"]
       }
     },
     "/ready": {
