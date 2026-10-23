@@ -54,5 +54,39 @@
     "title": "No access",
     "text": "This section is not available for your role.",
     "back": "Back to overview"
+  },
+  "audit": {
+    "filters": "Audit log filters",
+    "action": "Action",
+    "anyAction": "All actions",
+    "from": "From",
+    "to": "To",
+    "staffFilter": "Staff member {{id}}",
+    "clearStaff": "All staff",
+    "reset": "Reset filters",
+    "columns": {
+      "time": "Time (Minsk)",
+      "staff": "Who",
+      "action": "Action",
+      "target": "Object"
+    },
+    "actor": {
+      "system": "System",
+      "client": "Client {{id}}"
+    },
+    "filterByStaff": "Show only the actions of staff member {{id}}",
+    "actions": {
+      "staffSignedIn": "Staff sign-in",
+      "staffSignInFailed": "Failed staff sign-in"
+    },
+    "noTarget": "none",
+    "loading": "Loading the log…",
+    "failed": "Could not load the log.",
+    "retry": "Try again",
+    "empty": "No events found.",
+    "loadMore": "Show more",
+    "loadingMore": "Loading…",
+    "moreFailed": "Could not load more events. Please try again.",
+    "invertedRange": "\"From\" is later than \"To\": swap the dates."
   }
 }

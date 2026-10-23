@@ -15,6 +15,9 @@ import { createRoot } from 'react-dom/client';
 import { createBrowserRouter } from 'react-router';
 import { RouterProvider } from 'react-router/dom';
 
+import { createAdminApiClient } from './api/client';
+import { ApiContext, type AdminApis } from './api/context';
+import { createAuditLogApi } from './audit/api';
 import { AuthProvider } from './auth/AuthProvider';
 import { pendingStaffAuthApi } from './auth/pendingApi';
 import { createStaffSession } from './auth/session';
@@ -28,11 +31,15 @@ const root = document.getElementById('root');
 if (!root) throw new Error('index.html has no #root element');
 
 const session = createStaffSession(pendingStaffAuthApi);
+const client = createAdminApiClient(session);
+const apis: AdminApis = { auditLog: createAuditLogApi(client) };
 
 createRoot(root).render(
   <StrictMode>
     <AuthProvider session={session}>
-      <RouterProvider router={createBrowserRouter(routes)} />
+      <ApiContext value={apis}>
+        <RouterProvider router={createBrowserRouter(routes)} />
+      </ApiContext>
     </AuthProvider>
   </StrictMode>,
 );
