@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Image, Platform, StyleSheet, View } from 'react-native';
 
+import { useMounted } from '../../hooks/useMounted';
 import { useTheme } from '../../theme/theme';
 import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
@@ -92,12 +93,10 @@ function DocumentStep({
   // Refs, not state: the unmount cleanup must see the latest photo and upload.
   const photoRef = useRef<string | null>(null);
   const uploadRef = useRef<UploadHandle | null>(null);
-  const mounted = useRef(true);
+  const mounted = useMounted();
 
   useEffect(() => {
-    mounted.current = true;
     return () => {
-      mounted.current = false;
       uploadRef.current?.abort();
       if (photoRef.current !== null) discardPhoto(photoRef.current);
     };

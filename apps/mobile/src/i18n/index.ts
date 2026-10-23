@@ -15,6 +15,11 @@ export type Language = keyof typeof resources;
 // The service launches in Minsk, so Russian is the default for any unsupported device language.
 export const defaultLanguage: Language = 'ru';
 
+export const languages = ['ru', 'en'] as const satisfies readonly Language[];
+
+/** Each language named in itself, so a client finds theirs whatever the app speaks now. */
+export const languageNames: Readonly<Record<Language, string>> = { ru: 'Русский', en: 'English' };
+
 const isLanguage = (code: string | null): code is Language =>
   code !== null && Object.hasOwn(resources, code);
 
