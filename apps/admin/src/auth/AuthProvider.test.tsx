@@ -1,5 +1,5 @@
 import { act, render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeStaffAuthApi, testStaff } from '../test/auth';
 import { AuthProvider } from './AuthProvider';
@@ -7,6 +7,10 @@ import { useAuth, type AuthContextValue } from './context';
 import { createStaffSession } from './session';
 
 describe('AuthProvider', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('keeps signOut the same function while the auth state changes', async () => {
     const seen: AuthContextValue['signOut'][] = [];
     function Probe() {
@@ -68,7 +72,6 @@ describe('AuthProvider', () => {
 
     expect(screen.getByText('signedOut')).toBeDefined();
     expect(api.logout).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 });
 

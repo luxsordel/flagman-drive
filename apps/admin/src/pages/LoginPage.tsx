@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Navigate, useLocation } from 'react-router';
 
-import { ApiError } from '../api/client';
+import { ApiError, NetworkError } from '../api/client';
 import { useApis } from '../api/context';
 import { useAuth } from '../auth/context';
 import { AuthLoading } from '../auth/guards';
@@ -23,8 +23,8 @@ const totpCodeLength = 6;
 // The challenge token proves the password step; it lives only in this state (docs/03-security.md).
 type Step =
   | { name: 'password' }
-  // 2FA is not set up and getting the QR code failed: retry with the same challenge,
-  // not the password.
+  // 2FA is not set up: the QR code is being fetched, or fetching it failed and a retry
+  // goes with the same challenge, not the password.
   | { name: 'enroll'; challengeToken: string }
   // `enrollment`: 2FA is not set up yet, so the QR code comes before the first code.
   | { name: 'code'; challengeToken: string; enrollment: TotpEnrollment | null }
@@ -43,9 +43,8 @@ interface Failure {
 }
 
 function describeFailure(error: unknown): Failure {
-  // fetch rejects with a TypeError when the request does not get through; anything else that is
-  // not an ApiError is a bug, not the network.
-  if (error instanceof TypeError) return { key: 'network' };
+  // Anything that is neither a NetworkError nor an ApiError is a bug in the panel, not the network.
+  if (error instanceof NetworkError) return { key: 'network' };
   if (!(error instanceof ApiError)) return { key: 'unexpected' };
   if (error.unavailable) return { key: 'network' };
   switch (error.problem) {
@@ -58,8 +57,9 @@ function describeFailure(error: unknown): Failure {
         ? { key: 'rateLimitedFor', minutes: Math.ceil(error.retryAfterSeconds / 60) }
         : { key: 'rateLimited' };
     case 'staff-challenge-invalid':
-    case 'totp-enrollment-not-started':
       return { key: 'challengeExpired', restart: true };
+    case 'totp-enrollment-not-started':
+      return { key: 'enrollmentNotStarted', restart: true };
     case 'totp-already-enrolled':
       return { key: 'alreadyEnrolled', restart: true };
     case 'totp-reset-required':

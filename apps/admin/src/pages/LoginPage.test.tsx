@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import type { InitialEntry } from 'react-router';
 import { describe, expect, it } from 'vitest';
 
-import { ApiError } from '../api/client';
+import { ApiError, NetworkError } from '../api/client';
 import ru from '../i18n/ru.json';
 import { fakeStaffSignInApi, testStaff } from '../test/auth';
 import { renderAt } from '../test/render';
@@ -182,7 +182,7 @@ describe('staff sign-in', () => {
   });
 
   it.each([
-    ['the network', new TypeError('Failed to fetch')],
+    ['the network', new NetworkError(new TypeError('Failed to fetch'))],
     ['a proxy in front of a stopped API', new ApiError(502)],
   ])('tells an unreachable server apart from a refusal: %s', async (_, failure) => {
     const staffSignIn = fakeStaffSignInApi();
@@ -210,7 +210,9 @@ describe('staff sign-in', () => {
 
   it('keeps the challenge when getting the QR code fails, and retries with it', async () => {
     const staffSignIn = fakeStaffSignInApi({ enrolled: false });
-    staffSignIn.startTotpEnrollment.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    staffSignIn.startTotpEnrollment.mockRejectedValueOnce(
+      new NetworkError(new TypeError('Failed to fetch')),
+    );
     const { user } = await openSignIn('/login', staffSignIn);
 
     await enterPassword(user);
@@ -319,7 +321,7 @@ describe('staff sign-in', () => {
 
   it('asks to reload when the answer to the code was lost on the network', async () => {
     const staffSignIn = fakeStaffSignInApi();
-    staffSignIn.verifyTotp.mockRejectedValue(new TypeError('Failed to fetch'));
+    staffSignIn.verifyTotp.mockRejectedValue(new NetworkError(new TypeError('Failed to fetch')));
     const { user } = await openSignIn('/login', staffSignIn);
 
     await enterPassword(user);
@@ -340,11 +342,12 @@ describe('staff sign-in', () => {
     [
       'a 2FA setup that was not started',
       new ApiError(409, 'totp-enrollment-not-started'),
-      'challengeExpired',
+      'enrollmentNotStarted',
       false,
     ],
     ['an API error without a known type', new ApiError(500), 'unexpected', true],
     ['a bug in the panel', new Error('bug'), 'unexpected', true],
+    ['a TypeError from a bug in the panel', new TypeError('x is undefined'), 'unexpected', true],
   ] as const)(
     'explains %s and keeps the code step only when the challenge still works',
     async (_, error, key, keepsCode) => {

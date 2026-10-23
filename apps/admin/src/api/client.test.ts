@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError, toApiError, unwrap } from './client';
+import { ApiError, createAuthApiClient, NetworkError, toApiError, unwrap } from './client';
 
 const response = (status: number, headers: Record<string, string> = {}): Response =>
   new Response(null, { status, headers });
@@ -50,5 +50,22 @@ describe('API errors', () => {
     expect(new ApiError(504).unavailable).toBe(true);
     expect(new ApiError(503, 'sign-in-unavailable').unavailable).toBe(false);
     expect(new ApiError(500).unavailable).toBe(false);
+  });
+
+  describe('a request that does not reach the API', () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it('rejects with a NetworkError, not the bare TypeError of fetch', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('Failed to fetch'));
+
+      const failure: unknown = await createAuthApiClient()
+        .GET('/staff/me')
+        .catch((reason: unknown) => reason);
+
+      expect(failure).toBeInstanceOf(NetworkError);
+      expect((failure as NetworkError).cause).toBeInstanceOf(TypeError);
+    });
   });
 });

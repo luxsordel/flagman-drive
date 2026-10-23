@@ -28,6 +28,20 @@ export class ApiError extends Error {
   }
 }
 
+/** The request did not reach the API: offline, DNS, a refused connection, CORS. */
+export class NetworkError extends Error {
+  constructor(cause: unknown) {
+    super('The API could not be reached', { cause });
+    this.name = 'NetworkError';
+  }
+}
+
+// fetch rejects with a bare TypeError, which a bug in the panel throws too; this tells them apart.
+const fetchOrNetworkError = (request: Request): Promise<Response> =>
+  fetch(request).catch((error: unknown) => {
+    throw new NetworkError(error);
+  });
+
 /** Builds an ApiError from a failed response and the body openapi-fetch parsed from it. */
 export function toApiError(response: Response, body: unknown): ApiError {
   const type =
@@ -61,6 +75,7 @@ export function createAdminApiClient(session: StaffSession): AdminApiClient {
   return createApiClient({
     baseUrl: window.location.origin,
     getAccessToken: () => session.accessToken(),
+    fetch: fetchOrNetworkError,
   });
 }
 
@@ -69,5 +84,5 @@ export function createAdminApiClient(session: StaffSession): AdminApiClient {
  * and the session that would supply the access token is built on top of them.
  */
 export function createAuthApiClient(): AdminApiClient {
-  return createApiClient({ baseUrl: window.location.origin });
+  return createApiClient({ baseUrl: window.location.origin, fetch: fetchOrNetworkError });
 }
