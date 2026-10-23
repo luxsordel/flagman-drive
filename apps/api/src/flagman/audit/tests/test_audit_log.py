@@ -19,6 +19,7 @@ from flagman.audit.domain import (
     ActorType,
     AuditAction,
     AuditEntry,
+    AuditEventFilter,
     AuditTarget,
     RequestOrigin,
 )
@@ -114,6 +115,29 @@ async def test_record_commits_with_the_callers_transaction(
     assert (event.target_type, event.target_id) == ("kyc_document", target.id)
     assert event.details == {"document_id": str(target.id), "approved": True}
     assert event.occurred_at.tzinfo is not None
+
+
+async def test_events_of_one_transaction_keep_their_order(
+    db: AsyncSession, staff_id: uuid.UUID
+) -> None:
+    async with db.begin():
+        for step in range(3):
+            await service.record(
+                db,
+                AuditEntry(
+                    _staff(staff_id),
+                    AuditAction.STAFF_SIGNED_IN,
+                    RequestOrigin(),
+                    details={"step": step},
+                ),
+            )
+
+    async with db.begin():
+        page = await service.list_events(db, AuditEventFilter(actor_id=staff_id), None, 10)
+
+    assert [item.details["step"] for item in page.items] == [2, 1, 0]
+    moments = [item.occurred_at for item in page.items]
+    assert moments == sorted(set(moments), reverse=True)
 
 
 async def test_rolled_back_action_leaves_no_event(db: AsyncSession, staff_id: uuid.UUID) -> None:
@@ -312,6 +336,8 @@ async def test_pages_go_from_newest_to_oldest_without_gaps(
     "params",
     [
         {"occurred_from": "2026-10-23T12:00:00"},
+        {"occurred_from": "2026-10-23T12:00:00Z", "occurred_to": "2026-10-23T12:00:00Z"},
+        {"occurred_from": "2026-10-23T13:00:00+01:00", "occurred_to": "2026-10-23T11:00:00Z"},
         {"cursor": "garbage"},
         {"limit": 0},
         {"limit": 101},

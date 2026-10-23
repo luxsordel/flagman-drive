@@ -27,9 +27,10 @@ class AuditEvent(Base):
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
-    # Set by the database, not by the caller, so an event cannot be backdated.
+    # Set by the database, not by the caller. clock_timestamp(), not now(): now() is the start of
+    # the transaction, so events recorded in one transaction would share it.
     occurred_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now()
+        DateTime(timezone=True), server_default=func.clock_timestamp()
     )
     actor_type: Mapped[str] = mapped_column(String(16))
     actor_id: Mapped[UUID | None]

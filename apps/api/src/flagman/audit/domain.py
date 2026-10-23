@@ -15,7 +15,7 @@ PAGE_SIZE_MAX = 100
 DETAILS_MAX_KEYS = 20
 DETAILS_MAX_STRING_LENGTH = 500
 
-_DETAILS_KEY = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
+_DETAILS_KEY = re.compile(r"[a-z][a-z0-9_]{0,63}")
 # A safety net, not a guarantee: callers must not pass personal data at all. These catch the
 # usual slips - a phone in E.164 or as a bare digit run, and an email address.
 _PHONE_LIKE = re.compile(r"\+\d{6,}|\d{9,}")
@@ -93,20 +93,26 @@ def validate_details(details: Mapping[str, DetailValue]) -> dict[str, str | int 
     """Checks the details and returns them ready for JSON.
 
     Ids go in as UUID objects: a string value that looks like a phone number or an email is
-    rejected, and the last group of a UUID may be twelve digits in a row.
+    rejected, and the last group of a UUID may be twelve digits in a row. So is an integer of
+    nine digits or more - a phone number passed as a number.
     """
     if len(details) > DETAILS_MAX_KEYS:
         raise ValueError(f"audit details take at most {DETAILS_MAX_KEYS} keys")
     checked: dict[str, str | int | bool | None] = {}
     for key, value in details.items():
-        if not _DETAILS_KEY.match(key):
+        # fullmatch: with match, "$" also accepts a trailing newline.
+        if not _DETAILS_KEY.fullmatch(key):
             raise ValueError(f"audit detail key must be snake_case: {key!r}")
         if isinstance(value, UUID):
             checked[key] = str(value)
         elif isinstance(value, str):
             _check_string(key, value)
             checked[key] = value
-        elif value is None or isinstance(value, int | bool):
+        elif isinstance(value, bool) or value is None:
+            checked[key] = value
+        elif isinstance(value, int):
+            if _PHONE_LIKE.search(str(value)):
+                raise ValueError(f"audit detail {key!r} looks like a phone number")
             checked[key] = value
         else:
             raise TypeError(f"audit detail {key!r} must be str, int, bool, UUID or None")

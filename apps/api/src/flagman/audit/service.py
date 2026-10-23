@@ -17,7 +17,8 @@ async def record(db: AsyncSession, entry: AuditEntry) -> None:
     """Adds an event to the caller's open transaction.
 
     Committed together with the action itself: a rolled back action leaves no event, and an
-    action never commits without its event.
+    action never commits without its event. To keep the event of a refused action, record it,
+    let the transaction commit and raise only after it (docs/adr/0010).
     """
     if not db.in_transaction():
         raise RuntimeError("audit.service.record must run inside the caller's transaction")
