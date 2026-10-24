@@ -134,3 +134,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0010](adr/0010-audit-log.md) — журнал аудита: таблица только на вставку, запрет изменений триггерами
 - [ADR-0011](adr/0011-staff-auth-password-totp.md) — вход сотрудников: argon2id, TOTP с зашифрованным секретом, вход в два шага
 - [ADR-0012](adr/0012-kyc-document-storage.md) — документы KYC: сырое тело загрузки, перекодирование в JPEG без метаданных, подписанные ссылки на 5 минут
+- [ADR-0014](adr/0014-in-app-selfie-camera-android.md) — селфи с правами на Android снимает своя камера `expo-camera`, а не системная

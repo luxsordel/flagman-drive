@@ -36,11 +36,30 @@ export async function pickPhoto(
   }
   const asset = result.canceled ? undefined : result.assets[0];
   if (asset === undefined) return { kind: 'canceled' };
+  // Only the picker's own copy is deleted: the original stays wherever the client keeps it.
+  return { kind: 'picked', uri: await replaceWithJpeg(asset) };
+}
+
+/**
+ * The Android system camera may ignore the request for the front one and open the main camera,
+ * so there the selfie is taken by the app's own camera (`SelfieCamera`).
+ */
+export function usesInAppCamera({ selfie }: { selfie: boolean }): boolean {
+  return selfie && Platform.OS === 'android';
+}
+
+export interface CachedPhoto {
+  uri: string;
+  width: number;
+  height: number;
+}
+
+/** Turns a photo the app just put in its cache into a JPEG copy and deletes the original. */
+export async function replaceWithJpeg(photo: CachedPhoto): Promise<string> {
   try {
-    return { kind: 'picked', uri: await toJpeg(asset) };
+    return await toJpeg(photo);
   } finally {
-    // The picker's own copy: the original stays wherever the client keeps it.
-    discardPhoto(asset.uri);
+    discardPhoto(photo.uri);
   }
 }
 
@@ -85,7 +104,7 @@ function isInCache(uri: string): boolean {
 
 // HEIC from an iPhone is not accepted by the API (ADR-0012), and a full-size shot is far larger
 // than a document needs.
-async function toJpeg({ uri, width, height }: ImagePicker.ImagePickerAsset): Promise<string> {
+async function toJpeg({ uri, width, height }: CachedPhoto): Promise<string> {
   const context = ImageManipulator.manipulate(uri);
   try {
     if (Math.max(width, height) > maxSide) {

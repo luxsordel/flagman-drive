@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 
-import { canonicalPath, discardPhoto, pickPhoto } from './photos';
+import { canonicalPath, discardPhoto, pickPhoto, replaceWithJpeg, usesInAppCamera } from './photos';
 
 const mockDeleted: string[] = [];
 const mockCache = { uri: 'file:///cache/' };
@@ -118,6 +118,47 @@ describe('pickPhoto', () => {
 
     await expect(pickPhoto('library')).rejects.toThrow('decode failed');
     expect(mockDeleted).toEqual(['file:///cache/ImagePicker/shot.heic']);
+  });
+});
+
+describe('usesInAppCamera', () => {
+  const os = Platform.OS;
+
+  afterEach(() => {
+    Platform.OS = os;
+  });
+
+  it.each([
+    ['android', true, true],
+    ['android', false, false],
+    ['ios', true, false],
+    ['ios', false, false],
+  ] as const)('on %s for selfie=%s: %s', (platform, selfie, expected) => {
+    Platform.OS = platform;
+
+    expect(usesInAppCamera({ selfie })).toBe(expected);
+  });
+});
+
+describe('replaceWithJpeg', () => {
+  const shot = { uri: 'file:///cache/Camera/shot.jpg', width: 3000, height: 4000 };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockDeleted.length = 0;
+  });
+
+  it('keeps a scaled JPEG copy and deletes the shot', async () => {
+    await expect(replaceWithJpeg(shot)).resolves.toBe('file:///cache/out.jpg');
+    expect(mockResize).toHaveBeenCalledWith({ height: 2560 });
+    expect(mockDeleted).toEqual(['file:///cache/Camera/shot.jpg']);
+  });
+
+  it('deletes the shot when the conversion fails', async () => {
+    mockSave.mockRejectedValueOnce(new Error('decode failed'));
+
+    await expect(replaceWithJpeg(shot)).rejects.toThrow('decode failed');
+    expect(mockDeleted).toEqual(['file:///cache/Camera/shot.jpg']);
   });
 });
 
