@@ -83,8 +83,9 @@ rules below. It is not a permission to merge, close, push to, or edit anyone els
      criteria are met, and every required CI check has already passed. Do not approve while CI is pending: with
      auto-merge on, the PR would merge on green without anyone looking at the result. Nits go along with the
      approval in the body; do not hold the approval back to have them fixed.
-   - **REQUEST_CHANGES** — at least one must-fix.
-   - **COMMENT** — CI red or still running, or an open question for the user from step 4.
+   - **REQUEST_CHANGES** — at least one must-fix, whatever the CI state: rounds are counted by these reviews
+     (step 2), and a must-fix posted as COMMENT would slip past the two-round limit.
+   - **COMMENT** — no must-fix, and CI red or still running, or an open question for the user from step 4.
    Never approve when any of these is true; post a COMMENT and list the PR for the user instead:
    - the PR touches identity, kyc, payments, rentals or car commands and there is no evidence a security review
      was done: the template line `- [x] … /security-review` ticked, or a comment with the results of

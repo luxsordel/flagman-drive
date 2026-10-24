@@ -30,7 +30,9 @@ Argument: PR number. If none is given, list open PRs where the current user is a
    Never approve on your own initiative here: this skill is the manual review, where the human decides on one PR.
    Automatic approval exists only in `/review-open-prs`, under its own rules (green CI, nothing blocking left,
    no security-sensitive or process changes). Post must-fix items as inline comments on the relevant lines when
-   the user agrees, so the author can resolve them one by one. Nits go only as a short list in the review body.
+   the user agrees, so the author can resolve them one by one. A review with a must-fix always goes as
+   `--request-changes`, never `--comment`: rounds are counted by those reviews (step 2 of `/review-open-prs`).
+   Nits go only as a short list in the review body.
    With no must-fix and every required CI check passed, suggest approving right away, nits included, instead of
    a comment that waits for a fix.
 5. After an approval, tell the user what happens next: if the author turned on auto-merge, the PR merges
@@ -74,18 +76,18 @@ them and the round summaries need no new confirmation. Approving still does (ste
    `git log --first-parent --no-merges -p <reviewed>..origin/<headRefName>`: without `--first-parent` the log also
    lists the commits a `/sync` brought in from `main`), then go through your unresolved threads — fixed ones get
    a reply with the commit and are resolved, judged by the code and not by the author's reply. A round checks the
-   fix, it is not a new review: read the lines the fix changed and comment only on a must-fix there (a fix can
-   break something else). Code you already reviewed gets no new nits; a new finding there is raised only if it
-   is a must-fix by the bar, so a real defect missed earlier still does not reach `main`. Nits are not raised in
-   a round at all.
+   fix, it is not a new review: read the lines the fix changed and comment only on a must-fix, either in those
+   lines (a fix can break something else) or one missed earlier, so a real defect still does not reach `main`.
+   Nits are not raised in a round at all.
    Comments are in Russian, as in `/review-open-prs`.
-4. Decide what is next:
-   - A must-fix is still open after the first round → post the round summary the way step 5 of
-     `/review-open-prs` does, note the new reviewed head and start the watcher again.
+4. Decide what is next. Count rounds as step 2 of `/review-open-prs` does, by your `CHANGES_REQUESTED` reviews
+   on the PR, not by this session's memory: a restarted watcher or a switch to `/review-open-prs` keeps the count.
+   - A must-fix is still open and you have fewer than two `CHANGES_REQUESTED` reviews → post the round summary
+     the way step 5 of `/review-open-prs` does, note the new reviewed head and start the watcher again.
    - No must-fix is open → do not approve on your own. Tell the user (and send a push notification if the tool
      is available) in two or three lines what was fixed and the CI state, and ask whether to approve. Approve
      only on their yes, then continue with step 5 above. Unfixed nits do not hold this up.
-   - The second round still leaves a must-fix open, or a disagreement neither side gives up → stop watching,
+   - A must-fix is still open and you already have two `CHANGES_REQUESTED` reviews, or a disagreement neither side gives up → stop watching,
      post a summary that hands the PR to the humans and tell the user. Two agents must not argue in a loop.
 5. Rounds run without the user in the conversation: ask them nothing mid-round except the approval. Never push
    to the author's branch: the fix is theirs.
