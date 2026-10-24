@@ -47,6 +47,7 @@ from flagman.identity.service import (
     StaffSignInService,
     StaffTokens,
 )
+from flagman.kyc import service as kyc
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -400,7 +401,7 @@ profile_router = APIRouter(
 def get_client_profile_service(
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> ClientProfileService:
-    return ClientProfileService(db=db)
+    return ClientProfileService(db=db, personal_data_lock=kyc.lock_personal_data)
 
 
 Client = Annotated[CurrentClient, Depends(get_current_client)]
@@ -423,6 +424,13 @@ async def get_my_profile(client: Client, service: ProfileService) -> ClientProfi
             "description": (
                 "`urn:flagman:problem:validation-error`: see `errors`. "
                 "`urn:flagman:problem:birth-date-invalid`: in the future or too long ago."
+            ),
+        },
+        HTTPStatus.CONFLICT: {
+            "model": Problem,
+            "description": (
+                "`urn:flagman:problem:kyc-locked`: the name and the birth date do not change "
+                "while the documents are under review or approved."
             ),
         },
     },

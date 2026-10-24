@@ -24,6 +24,7 @@ from flagman.identity.domain import (
     issue_staff_access_token,
 )
 from flagman.identity.schemas import ClientProfile, ClientProfileUpdate
+from flagman.kyc import service as kyc
 
 pytestmark = pytest.mark.integration
 
@@ -91,12 +92,14 @@ def person(client: TestClient) -> Callable[[], Person]:
     return lambda: Person(client)
 
 
-def _birth_date(settings: Settings, user_id: uuid.UUID) -> date | None:
-    async def run() -> date | None:
+def _identities(
+    settings: Settings, *user_ids: uuid.UUID
+) -> dict[uuid.UUID, service.ClientIdentity]:
+    async def run() -> dict[uuid.UUID, service.ClientIdentity]:
         engine = create_engine(settings)
         try:
             async with create_session_factory(engine)() as db, db.begin():
-                return await service.get_client_birth_date(db, user_id)
+                return await service.get_client_identities(db, user_ids)
         finally:
             await engine.dispose()
 
@@ -111,9 +114,10 @@ def _update_at(
         try:
             async with create_session_factory(engine)() as db:
                 update = ClientProfileUpdate.model_validate({"birth_date": birth_date})
-                return await service.ClientProfileService(db=db).update_profile(
-                    user_id, update, now
+                profiles = service.ClientProfileService(
+                    db=db, personal_data_lock=kyc.lock_personal_data
                 )
+                return await profiles.update_profile(user_id, update, now)
         finally:
             await engine.dispose()
 
@@ -288,13 +292,18 @@ def test_profile_needs_a_client_token(
         assert response.json()["type"] == "urn:flagman:problem:access-token-invalid"
 
 
-def test_birth_date_is_available_to_other_modules(
+def test_name_and_birth_date_are_available_to_kyc(
     person: Callable[[], Person], integration_settings: Settings
 ) -> None:
-    anna = person()
-    assert _birth_date(integration_settings, anna.user_id) is None
+    anna, boris = person(), person()
+    unknown = uuid.uuid4()
+    empty = service.ClientIdentity(first_name=None, last_name=None, birth_date=None)
+    assert _identities(integration_settings, anna.user_id) == {anna.user_id: empty}
 
-    anna.update({"birth_date": "1990-05-17"})
+    anna.update({"first_name": "Анна", "last_name": "Ковалёва", "birth_date": "1990-05-17"})
 
-    assert _birth_date(integration_settings, anna.user_id) == date(1990, 5, 17)
-    assert _birth_date(integration_settings, uuid.uuid4()) is None
+    found = _identities(integration_settings, anna.user_id, boris.user_id, unknown)
+    assert found == {
+        anna.user_id: service.ClientIdentity("Анна", "Ковалёва", date(1990, 5, 17)),
+        boris.user_id: empty,
+    }

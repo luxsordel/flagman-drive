@@ -1,7 +1,16 @@
-from datetime import datetime
+from datetime import date, datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import (
+    CheckConstraint,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    String,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
@@ -27,6 +36,17 @@ class Application(Base):
             "(status = 'rejected') = (rejection_reason IS NOT NULL)",
             name="rejection_reason_matches_status",
         ),
+        # Approval is checked against it, so an approved application without one is a bug.
+        CheckConstraint(
+            "status <> 'approved' OR license_issued_on IS NOT NULL",
+            name="approved_has_license_issue_date",
+        ),
+        # The operators' queue: pending applications, the longest waiting first.
+        Index(
+            "ix_kyc_applications_pending_submitted_at",
+            "submitted_at",
+            postgresql_where=text("status = 'pending'"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -35,6 +55,8 @@ class Application(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), unique=True)
     status: Mapped[str] = mapped_column(String(STATUS_LENGTH))
     rejection_reason: Mapped[str | None] = mapped_column(String(REJECTION_REASON_MAX_LENGTH))
+    # Read by the operator from the license photo at approval; driving experience counts from it.
+    license_issued_on: Mapped[date | None] = mapped_column(Date)
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

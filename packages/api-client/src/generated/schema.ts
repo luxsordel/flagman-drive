@@ -21,6 +21,94 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/kyc/applications': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Applications waiting for a decision, the longest waiting first */
+    get: operations['list_pending_applications_admin_kyc_applications_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/kyc/applications/{application_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** An application with the profile data its documents are checked against */
+    get: operations['get_application_for_review_admin_kyc_applications__application_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/kyc/applications/{application_id}/approve': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Admit the client to rentals
+     * @description The server checks the age and the driving experience against the settings; an application that fails them is refused with 409; the operator rejects it with a reason.
+     */
+    post: operations['approve_application_admin_kyc_applications__application_id__approve_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/kyc/applications/{application_id}/documents/{kind}/url': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A short-lived link to a document photo; every link is in the audit log */
+    get: operations['get_document_url_for_review_admin_kyc_applications__application_id__documents__kind__url_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/kyc/applications/{application_id}/reject': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Send the application back to the client with what to fix */
+    post: operations['reject_application_admin_kyc_applications__application_id__reject_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/logout': {
     parameters: {
       query?: never;
@@ -360,7 +448,10 @@ export interface components {
       | 'staff.totp_enrolled'
       | 'staff.totp_reset'
       | 'staff.password_changed'
-      | 'staff.disabled';
+      | 'staff.disabled'
+      | 'kyc.approved'
+      | 'kyc.rejected'
+      | 'kyc.document_viewed';
     /** AuditEventOut */
     AuditEventOut: {
       /**
@@ -535,6 +626,16 @@ export interface components {
       /** Submitted At */
       submitted_at: string | null;
     };
+    /** KycApproveRequest */
+    KycApproveRequest: {
+      /**
+       * License Issued On
+       * Format: date
+       * @description Read from the license photo; driving experience counts from it. Not in the future and not before the birth date, else `urn:flagman:problem:license-issue-date-invalid`.
+       * @example 2015-06-01
+       */
+      license_issued_on: string;
+    };
     /** KycDocumentOut */
     KycDocumentOut: {
       kind: components['schemas']['DocumentKind'];
@@ -543,6 +644,85 @@ export interface components {
        * Format: date-time
        */
       uploaded_at: string;
+    };
+    /** KycQueueItemOut */
+    KycQueueItemOut: {
+      /** First Name */
+      first_name: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Last Name */
+      last_name: string | null;
+      /**
+       * Submitted At
+       * Format: date-time
+       */
+      submitted_at: string;
+    };
+    /**
+     * KycQueueOut
+     * @description No paging: decided applications leave the queue, so operators work from the top.
+     */
+    KycQueueOut: {
+      /**
+       * Items
+       * @description The longest waiting first.
+       */
+      items: components['schemas']['KycQueueItemOut'][];
+      /**
+       * Total
+       * @description All applications waiting for a decision.
+       * @example 7
+       */
+      total: number;
+    };
+    /** KycRejectRequest */
+    KycRejectRequest: {
+      /**
+       * Reason
+       * @description Shown to the client: what to fix before submitting again. At most 500 characters after trimming.
+       * @example The selfie is blurry
+       */
+      reason: string;
+    };
+    /**
+     * KycReviewOut
+     * @description An application as the operator sees it; the profile fields are what the documents prove.
+     */
+    KycReviewOut: {
+      /**
+       * Age Years
+       * @description Whole years today; null without a birth date.
+       */
+      age_years: number | null;
+      /** Birth Date */
+      birth_date: string | null;
+      /** Decided At */
+      decided_at: string | null;
+      /** Documents */
+      documents: components['schemas']['KycDocumentOut'][];
+      /** First Name */
+      first_name: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Last Name */
+      last_name: string | null;
+      /**
+       * License Issued On
+       * @description Entered by the operator at approval.
+       */
+      license_issued_on: string | null;
+      /** Rejection Reason */
+      rejection_reason: string | null;
+      status: components['schemas']['KycStatus'];
+      /** Submitted At */
+      submitted_at: string | null;
     };
     /**
      * KycStatus
@@ -841,6 +1021,379 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:forbidden`: only `admin` reads the audit log. */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_pending_applications_admin_kyc_applications_get: {
+    parameters: {
+      query?: {
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['KycQueueOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` review. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_application_for_review_admin_kyc_applications__application_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        application_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['KycReviewOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` review. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-application-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  approve_application_admin_kyc_applications__application_id__approve_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        application_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['KycApproveRequest'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['KycReviewOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` review. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-application-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-not-pending`: already decided or not submitted. `urn:flagman:problem:kyc-profile-incomplete`: no name or birth date. `urn:flagman:problem:kyc-requirements-not-met`: too young or too little driving experience; `detail` names the rule. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:validation-error`: see `errors`. `urn:flagman:problem:license-issue-date-invalid`. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_document_url_for_review_admin_kyc_applications__application_id__documents__kind__url_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        application_id: string;
+        kind: components['schemas']['DocumentKind'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DocumentUrlOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` review. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-application-not-found` or `urn:flagman:problem:kyc-document-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:document-storage-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  reject_application_admin_kyc_applications__application_id__reject_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        application_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['KycRejectRequest'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['KycReviewOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` review. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-application-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-not-pending`: already decided or not submitted. */
+      409: {
         headers: {
           [name: string]: unknown;
         };
@@ -1491,6 +2044,15 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-locked`: the name and the birth date do not change while the documents are under review or approved. */
+      409: {
         headers: {
           [name: string]: unknown;
         };

@@ -43,6 +43,9 @@ class AuditAction(StrEnum):
     STAFF_TOTP_RESET = "staff.totp_reset"
     STAFF_PASSWORD_CHANGED = "staff.password_changed"  # noqa: S105 - an event name, not a secret
     STAFF_DISABLED = "staff.disabled"
+    KYC_APPROVED = "kyc.approved"
+    KYC_REJECTED = "kyc.rejected"
+    KYC_DOCUMENT_VIEWED = "kyc.document_viewed"
 
 
 @dataclass(frozen=True)

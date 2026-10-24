@@ -14,6 +14,9 @@ const labelKeys: Record<AuditAction, ActionLabelKey> = {
   'staff.totp_reset': 'staffTotpReset',
   'staff.password_changed': 'staffPasswordChanged',
   'staff.disabled': 'staffDisabled',
+  'kyc.approved': 'kycApproved',
+  'kyc.rejected': 'kycRejected',
+  'kyc.document_viewed': 'kycDocumentViewed',
 };
 
 export const auditActions = Object.keys(labelKeys) as AuditAction[];
