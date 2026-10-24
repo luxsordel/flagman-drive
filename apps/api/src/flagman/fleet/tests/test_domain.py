@@ -4,7 +4,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from flagman.fleet.domain import (
-    MAX_CLOCK_SKEW,
     RENTAL_TRANSITIONS,
     AvailabilityRules,
     CarState,
@@ -23,6 +22,8 @@ from flagman.fleet.domain import (
 
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
 RULES = AvailabilityRules(min_battery_pct=20, max_state_age=timedelta(minutes=5))
+# The default signature window of telematics requests (TELEMATICS_SIGNATURE_TOLERANCE_SECONDS).
+MAX_CLOCK_SKEW = timedelta(seconds=300)
 MINSK = GeoPoint(lat=53.9006, lon=27.5590)
 
 ALLOWED = {
@@ -116,12 +117,12 @@ def test_snapshot_ahead_stays_fresh_at_most_for_the_skew_longer() -> None:
 
 
 def test_snapshot_within_the_clock_skew_is_accepted() -> None:
-    check_snapshot_time(NOW + MAX_CLOCK_SKEW, NOW)
+    check_snapshot_time(NOW + MAX_CLOCK_SKEW, NOW, MAX_CLOCK_SKEW)
 
 
 def test_snapshot_from_the_future_is_refused() -> None:
     with pytest.raises(SnapshotFromFutureError):
-        check_snapshot_time(NOW + MAX_CLOCK_SKEW + timedelta(seconds=1), NOW)
+        check_snapshot_time(NOW + MAX_CLOCK_SKEW + timedelta(seconds=1), NOW, MAX_CLOCK_SKEW)
 
 
 @pytest.mark.parametrize("battery_pct", [-1, 101])

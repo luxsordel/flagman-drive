@@ -12,7 +12,6 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.fleet import repository, service
 from flagman.fleet.domain import (
-    MAX_CLOCK_SKEW,
     CarIdentityTakenError,
     CarNotFoundError,
     CarState,
@@ -29,6 +28,7 @@ from flagman.fleet.seed import DEMO_MODELS
 pytestmark = pytest.mark.integration
 
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
+MAX_CLOCK_SKEW = timedelta(seconds=300)
 # Precise to a few millimeters: more digits than GPS gives, so a lossy round trip shows.
 POINT = GeoPoint(lat=53.902284, lon=27.561831)
 _PLATE_LETTERS = "ABEIKMHOPCTX"
@@ -81,7 +81,7 @@ def _state(at: datetime = NOW, battery_pct: int = 80, point: GeoPoint = POINT) -
 
 async def _apply(db: AsyncSession, telematics_id: uuid.UUID, state: CarState) -> SnapshotOutcome:
     async with db.begin():
-        return await service.apply_state_snapshot(db, telematics_id, state, NOW)
+        return await service.apply_state_snapshot(db, telematics_id, state, NOW, MAX_CLOCK_SKEW)
 
 
 async def test_seed_is_idempotent_and_matches_the_emulator(db: AsyncSession) -> None:
@@ -160,7 +160,7 @@ async def test_snapshot_from_the_future_is_refused(db: AsyncSession) -> None:
 
 async def test_snapshot_needs_the_callers_transaction(db: AsyncSession) -> None:
     with pytest.raises(RuntimeError, match="transaction"):
-        await service.apply_state_snapshot(db, uuid.uuid4(), _state(), NOW)
+        await service.apply_state_snapshot(db, uuid.uuid4(), _state(), NOW, MAX_CLOCK_SKEW)
 
 
 async def test_change_status_follows_the_status_machine(db: AsyncSession) -> None:

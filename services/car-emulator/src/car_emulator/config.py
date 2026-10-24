@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     telemetry_secret: SecretStr
     signature_tolerance_s: int = Field(default=300, ge=1, le=3600)
 
-    # Empty means "no API yet": telemetry goes to the log stub instead of a webhook.
+    # Empty means "no API to send to": telemetry goes to the log stub instead of a webhook.
     telemetry_url: HttpUrl | None = None
     telemetry_interval_s: float = Field(default=5.0, gt=0)
 
