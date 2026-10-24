@@ -27,6 +27,35 @@ export const tokens = (n: number, transport: 'body' | 'cookie' = 'body'): TokenP
 
 type Handler = (body: unknown) => Response | Promise<Response>;
 
+interface RecordedReply {
+  status: number;
+  statusText: string;
+  headers: Headers;
+  body: ArrayBuffer | null;
+}
+
+// Replies are often module-level constants reused across tests. They are read once and replayed as
+// fresh Responses instead of cloned: Node's fetch cancels a clone's stream when the clone is
+// garbage-collected, and that also marks the original as consumed, so clones fail whenever GC runs.
+const recordedReplies = new WeakMap<Response, Promise<RecordedReply>>();
+
+function replay(reply: Response): Promise<Response> {
+  let recorded = recordedReplies.get(reply);
+  if (recorded === undefined) {
+    recorded = reply.arrayBuffer().then((buffer) => ({
+      status: reply.status,
+      statusText: reply.statusText,
+      headers: new Headers(reply.headers),
+      body: buffer.byteLength === 0 ? null : buffer,
+    }));
+    recordedReplies.set(reply, recorded);
+  }
+  return recorded.then(
+    ({ status, statusText, headers, body }) =>
+      new Response(body, { status, statusText, headers: new Headers(headers) }),
+  );
+}
+
 export interface FakeApi {
   calls: { path: string; body: unknown }[];
   /** Replies for a path, used in order; the last one repeats. */
@@ -46,8 +75,7 @@ export function fakeApi(): FakeApi & { client: ReturnType<typeof createApiClient
       const reply = queue && queue.length > 1 ? queue.shift() : queue?.[0];
       if (reply === undefined) throw new Error(`No fake reply for ${path}`);
       if (reply instanceof Error) throw reply;
-      // A Response body can be read once, so a repeated reply is cloned.
-      return reply instanceof Response ? reply.clone() : reply(body);
+      return reply instanceof Response ? replay(reply) : reply(body);
     },
   });
   return {
