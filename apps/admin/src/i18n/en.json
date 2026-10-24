@@ -86,8 +86,11 @@
     "anyAction": "All actions",
     "from": "From",
     "to": "To",
-    "staffFilter": "Staff member {{id}}",
-    "clearStaff": "All staff",
+    "staff": "Staff member",
+    "anyStaff": "All staff",
+    "unknownStaff": "Staff member {{id}}",
+    "disabledStaff": "{{email}} (disabled)",
+    "staffUnavailable": "Could not load the staff list: ids are shown instead of emails.",
     "reset": "Reset filters",
     "columns": {
       "time": "Time (Minsk)",
@@ -99,7 +102,7 @@
       "system": "System",
       "client": "Client {{id}}"
     },
-    "filterByStaff": "Show only the actions of staff member {{id}}",
+    "filterByStaff": "Show only the actions of staff member {{name}}",
     "actions": {
       "staffCreated": "Staff member created",
       "staffSignedIn": "Staff sign-in",
@@ -113,6 +116,10 @@
       "kycApproved": "Documents approved",
       "kycRejected": "Documents rejected",
       "kycDocumentViewed": "Document photo viewed"
+    },
+    "targets": {
+      "staffMember": "Staff member",
+      "kycApplication": "KYC application"
     },
     "noTarget": "none",
     "loading": "Loading the log…",

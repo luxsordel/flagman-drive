@@ -17,6 +17,7 @@ from flagman.audit.domain import (
     AuditAction,
     AuditEntry,
     AuditTarget,
+    AuditTargetType,
     RequestOrigin,
 )
 from flagman.core.config import Settings
@@ -80,6 +81,8 @@ from flagman.identity.schemas import (
     OtpRequestAccepted,
     StaffAccessToken,
     StaffChallengeIssued,
+    StaffMemberList,
+    StaffMemberSummary,
     StaffProfile,
     StaffTotpEnrollment,
     TokenPair,
@@ -646,6 +649,22 @@ class StaffSignInService:
         )
 
 
+async def list_staff(db: AsyncSession) -> StaffMemberList:
+    """Who is who in the admin panel's audit log (#56), disabled staff included.
+
+    Staff are added by hand with `flagman-staff`, so the list stays short enough to go in one
+    response.
+    """
+    async with db.begin():
+        staff = await repository.list_staff(db)
+    return StaffMemberList(
+        items=[
+            StaffMemberSummary(id=item.id, email=item.email, disabled=item.disabled)
+            for item in staff
+        ]
+    )
+
+
 async def create_staff(
     db: AsyncSession, email: str, password: str, role: StaffRole, now: datetime
 ) -> UUID:
@@ -664,7 +683,7 @@ async def create_staff(
                 SYSTEM,
                 AuditAction.STAFF_CREATED,
                 RequestOrigin(),
-                target=AuditTarget("staff_member", staff_id),
+                target=AuditTarget(AuditTargetType.STAFF_MEMBER, staff_id),
                 details={"role": role.value},
             ),
         )
@@ -728,5 +747,10 @@ async def _end_access(db: AsyncSession, staff_id: UUID, action: AuditAction, now
     await repository.revoke_all_staff_sessions(db, staff_id, now)
     await audit.record(
         db,
-        AuditEntry(SYSTEM, action, RequestOrigin(), target=AuditTarget("staff_member", staff_id)),
+        AuditEntry(
+            SYSTEM,
+            action,
+            RequestOrigin(),
+            target=AuditTarget(AuditTargetType.STAFF_MEMBER, staff_id),
+        ),
     )

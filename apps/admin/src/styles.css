@@ -276,17 +276,6 @@ a {
   margin-bottom: var(--space-lg);
 }
 
-.filter-chip {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  min-height: var(--tap-target);
-  padding-left: var(--space-md);
-  border: 1px solid var(--color-primary);
-  border-radius: var(--radius-button);
-  color: var(--color-primary);
-}
-
 .table-scroll {
   overflow-x: auto;
   background: var(--color-surface);

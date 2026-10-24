@@ -3,7 +3,14 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from flagman.audit.domain import PAGE_SIZE_DEFAULT, PAGE_SIZE_MAX, ActorType, AuditAction, Cursor
+from flagman.audit.domain import (
+    PAGE_SIZE_DEFAULT,
+    PAGE_SIZE_MAX,
+    ActorType,
+    AuditAction,
+    AuditTargetType,
+    Cursor,
+)
 
 
 class AuditEventQuery(BaseModel):
@@ -41,7 +48,8 @@ class AuditEventQuery(BaseModel):
 class AuditEventTarget(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: str = Field(examples=["kyc_document"])
+    # The enum puts the known types in the schema; a plain string keeps older events readable.
+    type: AuditTargetType | str = Field(examples=[AuditTargetType.KYC_APPLICATION])
     id: UUID
 
 

@@ -9,6 +9,7 @@ import { routes } from '../routes';
 import { fakeAuditLogApi } from './audit';
 import { fakeStaffAuthApi, fakeStaffSignInApi, testStaff } from './auth';
 import { fakeKycReviewApi } from './kyc';
+import { fakeStaffListApi } from './staff';
 
 /**
  * Renders the whole app at `path` (a location object to pass history state), with the same
@@ -32,6 +33,7 @@ export function renderAt(
         value={{
           auditLog: fakeAuditLogApi(),
           kycReview: fakeKycReviewApi(),
+          staffList: fakeStaffListApi(),
           staffSignIn: fakeStaffSignInApi(),
           ...apis,
         }}

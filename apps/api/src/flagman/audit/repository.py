@@ -12,8 +12,8 @@ from flagman.audit.domain import (
     AuditEntry,
     AuditEventFilter,
     AuditEventRecord,
-    AuditTarget,
     Cursor,
+    RecordedTarget,
     RequestOrigin,
 )
 from flagman.audit.models import AuditEvent
@@ -68,7 +68,7 @@ async def list_events(
 
 def _to_record(row: AuditEvent) -> AuditEventRecord:
     target = (
-        AuditTarget(row.target_type, row.target_id)
+        RecordedTarget(row.target_type, row.target_id)
         if row.target_type is not None and row.target_id is not None
         else None
     )

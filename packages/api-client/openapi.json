@@ -164,14 +164,27 @@
             "type": "string"
           },
           "type": {
-            "examples": ["kyc_document"],
-            "title": "Type",
-            "type": "string"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AuditTargetType"
+              },
+              {
+                "type": "string"
+              }
+            ],
+            "examples": ["kyc_application"],
+            "title": "Type"
           }
         },
         "required": ["type", "id"],
         "title": "AuditEventTarget",
         "type": "object"
+      },
+      "AuditTargetType": {
+        "description": "Every kind of object an event names, so the admin panel can label each one.\n\nValues are stored as is, like AuditAction: renaming one leaves older events with the old name.",
+        "enum": ["staff_member", "kyc_application"],
+        "title": "AuditTargetType",
+        "type": "string"
       },
       "CheckStatus": {
         "enum": ["ok", "fail"],
@@ -901,6 +914,44 @@
         },
         "required": ["challenge_token", "expires_in", "next_step"],
         "title": "StaffChallengeIssued",
+        "type": "object"
+      },
+      "StaffMemberList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "Ordered by email.",
+            "items": {
+              "$ref": "#/components/schemas/StaffMemberSummary"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": ["items"],
+        "title": "StaffMemberList",
+        "type": "object"
+      },
+      "StaffMemberSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "disabled": {
+            "description": "Cannot sign in, but stays listed: the audit log still has their events.",
+            "title": "Disabled",
+            "type": "boolean"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "email", "disabled"],
+        "title": "StaffMemberSummary",
         "type": "object"
       },
       "StaffNextStep": {
@@ -1738,6 +1789,71 @@
         ],
         "summary": "Send the application back to the client with what to fix",
         "tags": ["kyc-review"]
+      }
+    },
+    "/admin/staff": {
+      "get": {
+        "description": "The audit log names the staff member behind `actor_id` with this list.",
+        "operationId": "list_staff_members_admin_staff_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffMemberList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `admin` sees the staff list."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "All staff members, disabled ones included",
+        "tags": ["staff"]
       }
     },
     "/auth/logout": {

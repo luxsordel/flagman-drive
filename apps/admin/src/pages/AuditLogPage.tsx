@@ -7,7 +7,9 @@ import { useApis } from '../api/context';
 import { actionLabelKey, auditActions, isAuditAction } from '../audit/actions';
 import type { AuditEvent, AuditLogFilter } from '../audit/api';
 import { firstLogDay, isCalendarDay } from '../audit/minskTime';
+import { isAuditTargetType, targetLabelKey } from '../audit/targets';
 import { useAuth } from '../auth/context';
+import type { StaffMember } from '../staff/api';
 import { formatMinskTime } from '../time/minsk';
 
 // Filters live in the address, so a filtered log can be reloaded or sent to a colleague.
@@ -33,14 +35,47 @@ function parseFilter(params: URLSearchParams): AuditLogFilter {
   };
 }
 
-/** Enough to tell staff apart in a list until the log shows who they are (#56). */
+/** Enough to tell apart the ids the page has no name for. */
 const shortId = (id: string): string => id.slice(0, 8);
+
+interface StaffList {
+  status: 'loading' | 'ready' | 'failed';
+  members: StaffMember[];
+}
+
+function useStaffList(): StaffList {
+  const { staffList } = useApis();
+  const [state, setState] = useState<StaffList>({ status: 'loading', members: [] });
+
+  useEffect(() => {
+    let active = true;
+    staffList.list().then(
+      (members) => {
+        if (active) setState({ status: 'ready', members });
+      },
+      // The log reports refusals and an ended session itself; without the list it shows ids.
+      () => {
+        if (active) setState({ status: 'failed', members: [] });
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [staffList]);
+
+  return state;
+}
 
 /** Admin-only list of audit events, newest first, with filters and page-by-page loading. */
 export function AuditLogPage() {
   const { t } = useTranslation();
   const [params, setParams] = useSearchParams();
   const filter = useMemo(() => parseFilter(params), [params]);
+  const staff = useStaffList();
+  const emails = useMemo(
+    () => new Map(staff.members.map((member) => [member.id, member.email])),
+    [staff.members],
+  );
 
   const setFilter = (key: FilterKey, value: string | undefined): void => {
     setParams(
@@ -112,22 +147,29 @@ export function AuditLogPage() {
             }}
           />
         </label>
-        {filter.actorId && (
-          <div className="filter-chip">
-            <span title={filter.actorId}>
-              {t('audit.staffFilter', { id: shortId(filter.actorId) })}
-            </span>
-            <button
-              type="button"
-              className="button"
-              onClick={() => {
-                setFilter('actorId', undefined);
-              }}
-            >
-              {t('audit.clearStaff')}
-            </button>
-          </div>
-        )}
+        <label className="stacked-label">
+          {t('audit.staff')}
+          <select
+            className="field"
+            value={filter.actorId ?? ''}
+            onChange={(event) => {
+              setFilter('actorId', event.target.value);
+            }}
+          >
+            <option value="">{t('audit.anyStaff')}</option>
+            {/* A linked or clicked id the list does not have still shows as selected. */}
+            {filter.actorId && !emails.has(filter.actorId) && (
+              <option value={filter.actorId}>
+                {t('audit.unknownStaff', { id: shortId(filter.actorId) })}
+              </option>
+            )}
+            {staff.members.map((member) => (
+              <option key={member.id} value={member.id}>
+                {member.disabled ? t('audit.disabledStaff', { email: member.email }) : member.email}
+              </option>
+            ))}
+          </select>
+        </label>
         {hasFilters && (
           <button
             type="button"
@@ -140,6 +182,7 @@ export function AuditLogPage() {
           </button>
         )}
       </form>
+      {staff.status === 'failed' && <p className="muted">{t('audit.staffUnavailable')}</p>}
       {invertedRange ? (
         <p role="alert" className="list-error">
           {t('audit.invertedRange')}
@@ -149,6 +192,7 @@ export function AuditLogPage() {
         <AuditEventList
           key={params.toString()}
           filter={filter}
+          emails={emails}
           onSelectStaff={(id) => {
             setFilter('actorId', id);
           }}
@@ -169,9 +213,11 @@ interface ListState {
 
 function AuditEventList({
   filter,
+  emails,
   onSelectStaff,
 }: {
   filter: AuditLogFilter;
+  emails: ReadonlyMap<string, string>;
   onSelectStaff: (id: string) => void;
 }) {
   const { t } = useTranslation();
@@ -283,7 +329,12 @@ function AuditEventList({
           </thead>
           <tbody>
             {state.events.map((event) => (
-              <AuditEventRow key={event.id} event={event} onSelectStaff={onSelectStaff} />
+              <AuditEventRow
+                key={event.id}
+                event={event}
+                emails={emails}
+                onSelectStaff={onSelectStaff}
+              />
             ))}
           </tbody>
         </table>
@@ -311,13 +362,17 @@ function AuditEventList({
 
 function AuditEventRow({
   event,
+  emails,
   onSelectStaff,
 }: {
   event: AuditEvent;
+  emails: ReadonlyMap<string, string>;
   onSelectStaff: (id: string) => void;
 }) {
   const { t, i18n } = useTranslation();
   const actorId = event.actor_id;
+  const actorName = actorId ? (emails.get(actorId) ?? shortId(actorId)) : '';
+  const target = event.target;
 
   return (
     <tr>
@@ -332,12 +387,12 @@ function AuditEventRow({
             type="button"
             className="link-button"
             title={actorId}
-            aria-label={t('audit.filterByStaff', { id: shortId(actorId) })}
+            aria-label={t('audit.filterByStaff', { name: actorName })}
             onClick={() => {
               onSelectStaff(actorId);
             }}
           >
-            {shortId(actorId)}
+            {actorName}
           </button>
         ) : event.actor_type === 'client' && actorId ? (
           <span title={actorId}>{t('audit.actor.client', { id: shortId(actorId) })}</span>
@@ -348,9 +403,11 @@ function AuditEventRow({
       {/* An action newer than this build of the panel still shows, by its code. */}
       <td>{isAuditAction(event.action) ? t(actionLabelKey(event.action)) : event.action}</td>
       <td>
-        {event.target ? (
-          <span title={event.target.id}>
-            {event.target.type} {shortId(event.target.id)}
+        {/* Like actions, a type newer than this build of the panel shows by its code. */}
+        {target ? (
+          <span title={target.id}>
+            {isAuditTargetType(target.type) ? t(targetLabelKey(target.type)) : target.type}{' '}
+            {shortId(target.id)}
           </span>
         ) : (
           <span className="muted">{t('audit.noTarget')}</span>

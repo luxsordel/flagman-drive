@@ -7,6 +7,7 @@ import ru from '../i18n/ru.json';
 import { auditEvent, fakeAuditLogApi } from '../test/audit';
 import { testStaff } from '../test/auth';
 import { renderAt } from '../test/render';
+import { fakeStaffListApi } from '../test/staff';
 
 const staffId = '0199a7c2-5d1e-7b3a-9f00-000000000001';
 const otherStaffId = '0199a7c2-5d1e-7b3a-9f00-000000000002';
@@ -30,7 +31,7 @@ describe('audit log page', () => {
           occurred_at: '2026-10-23T12:04:05Z',
           actor_id: staffId,
           action: 'staff.sign_in_failed',
-          target: { type: 'kyc_document', id: '0199b000-1111-7000-8000-000000000000' },
+          target: { type: 'kyc_application', id: '0199b000-1111-7000-8000-000000000000' },
         }),
         auditEvent({ actor_type: 'system', actor_id: null }),
       ],
@@ -43,7 +44,7 @@ describe('audit log page', () => {
     expect(first.textContent).toContain('23.10.2026, 15:04:05');
     expect(within(first).getByRole('button', { name: /0199a7c2/ }).title).toBe(staffId);
     expect(first.textContent).toContain(ru.audit.actions.staffSignInFailed);
-    expect(first.textContent).toContain('kyc_document 0199b000');
+    expect(first.textContent).toContain(`${ru.audit.targets.kycApplication} 0199b000`);
     expect(second.textContent).toContain(ru.audit.actor.system);
     expect(second.textContent).toContain(ru.audit.noTarget);
     expect(auditLog.list).toHaveBeenCalledWith({});
@@ -58,6 +59,90 @@ describe('audit log page', () => {
 
     const row = await findRow();
     expect(row.textContent).toContain('rental.force_finished');
+  });
+
+  it('shows an object type unknown to this build by its code', async () => {
+    const auditLog = fakeAuditLogApi({
+      items: [
+        auditEvent({
+          target: { type: 'kyc_document', id: '0199b000-1111-7000-8000-000000000000' },
+        }),
+      ],
+      next_cursor: null,
+    });
+    renderAt('/audit', testStaff(), { auditLog });
+
+    const row = await findRow();
+    expect(row.textContent).toContain('kyc_document 0199b000');
+  });
+
+  it('names staff members by email and keeps the id of one the list does not have', async () => {
+    const auditLog = fakeAuditLogApi({
+      items: [auditEvent({ actor_id: staffId }), auditEvent({ actor_id: otherStaffId })],
+      next_cursor: null,
+    });
+    const staffList = fakeStaffListApi({ id: staffId, email: 'anna@flagman.by', disabled: false });
+    renderAt('/audit', testStaff(), { auditLog, staffList });
+
+    const known = await findRow(0);
+    await waitFor(() => {
+      expect(within(known).getByRole('button').textContent).toBe('anna@flagman.by');
+    });
+    expect(within(known).getByRole('button').title).toBe(staffId);
+    const unknown = await findRow(1);
+    expect(within(unknown).getByRole('button').textContent).toBe('0199a7c2');
+    expect(within(unknown).getByRole('button').title).toBe(otherStaffId);
+    expect(screen.queryByText(ru.audit.staffUnavailable)).toBeNull();
+  });
+
+  it('filters by a staff member picked from the list, disabled ones marked', async () => {
+    const auditLog = fakeAuditLogApi();
+    const staffList = fakeStaffListApi(
+      { id: staffId, email: 'anna@flagman.by', disabled: false },
+      { id: otherStaffId, email: 'boris@flagman.by', disabled: true },
+    );
+    renderAt('/audit', testStaff(), { auditLog, staffList });
+    await screen.findByText(ru.audit.empty);
+
+    const select = screen.getByLabelText(ru.audit.staff);
+    await userEvent.selectOptions(select, 'boris@flagman.by (отключён)');
+    await screen.findByText(ru.audit.empty);
+
+    expect(auditLog.list).toHaveBeenLastCalledWith({ actorId: otherStaffId });
+    expect(
+      within(select)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([ru.audit.anyStaff, 'anna@flagman.by', 'boris@flagman.by (отключён)']);
+  });
+
+  it('keeps a staff member from the address the list does not have', async () => {
+    const auditLog = fakeAuditLogApi();
+    const staffList = fakeStaffListApi({ id: staffId, email: 'anna@flagman.by', disabled: false });
+    renderAt(`/audit?staff=${otherStaffId}`, testStaff(), { auditLog, staffList });
+    await screen.findByText(ru.audit.empty);
+
+    const select = screen.getByLabelText<HTMLSelectElement>(ru.audit.staff);
+    await waitFor(() => {
+      expect(within(select).getAllByRole('option')).toHaveLength(3);
+    });
+    expect(select.value).toBe(otherStaffId);
+    expect(select.selectedOptions[0]?.textContent).toBe('Сотрудник 0199a7c2');
+    expect(auditLog.list).toHaveBeenCalledWith({ actorId: otherStaffId });
+  });
+
+  it('still shows the log by ids when the staff list does not load', async () => {
+    const auditLog = fakeAuditLogApi({
+      items: [auditEvent({ actor_id: staffId })],
+      next_cursor: null,
+    });
+    const staffList = fakeStaffListApi();
+    staffList.list.mockRejectedValueOnce(new ApiError(500));
+    renderAt('/audit', testStaff(), { auditLog, staffList });
+
+    expect(await screen.findByText(ru.audit.staffUnavailable)).toBeDefined();
+    const row = await findRow();
+    expect(within(row).getByRole('button').textContent).toBe('0199a7c2');
   });
 
   it('filters by action and period', async () => {
@@ -100,10 +185,13 @@ describe('audit log page', () => {
     const row = await findRow();
     await userEvent.click(within(row).getByRole('button'));
 
-    expect(await screen.findByText('Сотрудник 0199a7c2')).toBeDefined();
+    const select = screen.getByLabelText<HTMLSelectElement>(ru.audit.staff);
+    await waitFor(() => {
+      expect(select.value).toBe(otherStaffId);
+    });
     expect(auditLog.list).toHaveBeenLastCalledWith({ actorId: otherStaffId });
 
-    await userEvent.click(screen.getByRole('button', { name: ru.audit.clearStaff }));
+    await userEvent.selectOptions(select, ru.audit.anyStaff);
     await screen.findByText(ru.audit.empty);
     expect(auditLog.list).toHaveBeenLastCalledWith({});
   });
@@ -222,9 +310,11 @@ describe('audit log page', () => {
 
   it('is closed to other roles without asking the API', async () => {
     const auditLog = fakeAuditLogApi();
-    renderAt('/audit', testStaff('operator'), { auditLog });
+    const staffList = fakeStaffListApi();
+    renderAt('/audit', testStaff('operator'), { auditLog, staffList });
 
     expect(await screen.findByRole('heading', { name: ru.forbidden.title })).toBeDefined();
     expect(auditLog.list).not.toHaveBeenCalled();
+    expect(staffList.list).not.toHaveBeenCalled();
   });
 });
