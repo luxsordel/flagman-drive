@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from uuid import UUID
@@ -85,9 +85,21 @@ def _client_profile_record(row: User) -> ClientProfileRecord:
     )
 
 
-async def get_client_profile(db: AsyncSession, user_id: UUID) -> ClientProfileRecord | None:
-    row = await db.scalar(select(User).where(User.id == user_id))
+async def get_client_profile(
+    db: AsyncSession, user_id: UUID, *, for_update: bool = False
+) -> ClientProfileRecord | None:
+    query = select(User).where(User.id == user_id)
+    if for_update:
+        query = query.with_for_update()
+    row = await db.scalar(query)
     return _client_profile_record(row) if row is not None else None
+
+
+async def get_client_profiles(
+    db: AsyncSession, user_ids: Collection[UUID]
+) -> dict[UUID, ClientProfileRecord]:
+    rows = await db.scalars(select(User).where(User.id.in_(user_ids)))
+    return {row.id: _client_profile_record(row) for row in rows}
 
 
 async def update_client_profile(

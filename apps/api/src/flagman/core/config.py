@@ -76,6 +76,11 @@ class Settings(BaseSettings):
     s3_secret_key: SecretStr | None = None
     s3_bucket: str = "flagman-private"
 
+    # Admission thresholds the operator's approval is checked against (docs/01-vision-and-mvp.md).
+    # The age floor guards against a typo that would admit minors.
+    kyc_min_age_years: int = Field(default=21, ge=18)
+    kyc_min_driving_years: int = Field(default=2, ge=0)
+
     @field_validator("api_cors_origins", "sms_fixed_phones", mode="before")
     @classmethod
     def _split_comma_separated(cls, value: object) -> object:

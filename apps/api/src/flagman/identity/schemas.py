@@ -1,4 +1,3 @@
-import re
 from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
@@ -6,6 +5,7 @@ from uuid import UUID
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, field_validator
 from pydantic.json_schema import SkipJsonSchema
 
+from flagman.core.dates import require_date_string
 from flagman.identity.domain import (
     EMAIL_MAX_LENGTH,
     EMAIL_PATTERN,
@@ -222,20 +222,8 @@ PersonName = Annotated[
     AfterValidator(normalize_name),
 ]
 
-_DATE_STRING = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
-
-
-def _require_date_string(value: object) -> object:
-    # Pydantic would also read a number as a Unix timestamp and cut a datetime string down to its
-    # date; a birth date is only ever `YYYY-MM-DD`. Not `strict=True`: FastAPI validates the
-    # parsed body, where strict refuses strings too.
-    if not isinstance(value, str) or not _DATE_STRING.fullmatch(value):
-        raise ValueError("birth date must be a YYYY-MM-DD string")
-    return value
-
-
 # Only the format: whether the date is plausible depends on today, which the service is given.
-BirthDate = Annotated[date, Field(examples=["1990-05-17"]), BeforeValidator(_require_date_string)]
+BirthDate = Annotated[date, Field(examples=["1990-05-17"]), BeforeValidator(require_date_string)]
 ContactEmail = Annotated[
     str,
     Field(max_length=EMAIL_MAX_LENGTH, pattern=EMAIL_PATTERN, examples=["anna@example.com"]),

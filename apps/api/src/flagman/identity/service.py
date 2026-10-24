@@ -1,6 +1,8 @@
 import asyncio
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
+from typing import Protocol
 from uuid import UUID
 
 import structlog
@@ -248,11 +250,26 @@ def _client_profile(record: ClientProfileRecord) -> ClientProfile:
     )
 
 
+# The operator checks the documents against these, so they must not change under review (#35).
+_CHECKED_BY_KYC = frozenset({"first_name", "last_name", "birth_date"})
+
+
+class PersonalDataLock(Protocol):
+    """Refuses a change of the fields KYC checks, or lets it through and holds that answer.
+
+    Implemented by `kyc.service.lock_personal_data` and handed in by the router: kyc already
+    depends on identity, so identity cannot import kyc.
+    """
+
+    async def __call__(self, db: AsyncSession, user_id: UUID) -> None: ...
+
+
 @dataclass(frozen=True)
 class ClientProfileService:
     """The signed-in client's own profile: the user id always comes from the access token."""
 
     db: AsyncSession
+    personal_data_lock: PersonalDataLock
 
     async def get_profile(self, user_id: UUID) -> ClientProfile:
         async with self.db.begin():
@@ -268,17 +285,41 @@ class ClientProfileService:
             # The UTC date rather than Minsk's: for three hours a day a birth date of "today" is
             # turned down, which no adult client ever sends.
             check_birth_date(update.birth_date, now.date())
+        changes = update.changes()
         async with self.db.begin():
-            record = await repository.update_client_profile(self.db, user_id, update.changes())
+            checked = _CHECKED_BY_KYC & changes.keys()
+            if checked:
+                # Locked: a concurrent change cannot slip in between the comparison and the write.
+                current = await repository.get_client_profile(self.db, user_id, for_update=True)
+                if current is None:
+                    raise AccessTokenInvalidError
+                # The app sends the whole form back: a field sent unchanged is not a change.
+                if any(getattr(current, name) != changes[name] for name in checked):
+                    await self.personal_data_lock(self.db, user_id)
+            record = await repository.update_client_profile(self.db, user_id, changes)
         if record is None:
             raise AccessTokenInvalidError
         return _client_profile(record)
 
 
-async def get_client_birth_date(db: AsyncSession, user_id: UUID) -> date | None:
-    """For the KYC age check (#35); runs in the caller's transaction."""
-    record = await repository.get_client_profile(db, user_id)
-    return record.birth_date if record is not None else None
+@dataclass(frozen=True)
+class ClientIdentity:
+    """What the KYC operator checks the documents against; the rest of the profile stays here."""
+
+    first_name: str | None
+    last_name: str | None
+    birth_date: date | None
+
+
+async def get_client_identities(
+    db: AsyncSession, user_ids: Collection[UUID]
+) -> dict[UUID, ClientIdentity]:
+    """For the KYC review (#35); runs in the caller's transaction. Unknown ids are left out."""
+    records = await repository.get_client_profiles(db, user_ids)
+    return {
+        user_id: ClientIdentity(record.first_name, record.last_name, record.birth_date)
+        for user_id, record in records.items()
+    }
 
 
 def _verify_password_or_dummy(password_hash: str | None, password: str) -> bool:

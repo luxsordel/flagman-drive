@@ -24,6 +24,7 @@ from flagman.core.resources import Resources
 from flagman.health.api import router as health_router
 from flagman.identity.api import profile_router, staff_router
 from flagman.identity.api import router as identity_router
+from flagman.kyc.api import review_router as kyc_review_router
 from flagman.kyc.api import router as kyc_router
 
 logger = structlog.get_logger(__name__)
@@ -104,4 +105,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(profile_router)
     app.include_router(audit_router)
     app.include_router(kyc_router)
+    app.include_router(kyc_review_router)
     return app
