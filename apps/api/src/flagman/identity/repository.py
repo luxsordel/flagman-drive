@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, or_, select, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -400,13 +400,15 @@ async def limit_lock_wait(db: AsyncSession) -> None:
 
 
 async def _delete_count[T](db: AsyncSession, statement: ReturningDelete[T]) -> int:
+    # Counted by Postgres: the deleted rows themselves never travel to the worker.
+    count = select(func.count()).select_from(statement.cte("deleted"))
     try:
-        deleted = await db.scalars(statement)
+        deleted = await db.scalar(count)
     except DBAPIError as error:
         if getattr(error.orig, "sqlstate", None) == _LOCK_TIMEOUT_SQLSTATE:
             raise CleanupLockTimeoutError from error
         raise
-    return len(deleted.all())
+    return deleted or 0
 
 
 async def delete_expired_otps(db: AsyncSession, now: datetime, limit: int) -> int:
