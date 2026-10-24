@@ -30,7 +30,7 @@ class DocumentStorage(Protocol):
         ...
 
     async def signed_get_url(self, key: str, ttl: timedelta) -> str:
-        """A link that opens the photo without credentials until `ttl` runs out."""
+        """A link that opens the photo without credentials until `ttl` runs out; never cached."""
         ...
 
 
@@ -77,10 +77,12 @@ class S3DocumentStorage:
     async def signed_get_url(self, key: str, ttl: timedelta) -> str:
         # Signed locally, no request to the storage. The signature covers the host, so the link
         # is signed for the address the client opens (docs/adr/0005), not the internal one.
+        # no-store keeps the photo out of the browser's disk cache, where a copy would outlive the
+        # link; it is signed too, so stripping it from the link breaks the link.
         async with self._client(self.public_url) as s3:
             return await s3.generate_presigned_url(
                 "get_object",
-                Params={"Bucket": self.bucket, "Key": key},
+                Params={"Bucket": self.bucket, "Key": key, "ResponseCacheControl": "no-store"},
                 ExpiresIn=int(ttl.total_seconds()),
             )
 

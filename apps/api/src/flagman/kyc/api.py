@@ -3,7 +3,7 @@ from http import HTTPStatus
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
@@ -50,6 +50,12 @@ def get_document_storage(
     resources: Annotated[Resources, Depends(get_resources)],
 ) -> DocumentStorage:
     return create_document_storage(resources.settings)
+
+
+def _no_store(response: Response) -> None:
+    # A signed link opens the photo for minutes; a cached answer would hand it out again later,
+    # and to an operator without a `kyc.document_viewed` event.
+    response.headers["Cache-Control"] = "no-store"
 
 
 def get_kyc_service(
@@ -136,6 +142,7 @@ async def upload_document(
 @router.get(
     "/documents/{kind}/url",
     summary="A short-lived link to the client's own document photo",
+    dependencies=[Depends(_no_store)],
     responses={
         HTTPStatus.NOT_FOUND: {
             "model": Problem,
@@ -234,6 +241,7 @@ async def get_application_for_review(
 @review_router.get(
     "/{application_id}/documents/{kind}/url",
     summary="A short-lived link to a document photo; every link is in the audit log",
+    dependencies=[Depends(_no_store)],
     responses={
         HTTPStatus.NOT_FOUND: {
             "model": Problem,

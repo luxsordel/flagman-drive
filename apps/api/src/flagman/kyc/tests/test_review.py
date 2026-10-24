@@ -15,7 +15,13 @@ from flagman.core.ratelimit import Limit
 from flagman.identity.domain import StaffAccessClaims, StaffRole, issue_staff_access_token
 from flagman.kyc import service
 from flagman.kyc.domain import REQUIRED_DOCUMENTS, DocumentKind
-from flagman.kyc.tests.conftest import Person, client_for, open_url, problem_type, query
+from flagman.kyc.tests.conftest import (
+    Person,
+    client_for,
+    open_url,
+    problem_type,
+    query,
+)
 
 pytestmark = pytest.mark.integration
 
@@ -370,9 +376,11 @@ def test_a_document_link_opens_the_photo_and_is_audited(
 
     assert response.status_code == HTTPStatus.OK, response.text
     assert response.json()["expires_in"] == 300
-    status, body = open_url(response.json()["url"])
-    assert status == HTTPStatus.OK
-    assert body.startswith(b"\xff\xd8")  # JPEG
+    assert response.headers["Cache-Control"] == "no-store"
+    opened = open_url(response.json()["url"])
+    assert opened.status == HTTPStatus.OK
+    assert opened.body.startswith(b"\xff\xd8")  # JPEG
+    assert opened.cache_control == "no-store"
     [event] = _events(kyc_settings, application_id)
     assert (event.action, event.actor_id, event.details) == (
         "kyc.document_viewed",

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable, Iterator
 from dataclasses import dataclass
 from http import HTTPStatus
 from io import BytesIO
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NamedTuple
 
 import aioboto3
 import pytest
@@ -222,12 +222,18 @@ def query(settings: Settings, sql: str, **params: Any) -> list[Row[Any]]:
     return asyncio.run(run())
 
 
-def open_url(url: str) -> tuple[int, bytes]:
+class Opened(NamedTuple):
+    status: int
+    body: bytes
+    cache_control: str | None
+
+
+def open_url(url: str) -> Opened:
     try:
         with urllib.request.urlopen(url, timeout=10) as response:  # noqa: S310 - test container
-            return response.status, response.read()
+            return Opened(response.status, response.read(), response.headers.get("Cache-Control"))
     except urllib.error.HTTPError as error:
-        return error.code, b""
+        return Opened(error.code, b"", None)
 
 
 def problem_type(response: Any) -> str:
