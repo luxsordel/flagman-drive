@@ -2,10 +2,8 @@ import { createApiClient } from '@flagman/api-client';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../api/client';
+import { json, problem, sentRequest } from '../test/http';
 import { auditPageSize, createAuditLogApi } from './api';
-
-const json = (status: number, body: unknown, contentType = 'application/json'): Response =>
-  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': contentType } });
 
 function auditLogApi(response: Response) {
   const fetch = vi.fn<(request: Request) => Promise<Response>>(() => Promise.resolve(response));
@@ -16,12 +14,6 @@ function auditLogApi(response: Response) {
   });
   return { api: createAuditLogApi(client), fetch };
 }
-
-const sentRequest = (fetch: ReturnType<typeof auditLogApi>['fetch']): Request => {
-  const request = fetch.mock.calls[0]?.[0];
-  if (!request) throw new Error('no request was sent');
-  return request;
-};
 
 describe('audit log API', () => {
   it('sends the filter with whole Minsk days and the access token', async () => {
@@ -70,11 +62,11 @@ describe('audit log API', () => {
   });
 
   it('rejects when the API refuses', async () => {
-    const problem = { type: 'urn:flagman:problem:forbidden', title: 'Forbidden', status: 403 };
-    const { api } = auditLogApi(json(403, problem, 'application/problem+json'));
+    const { api } = auditLogApi(problem(403, 'forbidden'));
 
     const error: unknown = await api.list({}).catch((reason: unknown) => reason);
     expect(error).toBeInstanceOf(ApiError);
     expect((error as ApiError).status).toBe(403);
+    expect((error as ApiError).problem).toBe('forbidden');
   });
 });

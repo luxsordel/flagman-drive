@@ -26,6 +26,30 @@ describe('staff session', () => {
     expect(session.accessToken()).toBeNull();
   });
 
+  it('starts with the token of a passed sign-in and refreshes it before expiry', async () => {
+    vi.useFakeTimers();
+    const api = fakeStaffAuthApi(testStaff('operator'));
+    api.refresh.mockResolvedValueOnce(fresh('access-2'));
+    const session = createStaffSession(api);
+
+    expect(await session.signIn(fresh('access-1'))).toEqual(testStaff('operator'));
+    expect(api.me).toHaveBeenCalledWith('access-1');
+    expect(session.accessToken()).toBe('access-1');
+    expect(api.refresh).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(840_000);
+    expect(session.accessToken()).toBe('access-2');
+  });
+
+  it('forgets the token of a sign-in whose staff profile cannot be loaded', async () => {
+    const api = fakeStaffAuthApi(testStaff());
+    api.me.mockRejectedValue(new Error('network'));
+    const session = createStaffSession(api);
+
+    await expect(session.signIn(fresh('access-1'))).rejects.toThrow('network');
+    expect(session.accessToken()).toBeNull();
+  });
+
   it('sends one refresh for concurrent callers', async () => {
     const api = fakeStaffAuthApi(testStaff());
     const session = createStaffSession(api);
