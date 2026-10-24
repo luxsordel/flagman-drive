@@ -1,0 +1,208 @@
+"""Car statuses, the availability rule and car identifiers. No I/O here."""
+
+import re
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import StrEnum
+from http import HTTPStatus
+
+from flagman.core.errors import AppError
+
+PLATE_MAX_LENGTH = 16
+VIN_LENGTH = 17
+BRAND_MAX_LENGTH = 64
+MODEL_NAME_MAX_LENGTH = 64
+PHOTO_URL_MAX_LENGTH = 512
+
+# Belarusian plates use only the Latin letters that look like Cyrillic ones: "1234 AB-7".
+# [0-9] rather than \d: \d also matches non-ASCII digits.
+PLATE_PATTERN = re.compile(r"[0-9]{4} [ABEIKMHOPCTX]{2}-[1-8]")
+# I, O and Q never appear in a VIN: they are too easy to mistake for 1 and 0 (ISO 3779).
+VIN_PATTERN = re.compile(r"[A-HJ-NPR-Z0-9]{17}")
+
+# Same as the clock skew window of telematics requests (docs/adr/0007): a snapshot further ahead
+# would count as fresh for longer than the threshold allows. Within the window it still may, by up
+# to this much (docs/02-architecture.md, the fleet section); the window becomes a setting with #91.
+MAX_CLOCK_SKEW = timedelta(seconds=300)
+
+# Car ids of the emulator (services/car-emulator, car_emulator.domain.car_id): the seed derives
+# the same telematics ids, so telemetry lands on the seeded cars. Both sides test one vector.
+EMULATOR_CAR_ID_NAMESPACE = uuid.UUID("b3dbc708-f7ca-4013-88f6-d3564a1f0b2c")
+
+
+class CarStatus(StrEnum):
+    """Values are stored as is: renaming one needs a migration."""
+
+    AVAILABLE = "available"
+    RESERVED = "reserved"
+    IN_RENTAL = "in_rental"
+    SERVICE = "service"
+    OFFLINE = "offline"
+
+
+class CarTransition(StrEnum):
+    RESERVE = "reserve"
+    CANCEL_RESERVATION = "cancel_reservation"
+    START_RENTAL = "start_rental"
+    END_RENTAL = "end_rental"
+    SEND_TO_SERVICE = "send_to_service"
+    RETURN_FROM_SERVICE = "return_from_service"
+    GO_OFFLINE = "go_offline"
+    COME_ONLINE = "come_online"
+
+
+@dataclass(frozen=True)
+class _Rule:
+    sources: frozenset[CarStatus]
+    target: CarStatus
+
+
+# A reserved or rented car is never pulled out by fleet transitions: the rental would be left
+# pointing at a car in service. Stage 3 ends or cancels the rental first.
+_RULES: dict[CarTransition, _Rule] = {
+    CarTransition.RESERVE: _Rule(frozenset({CarStatus.AVAILABLE}), CarStatus.RESERVED),
+    CarTransition.CANCEL_RESERVATION: _Rule(frozenset({CarStatus.RESERVED}), CarStatus.AVAILABLE),
+    CarTransition.START_RENTAL: _Rule(frozenset({CarStatus.RESERVED}), CarStatus.IN_RENTAL),
+    CarTransition.END_RENTAL: _Rule(frozenset({CarStatus.IN_RENTAL}), CarStatus.AVAILABLE),
+    CarTransition.SEND_TO_SERVICE: _Rule(
+        frozenset({CarStatus.AVAILABLE, CarStatus.OFFLINE}), CarStatus.SERVICE
+    ),
+    CarTransition.RETURN_FROM_SERVICE: _Rule(frozenset({CarStatus.SERVICE}), CarStatus.AVAILABLE),
+    CarTransition.GO_OFFLINE: _Rule(
+        frozenset({CarStatus.AVAILABLE, CarStatus.SERVICE}), CarStatus.OFFLINE
+    ),
+    CarTransition.COME_ONLINE: _Rule(frozenset({CarStatus.OFFLINE}), CarStatus.AVAILABLE),
+}
+
+# Only declared here: the rentals module (stage 3) calls them, the fleet never does on its own.
+RENTAL_TRANSITIONS = frozenset(
+    {
+        CarTransition.RESERVE,
+        CarTransition.CANCEL_RESERVATION,
+        CarTransition.START_RENTAL,
+        CarTransition.END_RENTAL,
+    }
+)
+
+
+class CarNotFoundError(AppError):
+    status = HTTPStatus.NOT_FOUND
+    slug = "car-not-found"
+    title = "Car not found"
+
+
+class CarTransitionNotAllowedError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "car-transition-not-allowed"
+    title = "The car cannot change to this status now"
+
+
+class CarIdentityTakenError(Exception):
+    """The plate or the VIN is already used by a car with another telematics id."""
+
+
+class SnapshotFromFutureError(ValueError):
+    """The telematics clock is ahead of ours by more than the skew window."""
+
+
+def apply_transition(status: CarStatus, transition: CarTransition) -> CarStatus:
+    rule = _RULES[transition]
+    if status not in rule.sources:
+        raise CarTransitionNotAllowedError
+    return rule.target
+
+
+@dataclass(frozen=True)
+class GeoPoint:
+    lat: float
+    lon: float
+
+    def __post_init__(self) -> None:
+        if not (-90 <= self.lat <= 90 and -180 <= self.lon <= 180):  # noqa: PLR2004
+            raise ValueError("coordinates out of range")
+
+
+@dataclass(frozen=True)
+class CarState:
+    """The last snapshot from telematics; `recorded_at` is the car's time, not the arrival time."""
+
+    location: GeoPoint
+    battery_pct: int
+    doors_locked: bool
+    ignition_on: bool
+    recorded_at: datetime
+
+    def __post_init__(self) -> None:
+        if not 0 <= self.battery_pct <= 100:  # noqa: PLR2004
+            raise ValueError("battery_pct must be within 0..100")
+        if self.recorded_at.tzinfo is None:
+            raise ValueError("recorded_at must be timezone-aware")
+
+
+@dataclass(frozen=True)
+class CarModelSpec:
+    brand: str
+    name: str
+    seats: int
+    battery_wh: int
+    range_km: int
+    photo_url: str | None
+
+
+@dataclass(frozen=True)
+class Car:
+    id: uuid.UUID
+    model: CarModelSpec
+    plate: str
+    vin: str
+    telematics_id: uuid.UUID
+    status: CarStatus
+    state: CarState | None
+
+
+class SnapshotOutcome(StrEnum):
+    APPLIED = "applied"
+    # Same or older than the stored one: a repeated or late webhook (docs/adr/0007).
+    STALE = "stale"
+    UNKNOWN_CAR = "unknown_car"
+
+
+@dataclass(frozen=True)
+class AvailabilityRules:
+    min_battery_pct: int
+    max_state_age: timedelta
+
+
+def check_snapshot_time(recorded_at: datetime, now: datetime) -> None:
+    if recorded_at > now + MAX_CLOCK_SKEW:
+        raise SnapshotFromFutureError
+
+
+def is_rentable(
+    status: CarStatus, state: CarState | None, rules: AvailabilityRules, now: datetime
+) -> bool:
+    # Without fresh telemetry the car may be anywhere and with any charge, so it is not offered.
+    if status is not CarStatus.AVAILABLE or state is None:
+        return False
+    if now - state.recorded_at > rules.max_state_age:
+        return False
+    return state.battery_pct >= rules.min_battery_pct
+
+
+def normalize_plate(value: str) -> str:
+    plate = value.strip().upper()
+    if not PLATE_PATTERN.fullmatch(plate):
+        raise ValueError("not a Belarusian plate, expected e.g. 1234 AB-7")
+    return plate
+
+
+def normalize_vin(value: str) -> str:
+    vin = value.strip().upper()
+    if not VIN_PATTERN.fullmatch(vin):
+        raise ValueError(f"a VIN is {VIN_LENGTH} letters and digits without I, O and Q")
+    return vin
+
+
+def emulator_car_id(seed: int, index: int) -> uuid.UUID:
+    return uuid.uuid5(EMULATOR_CAR_ID_NAMESPACE, f"{seed}:{index}")

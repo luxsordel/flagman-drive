@@ -209,6 +209,31 @@ def test_document_links_must_be_https_in_prod(make_settings: SettingsFactory) ->
     assert not make_settings(api_env="prod").storage_configured
 
 
+def test_fleet_thresholds_default_to_the_documented_values(make_settings: SettingsFactory) -> None:
+    settings = make_settings()
+
+    assert settings.fleet_min_battery_pct == 20
+    assert settings.fleet_telemetry_max_age_seconds == 300
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"fleet_min_battery_pct": -1},
+        {"fleet_min_battery_pct": 101},
+        # Zero would make every car stale the moment its snapshot arrives.
+        {"fleet_telemetry_max_age_seconds": 0},
+        {"emulator_car_count": 0},
+        {"emulator_car_count": 1001},
+    ],
+)
+def test_fleet_settings_out_of_range_are_refused(
+    make_settings: SettingsFactory, overrides: dict[str, int]
+) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(**overrides)
+
+
 _API_SECRETS = (
     "API_JWT_SECRET",
     "API_OTP_PEPPER",
