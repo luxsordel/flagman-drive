@@ -21,6 +21,7 @@ import { createAuditLogApi } from './audit/api';
 import { AuthProvider } from './auth/AuthProvider';
 import { createStaffSession } from './auth/session';
 import { createStaffAuthApi } from './auth/staffApi';
+import { createKycReviewApi } from './kyc/api';
 import { routes } from './routes';
 import { applyTheme, currentTheme, installTheme } from './theme';
 
@@ -33,7 +34,11 @@ if (!root) throw new Error('index.html has no #root element');
 const staffAuth = createStaffAuthApi(createAuthApiClient());
 const session = createStaffSession(staffAuth);
 const client = createAdminApiClient(session);
-const apis: AdminApis = { auditLog: createAuditLogApi(client), staffSignIn: staffAuth };
+const apis: AdminApis = {
+  auditLog: createAuditLogApi(client),
+  kycReview: createKycReviewApi(client),
+  staffSignIn: staffAuth,
+};
 
 createRoot(root).render(
   <StrictMode>

@@ -17,12 +17,24 @@ export const routes: RouteObject[] = [
       </RequireAuth>
     ),
     children: [
-      ...sections.map(({ key, path, roles, page: Page }) => ({
-        path,
-        element: (
-          <RequireRole roles={roles}>{Page ? <Page /> : <SectionPage section={key} />}</RequireRole>
-        ),
-      })),
+      ...sections.flatMap(({ key, path, roles, page: Page, subpages = [] }) => [
+        {
+          path,
+          element: (
+            <RequireRole roles={roles}>
+              {Page ? <Page /> : <SectionPage section={key} />}
+            </RequireRole>
+          ),
+        },
+        ...subpages.map(({ path: subpath, page: Subpage }) => ({
+          path: `${path}/${subpath}`,
+          element: (
+            <RequireRole roles={roles}>
+              <Subpage />
+            </RequireRole>
+          ),
+        })),
+      ]),
       { path: '*', element: <NotFoundPage /> },
     ],
   },

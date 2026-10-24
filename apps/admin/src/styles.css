@@ -21,6 +21,19 @@ h1 {
   font-weight: 600;
 }
 
+h2 {
+  margin: 0 0 var(--space-sm);
+  font-family: var(--font-heading);
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+}
+
+h3 {
+  margin: 0 0 var(--space-sm);
+  font-size: var(--font-size-md);
+  font-weight: 600;
+}
+
 a {
   color: var(--color-primary);
 }
@@ -153,6 +166,11 @@ a {
 .button[aria-pressed='true'] {
   border-color: var(--color-primary);
   color: var(--color-primary);
+}
+
+.button[aria-disabled='true'] {
+  color: var(--color-ink-muted);
+  cursor: default;
 }
 
 .button-primary {
@@ -325,4 +343,148 @@ a {
 
 .list-more {
   margin-top: var(--space-md);
+}
+
+.menu-count {
+  margin-left: auto;
+  padding-left: var(--space-md);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* Success shows by the border: green text on the background is below the 4.5:1 text contrast. */
+.notice {
+  margin: 0 0 var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  border: 1px solid var(--color-success);
+  border-left-width: var(--space-xs);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+}
+
+.kyc-layout {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
+}
+
+.kyc-decision {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.decision-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.decision-form p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.decision-form .button {
+  align-self: flex-start;
+}
+
+.textarea {
+  padding: var(--space-sm) var(--space-md);
+  resize: vertical;
+}
+
+.details {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-sm) var(--space-lg);
+  margin: var(--space-lg) 0 0;
+}
+
+.details dt {
+  color: var(--color-ink-muted);
+}
+
+.details dd {
+  margin: 0;
+}
+
+.kyc-documents {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: var(--space-lg);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.kyc-document {
+  padding: var(--space-lg);
+}
+
+.kyc-thumbnail {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-background);
+  cursor: zoom-in;
+  overflow: hidden;
+}
+
+.kyc-thumbnail img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: contain;
+}
+
+.viewer {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background);
+}
+
+.viewer-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-xl);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.viewer-controls output {
+  min-width: 4ch;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.viewer-stage {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-lg);
+  overflow: auto;
+}
+
+/* Auto margins, unlike centering, keep the whole zoomed photo reachable by scrolling. */
+.viewer-frame {
+  position: relative;
+  flex: none;
+  margin: auto;
+}
+
+.viewer-frame img {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: none;
+  transition: transform 0.15s ease-out;
 }
