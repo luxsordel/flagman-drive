@@ -1,14 +1,14 @@
 [
   {
-    "id": "GHSA-vfj7-8cjw-p6xm",
-    "package": "braces",
-    "reason": "No fixed release exists. Reached only through Metro and Jest file watching, which expand glob patterns from our own config, never from user input; not shipped in the app bundle.",
-    "reviewBy": "2027-01-22"
-  },
-  {
     "id": "GHSA-86w9-cpqp-85rv",
     "package": "node-forge",
     "reason": "No fixed release exists. Reached only through @expo/code-signing-certificates in the Expo CLI; we do not use EAS Update code signing, and it is not shipped in the app bundle.",
+    "reviewBy": "2027-01-22"
+  },
+  {
+    "id": "GHSA-mrhx-c7xc-m3w5",
+    "package": "zod",
+    "reason": "Fixed only in zod 4.6.6, while @expo/cli pins zod ^3.25.76. Reached only through the Expo CLI dev server, which validates DevTools plugin schemas from our own config, never from user input; not shipped in the app bundle.",
     "reviewBy": "2027-01-22"
   }
 ]
