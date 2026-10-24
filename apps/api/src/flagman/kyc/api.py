@@ -261,7 +261,7 @@ async def get_document_url_for_review(
     summary="Admit the client to rentals",
     description=(
         "The server checks the age and the driving experience against the settings; "
-        "an application that fails them is rejected with a reason instead."
+        "an application that fails them is refused with 409; the operator rejects it with a reason."
     ),
     responses={
         HTTPStatus.NOT_FOUND: _APPLICATION_NOT_FOUND_RESPONSE,

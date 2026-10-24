@@ -66,7 +66,7 @@ export interface paths {
     put?: never;
     /**
      * Admit the client to rentals
-     * @description The server checks the age and the driving experience against the settings; an application that fails them is rejected with a reason instead.
+     * @description The server checks the age and the driving experience against the settings; an application that fails them is refused with 409; the operator rejects it with a reason.
      */
     post: operations['approve_application_admin_kyc_applications__application_id__approve_post'];
     delete?: never;
