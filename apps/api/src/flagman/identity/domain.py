@@ -35,6 +35,8 @@ REFRESH_TOKEN_TTL = timedelta(days=30)
 # Two browser tabs share one refresh cookie, and a reload can resend it before the new one
 # arrives. A token that was rotated this recently is turned down without revoking anything.
 REFRESH_REUSE_GRACE = timedelta(seconds=30)
+# Rows deleted per transaction by the periodic cleanup: short locks, and a slow run is not undone.
+AUTH_CLEANUP_BATCH_SIZE = 1000
 
 JWT_ALGORITHM = "HS256"
 JWT_ISSUER = "flagman"

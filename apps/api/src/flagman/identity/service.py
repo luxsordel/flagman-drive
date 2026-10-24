@@ -1,5 +1,5 @@
 import asyncio
-from collections.abc import Collection
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from typing import Protocol
@@ -26,6 +26,7 @@ from flagman.core.security import keyed_hash
 from flagman.identity import repository
 from flagman.identity.domain import (
     ACCESS_TOKEN_TTL,
+    AUTH_CLEANUP_BATCH_SIZE,
     OTP_TTL,
     REFRESH_TOKEN_TTL,
     STAFF_ACCESS_TOKEN_TTL,
@@ -113,6 +114,66 @@ STAFF_CHALLENGE_SESSION_LIMIT = Limit(
 )
 
 _UNKNOWN_IP = "unknown"
+
+
+@dataclass(frozen=True)
+class AuthCleanupResult:
+    pending_otps: int
+    client_sessions: int
+    staff_sessions: int
+
+
+async def clean_up_auth_data(
+    db: AsyncSession,
+    now: datetime,
+    retention: timedelta,
+    batch_size: int = AUTH_CLEANUP_BATCH_SIZE,
+) -> AuthCleanupResult:
+    """Deletes expired codes, and sessions that ended more than `retention` ago with their tokens.
+
+    Each batch commits on its own, so the locks stay short. Until a revoked session is deleted, its
+    old used token still revokes the sessions of its device when replayed (docs/adr/0009).
+    """
+    ended_before = now - retention
+    return AuthCleanupResult(
+        pending_otps=await _delete_in_batches(
+            db,
+            "pending_otps",
+            lambda: repository.delete_expired_otps(db, now, batch_size),
+            batch_size,
+        ),
+        client_sessions=await _delete_in_batches(
+            db,
+            "client_sessions",
+            lambda: repository.delete_ended_sessions(db, ended_before, batch_size),
+            batch_size,
+        ),
+        staff_sessions=await _delete_in_batches(
+            db,
+            "staff_sessions",
+            lambda: repository.delete_ended_staff_sessions(db, ended_before, batch_size),
+            batch_size,
+        ),
+    )
+
+
+async def _delete_in_batches(
+    db: AsyncSession, kind: str, delete_batch: Callable[[], Awaitable[int]], batch_size: int
+) -> int:
+    total = 0
+    while True:
+        try:
+            async with db.begin():
+                await repository.limit_lock_wait(db)
+                deleted = await delete_batch()
+        except repository.CleanupLockTimeoutError:
+            # A row stayed locked by a sign-in or a refresh: the next run takes it, and the other
+            # kinds are still cleaned up now.
+            logger.warning("auth_cleanup_lock_timeout", kind=kind, deleted=total)
+            return total
+        total += deleted
+        if deleted < batch_size:
+            return total
 
 
 @dataclass(frozen=True)

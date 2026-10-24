@@ -47,14 +47,29 @@ Swagger: http://127.0.0.1:8000/docs (выключен при `API_ENV=prod`).
 Из корня репозитория:
 
 ```bash
-docker compose --env-file .env -f infra/docker-compose.yml up -d --build api
+docker compose --env-file .env -f infra/docker-compose.yml up -d --build api worker
 ```
+
+У API и `worker` один образ, поэтому пересобирать и перезапускать их нужно вместе: иначе worker останется
+на старом коде.
 
 Миграции — отдельной одноразовой командой:
 
 ```bash
 docker compose --env-file .env -f infra/docker-compose.yml run --rm api alembic upgrade head
 ```
+
+## Периодические задачи
+
+`flagman-worker` раз в час удаляет истёкшие коды входа и закончившиеся больше
+`AUTH_CLEANUP_RETENTION_DAYS` дней назад сессии ([ADR-0013](../../docs/adr/0013-periodic-jobs-worker.md)).
+Локально:
+
+```bash
+uv run flagman-worker
+```
+
+В Docker это сервис `worker`, он поднимается вместе с остальными.
 
 ## Сотрудники
 

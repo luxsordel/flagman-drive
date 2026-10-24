@@ -23,6 +23,7 @@ dependencies = [
 
 [project.scripts]
 flagman-staff = "flagman.identity.cli:main"
+flagman-worker = "flagman.worker:main"
 
 [build-system]
 requires = ["hatchling"]

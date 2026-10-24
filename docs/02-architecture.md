@@ -100,7 +100,9 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 ### Бэкенд
 - Python 3.12, **FastAPI**, Pydantic v2, SQLAlchemy 2 (async) + Alembic, asyncpg
 - PostgreSQL 16 + **PostGIS**, Redis 7
-- Фоновые задачи: **arq** (Redis) — таймауты броней, повторы платежей, уведомления
+- Фоновые задачи: свой процесс **`flagman-worker`** — периодические задачи с advisory lock в Postgres
+  ([ADR-0013](adr/0013-periodic-jobs-worker.md)). arq несовместим с `redis>=6`; очередь заданий
+  (таймауты броней, повторы платежей, уведомления) выберем, когда она понадобится
 - Пакеты и окружение: **uv**; линт и формат: **ruff**; типы: **mypy --strict**; тесты: **pytest** + testcontainers
 - Логи — структурированные JSON (structlog), трассировка запросов через `request_id`
 
@@ -134,3 +136,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0010](adr/0010-audit-log.md) — журнал аудита: таблица только на вставку, запрет изменений триггерами
 - [ADR-0011](adr/0011-staff-auth-password-totp.md) — вход сотрудников: argon2id, TOTP с зашифрованным секретом, вход в два шага
 - [ADR-0012](adr/0012-kyc-document-storage.md) — документы KYC: сырое тело загрузки, перекодирование в JPEG без метаданных, подписанные ссылки на 5 минут
+- [ADR-0013](adr/0013-periodic-jobs-worker.md) — периодические задачи: свой процесс `flagman-worker` с advisory lock вместо arq

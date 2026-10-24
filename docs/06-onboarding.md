@@ -97,6 +97,8 @@ Docker Desktop должен быть запущен. Все команды — �
 
    `postgres`, `redis`, `seaweedfs` — `Up (healthy)`; `seaweedfs-init` — `Exited (0)`
    (это одноразовая задача, которая создаёт приватный бакет `S3_BUCKET`).
+   `worker` — `Up` без пометки `healthy`: проверки здоровья у него нет, это фоновые задачи
+   ([ADR-0013](adr/0013-periodic-jobs-worker.md)).
 
 | Сервис | Адрес | Доступ |
 |---|---|---|
