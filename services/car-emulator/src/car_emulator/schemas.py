@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
@@ -23,7 +24,8 @@ class CarState(BaseModel):
     updated_at: AwareDatetime
 
     @classmethod
-    def from_domain(cls, car: Car) -> "CarState":
+    def from_domain(cls, car: Car, as_of: datetime | None = None) -> "CarState":
+        """`updated_at` is when the car last changed, or `as_of` for a snapshot taken then."""
         return cls(
             id=car.id,
             lat=car.lat,
@@ -32,7 +34,7 @@ class CarState(BaseModel):
             doors_locked=car.doors_locked,
             ignition_on=car.ignition_on,
             engine_locked=car.engine_locked,
-            updated_at=car.updated_at,
+            updated_at=as_of or car.updated_at,
         )
 
 
