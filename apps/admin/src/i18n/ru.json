@@ -86,8 +86,11 @@
     "anyAction": "Все действия",
     "from": "С даты",
     "to": "По дату",
-    "staffFilter": "Сотрудник {{id}}",
-    "clearStaff": "Все сотрудники",
+    "staff": "Сотрудник",
+    "anyStaff": "Все сотрудники",
+    "unknownStaff": "Сотрудник {{id}}",
+    "disabledStaff": "{{email}} (отключён)",
+    "staffUnavailable": "Не удалось загрузить список сотрудников: вместо email показаны id.",
     "reset": "Сбросить фильтры",
     "columns": {
       "time": "Время (Минск)",
@@ -99,7 +102,7 @@
       "system": "Система",
       "client": "Клиент {{id}}"
     },
-    "filterByStaff": "Показать только действия сотрудника {{id}}",
+    "filterByStaff": "Показать только действия сотрудника {{name}}",
     "actions": {
       "staffCreated": "Сотрудник создан",
       "staffSignedIn": "Вход сотрудника",
@@ -113,6 +116,10 @@
       "kycApproved": "Документы одобрены",
       "kycRejected": "Документы отклонены",
       "kycDocumentViewed": "Просмотр фото документа"
+    },
+    "targets": {
+      "staffMember": "Сотрудник",
+      "kycApplication": "Заявка KYC"
     },
     "noTarget": "нет",
     "loading": "Загружаем журнал…",

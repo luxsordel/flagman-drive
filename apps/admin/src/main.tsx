@@ -23,6 +23,7 @@ import { createStaffSession } from './auth/session';
 import { createStaffAuthApi } from './auth/staffApi';
 import { createKycReviewApi } from './kyc/api';
 import { routes } from './routes';
+import { createStaffListApi } from './staff/api';
 import { applyTheme, currentTheme, installTheme } from './theme';
 
 installTheme();
@@ -37,6 +38,7 @@ const client = createAdminApiClient(session);
 const apis: AdminApis = {
   auditLog: createAuditLogApi(client),
   kycReview: createKycReviewApi(client),
+  staffList: createStaffListApi(client),
   staffSignIn: staffAuth,
 };
 

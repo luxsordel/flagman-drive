@@ -18,6 +18,7 @@ from flagman.audit.domain import (
     AuditAction,
     AuditEntry,
     AuditTarget,
+    AuditTargetType,
     RequestOrigin,
 )
 from flagman.core.ratelimit import Limit, RateLimiter
@@ -59,7 +60,7 @@ STAFF_DOCUMENT_URL_LIMIT = Limit("kyc-document-url-staff", 600, _HOUR)
 
 # The audit log names the application, not the client: the id leads to the documents only for
 # those allowed to see them.
-_APPLICATION_TARGET = "kyc_application"
+_APPLICATION_TARGET = AuditTargetType.KYC_APPLICATION
 
 
 async def get_admission_status(db: AsyncSession, user_id: UUID) -> KycStatus:

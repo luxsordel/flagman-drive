@@ -16,10 +16,12 @@ from flagman.identity.dependencies import (
     CurrentStaff,
     get_current_client,
     get_current_staff,
+    require_staff_role,
 )
 from flagman.identity.domain import (
     REFRESH_TOKEN_TTL,
     RefreshTokenInvalidError,
+    StaffRole,
 )
 from flagman.identity.ports import SmsSender, create_sms_sender
 from flagman.identity.schemas import (
@@ -33,6 +35,7 @@ from flagman.identity.schemas import (
     RefreshTokenTransport,
     StaffAccessToken,
     StaffChallengeIssued,
+    StaffMemberList,
     StaffPasswordRequest,
     StaffProfile,
     StaffRefreshRequest,
@@ -46,6 +49,7 @@ from flagman.identity.service import (
     SignInService,
     StaffSignInService,
     StaffTokens,
+    list_staff,
 )
 from flagman.kyc import service as kyc
 
@@ -382,6 +386,30 @@ async def staff_me(
     staff: Annotated[CurrentStaff, Depends(get_current_staff)], service: StaffService
 ) -> StaffProfile:
     return await service.get_profile(staff.staff_id)
+
+
+# Staff as the admin panel shows them (#56); managing them is still the CLI's job.
+staff_admin_router = APIRouter(prefix="/admin/staff", tags=["staff"])
+
+
+@staff_admin_router.get(
+    "",
+    summary="All staff members, disabled ones included",
+    description="The audit log names the staff member behind `actor_id` with this list.",
+    dependencies=[Depends(require_staff_role(StaffRole.ADMIN)), Depends(_no_store)],
+    responses={
+        HTTPStatus.UNAUTHORIZED: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff.",
+        },
+        HTTPStatus.FORBIDDEN: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:forbidden`: only `admin` sees the staff list.",
+        },
+    },
+)
+async def list_staff_members(db: Annotated[AsyncSession, Depends(get_session)]) -> StaffMemberList:
+    return await list_staff(db)
 
 
 # The client's own profile (#33). No id in the path: the user always comes from the token,

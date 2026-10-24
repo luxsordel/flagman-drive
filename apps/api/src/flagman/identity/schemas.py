@@ -207,6 +207,22 @@ class StaffProfile(BaseModel):
     role: StaffRole
 
 
+class StaffMemberSummary(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    email: str
+    disabled: bool = Field(
+        description="Cannot sign in, but stays listed: the audit log still has their events."
+    )
+
+
+class StaffMemberList(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[StaffMemberSummary] = Field(description="Ordered by email.")
+
+
 # Client profile (#33).
 # The real limit is NAME_MAX_LENGTH, which normalize_name checks after trimming spaces. This one
 # only stops a huge string before it is normalized character by character.

@@ -109,6 +109,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/staff': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * All staff members, disabled ones included
+     * @description The audit log names the staff member behind `actor_id` with this list.
+     */
+    get: operations['list_staff_members_admin_staff_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/logout': {
     parameters: {
       query?: never;
@@ -507,10 +527,18 @@ export interface components {
       id: string;
       /**
        * Type
-       * @example kyc_document
+       * @example kyc_application
        */
-      type: string;
+      type: components['schemas']['AuditTargetType'] | string;
     };
+    /**
+     * AuditTargetType
+     * @description Every kind of object an event names, so the admin panel can label each one.
+     *
+     *     Values are stored as is, like AuditAction: renaming one leaves older events with the old name.
+     * @enum {string}
+     */
+    AuditTargetType: 'staff_member' | 'kyc_application';
     /**
      * CheckStatus
      * @enum {string}
@@ -873,6 +901,29 @@ export interface components {
       expires_in: number;
       /** @description `totp`: ask for the code. `totp_enrollment`: 2FA is not set up yet, call `POST /staff/auth/totp/enrollment` and show the QR code first. */
       next_step: components['schemas']['StaffNextStep'];
+    };
+    /** StaffMemberList */
+    StaffMemberList: {
+      /**
+       * Items
+       * @description Ordered by email.
+       */
+      items: components['schemas']['StaffMemberSummary'][];
+    };
+    /** StaffMemberSummary */
+    StaffMemberSummary: {
+      /**
+       * Disabled
+       * @description Cannot sign in, but stays listed: the audit log still has their events.
+       */
+      disabled: boolean;
+      /** Email */
+      email: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
     };
     /**
      * StaffNextStep
@@ -1394,6 +1445,62 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:kyc-not-pending`: already decided or not submitted. */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_staff_members_admin_staff_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffMemberList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `admin` sees the staff list. */
+      403: {
         headers: {
           [name: string]: unknown;
         };

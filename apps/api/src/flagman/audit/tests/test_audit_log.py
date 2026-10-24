@@ -21,6 +21,7 @@ from flagman.audit.domain import (
     AuditEntry,
     AuditEventFilter,
     AuditTarget,
+    AuditTargetType,
     RequestOrigin,
 )
 from flagman.audit.models import AuditEvent
@@ -95,7 +96,7 @@ def admin(integration_settings: Settings) -> Iterator[TestClient]:
 async def test_record_commits_with_the_callers_transaction(
     db: AsyncSession, staff_id: uuid.UUID
 ) -> None:
-    target = AuditTarget("kyc_document", uuid.uuid4())
+    target = AuditTarget(AuditTargetType.KYC_APPLICATION, uuid.uuid4())
     async with db.begin():
         await service.record(
             db,
@@ -112,7 +113,7 @@ async def test_record_commits_with_the_callers_transaction(
         event = await db.scalar(select(AuditEvent).where(AuditEvent.actor_id == staff_id))
     assert event is not None
     assert event.action == AuditAction.STAFF_SIGNED_IN
-    assert (event.target_type, event.target_id) == ("kyc_document", target.id)
+    assert (event.target_type, event.target_id) == ("kyc_application", target.id)
     assert event.details == {"document_id": str(target.id), "approved": True}
     assert event.occurred_at.tzinfo is not None
 
@@ -253,6 +254,30 @@ def test_admin_sees_who_did_what_and_from_where_without_the_address(
     assert event["ip_hash"] == keyed_hash("testclient", pepper)
     assert "testclient" not in response.text
     assert response.json()["next_cursor"] is None
+
+
+async def test_events_keep_target_types_unknown_to_this_version(
+    admin: TestClient, db: AsyncSession, staff_id: uuid.UUID
+) -> None:
+    # A type renamed or removed from AuditTargetType after the event was recorded.
+    target_id = uuid.uuid4()
+    async with db.begin():
+        await db.execute(
+            insert(AuditEvent).values(
+                actor_type="staff",
+                actor_id=staff_id,
+                action=AuditAction.KYC_APPROVED,
+                target_type="kyc_document",
+                target_id=target_id,
+                details={},
+            )
+        )
+
+    response = admin.get(URL, params={"actor_id": str(staff_id)})
+
+    assert response.status_code == HTTPStatus.OK
+    [event] = response.json()["items"]
+    assert event["target"] == {"type": "kyc_document", "id": str(target_id)}
 
 
 async def _insert_at(

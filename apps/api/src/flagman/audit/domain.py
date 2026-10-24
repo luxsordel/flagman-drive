@@ -48,6 +48,16 @@ class AuditAction(StrEnum):
     KYC_DOCUMENT_VIEWED = "kyc.document_viewed"
 
 
+class AuditTargetType(StrEnum):
+    """Every kind of object an event names, so the admin panel can label each one.
+
+    Values are stored as is, like AuditAction: renaming one leaves older events with the old name.
+    """
+
+    STAFF_MEMBER = "staff_member"
+    KYC_APPLICATION = "kyc_application"
+
+
 @dataclass(frozen=True)
 class Actor:
     type: ActorType
@@ -63,8 +73,15 @@ SYSTEM = Actor(ActorType.SYSTEM)
 
 @dataclass(frozen=True)
 class AuditTarget:
-    """The object the action was applied to, e.g. `AuditTarget("kyc_document", document_id)`."""
+    """The object the action was applied to, e.g. a KYC application or a staff member."""
 
+    type: AuditTargetType
+    id: UUID
+
+
+@dataclass(frozen=True)
+class RecordedTarget:
+    # A plain string, as AuditEventRecord.action: an event outlives changes to AuditTargetType.
     type: str
     id: UUID
 
@@ -137,7 +154,7 @@ class AuditEventRecord:
     actor: Actor
     # A plain string: an event outlives changes to AuditAction.
     action: str
-    target: AuditTarget | None
+    target: RecordedTarget | None
     origin: RequestOrigin
     details: Mapping[str, str | int | bool | None]
 

@@ -259,6 +259,23 @@ async def get_staff(
     return _staff_record(row) if row is not None else None
 
 
+@dataclass(frozen=True)
+class StaffSummary:
+    id: UUID
+    email: str
+    disabled: bool
+
+
+async def list_staff(db: AsyncSession) -> list[StaffSummary]:
+    # Only these columns: a list has no business reading password hashes and TOTP secrets.
+    rows = await db.execute(
+        select(StaffMember.id, StaffMember.email, StaffMember.disabled_at).order_by(
+            StaffMember.email
+        )
+    )
+    return [StaffSummary(row.id, row.email, row.disabled_at is not None) for row in rows]
+
+
 async def set_staff_password_hash(db: AsyncSession, staff_id: UUID, password_hash: str) -> None:
     await db.execute(
         update(StaffMember).where(StaffMember.id == staff_id).values(password_hash=password_hash)
