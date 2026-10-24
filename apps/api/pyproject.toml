@@ -11,6 +11,7 @@ dependencies = [
     "asyncpg>=0.32.0",
     "cryptography>=50.0.2",
     "fastapi>=0.159.1",
+    "geoalchemy2>=0.20.0",
     "pillow>=13.0.0",
     "pydantic-settings>=2.16.1",
     "pyjwt>=2.15.1",
@@ -23,6 +24,7 @@ dependencies = [
 
 [project.scripts]
 flagman-staff = "flagman.identity.cli:main"
+flagman-fleet = "flagman.fleet.cli:main"
 
 [build-system]
 requires = ["hatchling"]

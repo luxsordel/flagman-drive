@@ -94,6 +94,30 @@ uv run flagman-staff reset-totp --email admin@flagman.by
 uv run flagman-staff disable --email admin@flagman.by
 ```
 
+## Демо-парк
+
+Машины для пилота добавляет команда `flagman-fleet seed`: 4 модели китайских электромобилей и
+`EMULATOR_CAR_COUNT` машин. id в телематике выводятся из `EMULATOR_SEED` так же, как в эмуляторе
+(`services/car-emulator`, раздел «Машины»), поэтому телеметрия попадает на эти машины. Повторный запуск
+добавляет только недостающее, уже созданные машины не меняет. С `API_ENV=prod` команда не работает.
+
+```bash
+uv run flagman-fleet seed
+```
+
+В Docker — из корня репозитория, после миграций:
+
+```bash
+docker compose --env-file .env -f infra/docker-compose.yml run --rm api flagman-fleet seed
+```
+
+Машины создаются в статусе `available`, но без состояния. Клиенту их предложат, только когда придёт
+свежая телеметрия (не старше `FLEET_TELEMETRY_MAX_AGE_SECONDS`) с зарядом не ниже `FLEET_MIN_BATTERY_PCT`.
+id машин не зависят от `EMULATOR_CAR_COUNT`. Если число выросло, повторный сид добавит недостающие
+машины. Если уменьшилось, лишние машины останутся без телеметрии, и клиенту их не предложат.
+После смены `EMULATOR_SEED` сид останавливается с ошибкой и ничего не добавляет: те же номера уже заняты
+машинами со старыми id. Сбросьте базу (`docker compose ... down -v`, затем миграции) и запустите сид заново.
+
 ## Проверки
 
 ```bash

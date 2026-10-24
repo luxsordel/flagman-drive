@@ -81,6 +81,16 @@ class Settings(BaseSettings):
     kyc_min_age_years: int = Field(default=21, ge=18)
     kyc_min_driving_years: int = Field(default=2, ge=0)
 
+    # When a car is offered for rent (flagman.fleet.domain.is_rentable): enough charge to get
+    # somewhere, and telemetry recent enough that the car is where the map shows it.
+    fleet_min_battery_pct: int = Field(default=20, ge=0, le=100)
+    fleet_telemetry_max_age_seconds: int = Field(default=300, gt=0)
+
+    # Read by the demo seed (`flagman-fleet seed`) to derive the emulator's car ids; the names
+    # are the emulator's own, so one .env drives both.
+    emulator_seed: int = 42
+    emulator_car_count: int = Field(default=30, ge=1, le=1000)
+
     @field_validator("api_cors_origins", "sms_fixed_phones", mode="before")
     @classmethod
     def _split_comma_separated(cls, value: object) -> object:
