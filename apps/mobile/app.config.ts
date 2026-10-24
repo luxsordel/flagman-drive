@@ -45,6 +45,17 @@ const config: ExpoConfig = {
       },
     ],
     [
+      // The in-app camera for the selfie on Android, where the system camera may ignore
+      // the request for the front one. Photos only: no microphone, no barcode scanner.
+      'expo-camera',
+      {
+        cameraPermission: cameraPermission.en,
+        microphonePermission: false,
+        recordAudioAndroid: false,
+        barcodeScannerEnabled: false,
+      },
+    ],
+    [
       'expo-splash-screen',
       {
         backgroundColor: splashBackground.light,

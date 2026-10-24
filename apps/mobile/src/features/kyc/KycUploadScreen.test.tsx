@@ -5,17 +5,46 @@ import type { DocumentKind, KycApplication } from './kycApi';
 import { KycProvider } from './KycProvider';
 import { KycStore } from './kycStore';
 import { KycUploadScreen } from './KycUploadScreen';
-import { discardPhoto, pickPhoto } from './photos';
+import { discardPhoto, pickPhoto, usesInAppCamera } from './photos';
+import { allowSelfieCamera, type SelfieCameraProps } from './SelfieCamera';
 import { fakeKycApi, kycApplication, ok } from './testing';
 
 initI18n('ru');
 
 const mockRouter = { back: jest.fn(), dismissTo: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
-jest.mock('./photos', () => ({ pickPhoto: jest.fn(), discardPhoto: jest.fn() }));
+jest.mock('./photos', () => ({
+  pickPhoto: jest.fn(),
+  discardPhoto: jest.fn(),
+  usesInAppCamera: jest.fn(() => false),
+}));
+// The real camera is tested in SelfieCamera.test.tsx; here only what the screen does with its answer.
+jest.mock('./SelfieCamera', () => {
+  const { createElement, Fragment } = jest.requireActual<typeof import('react')>('react');
+  const { Button } = jest.requireActual<typeof import('../../ui/Button')>('../../ui/Button');
+  return {
+    allowSelfieCamera: jest.fn(),
+    SelfieCamera: ({ onTaken, onCancel, onError }: SelfieCameraProps) =>
+      createElement(
+        Fragment,
+        null,
+        createElement(Button, {
+          title: 'camera: take',
+          onPress: () => {
+            onTaken('file:///cache/selfie.jpg');
+          },
+        }),
+        createElement(Button, { title: 'camera: cancel', onPress: onCancel }),
+        createElement(Button, { title: 'camera: fail', onPress: onError }),
+      ),
+  };
+});
 
 const mockPick = jest.mocked(pickPhoto);
 const mockDiscard = jest.mocked(discardPhoto);
+const mockAllowCamera = jest.mocked(allowSelfieCamera);
+const mockUsesInAppCamera = jest.mocked(usesInAppCamera);
+const beforeSelfie: DocumentKind[] = ['license_front', 'license_back', 'passport'];
 
 const allDocuments: DocumentKind[] = [
   'license_front',
@@ -80,13 +109,99 @@ describe('KycUploadScreen', () => {
     expect(mockDiscard).toHaveBeenCalledWith('file:///cache/front.jpg');
   });
 
-  it('opens the front camera for the selfie', async () => {
-    await renderUpload(kycApplication(['license_front', 'license_back', 'passport']));
+  it('asks the system camera for the front one where it listens (iOS)', async () => {
+    await renderUpload(kycApplication(beforeSelfie));
     mockPick.mockResolvedValueOnce({ kind: 'canceled' });
 
     await fireEvent.press(await screen.findByRole('button', { name: 'Сфотографировать' }));
 
+    expect(mockUsesInAppCamera).toHaveBeenCalledWith({ selfie: true });
     expect(mockPick).toHaveBeenCalledWith('camera', { selfie: true });
+  });
+
+  it('asks for the main camera for a document', async () => {
+    await renderUpload(kycApplication());
+    mockPick.mockResolvedValueOnce({ kind: 'canceled' });
+
+    await fireEvent.press(await screen.findByRole('button', { name: 'Сфотографировать' }));
+
+    expect(mockUsesInAppCamera).toHaveBeenCalledWith({ selfie: false });
+    expect(mockPick).toHaveBeenCalledWith('camera', { selfie: false });
+  });
+
+  describe('with the in-app selfie camera (Android)', () => {
+    beforeEach(() => {
+      mockUsesInAppCamera.mockReturnValue(true);
+      mockAllowCamera.mockResolvedValue(true);
+    });
+
+    afterEach(() => {
+      mockUsesInAppCamera.mockReturnValue(false);
+    });
+
+    it('takes the selfie with it and sends that photo', async () => {
+      const { api } = await renderUpload(kycApplication(beforeSelfie));
+
+      await fireEvent.press(await screen.findByRole('button', { name: 'Сфотографировать' }));
+      await fireEvent.press(await screen.findByRole('button', { name: 'camera: take' }));
+      await fireEvent.press(await screen.findByRole('button', { name: 'Отправить фото' }));
+
+      expect(mockPick).not.toHaveBeenCalled();
+      expect(api.upload).toHaveBeenCalledWith(
+        'selfie_with_license',
+        'file:///cache/selfie.jpg',
+        expect.any(Function),
+      );
+    });
+
+    it('deletes the selfie when the client chooses another photo', async () => {
+      await renderUpload(kycApplication(beforeSelfie));
+
+      await fireEvent.press(await screen.findByRole('button', { name: 'Сфотографировать' }));
+      await fireEvent.press(await screen.findByRole('button', { name: 'camera: take' }));
+      await fireEvent.press(await screen.findByRole('button', { name: 'Выбрать другое фото' }));
+
+      expect(mockDiscard).toHaveBeenCalledWith('file:///cache/selfie.jpg');
+    });
+
+    it('deletes the selfie when the client leaves the step', async () => {
+      const { view } = await renderUpload(kycApplication(beforeSelfie));
+
+      await fireEvent.press(await screen.findByRole('button', { name: 'Сфотографировать' }));
+      await fireEvent.press(await screen.findByRole('button', { name: 'camera: take' }));
+      await view.unmount();
+
+      expect(mockDiscard).toHaveBeenCalledWith('file:///cache/selfie.jpg');
+    });
+
+    it('goes back to the step when the client cancels', async () => {
+      await renderUpload(kycApplication(beforeSelfie));
+
+      await fireEvent.press(await screen.findByRole('button', { name: 'Сфотографировать' }));
+      await fireEvent.press(await screen.findByRole('button', { name: 'camera: cancel' }));
+
+      expect(screen.getByText('Селфи с правами')).toBeOnTheScreen();
+      expect(screen.getByRole('button', { name: 'Сфотографировать' })).toBeOnTheScreen();
+    });
+
+    it('explains a denied camera without opening it', async () => {
+      mockAllowCamera.mockResolvedValueOnce(false);
+      await renderUpload(kycApplication(beforeSelfie));
+
+      await fireEvent.press(await screen.findByRole('button', { name: 'Сфотографировать' }));
+
+      expect(await screen.findByText(/Нет доступа к камере/)).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'camera: take' })).not.toBeOnTheScreen();
+    });
+
+    it('explains a camera that failed', async () => {
+      await renderUpload(kycApplication(beforeSelfie));
+
+      await fireEvent.press(await screen.findByRole('button', { name: 'Сфотографировать' }));
+      await fireEvent.press(await screen.findByRole('button', { name: 'camera: fail' }));
+
+      expect(await screen.findByText('Что-то пошло не так. Попробуйте ещё раз')).toBeOnTheScreen();
+    });
   });
 
   it('sends the same photo again after a network error', async () => {
