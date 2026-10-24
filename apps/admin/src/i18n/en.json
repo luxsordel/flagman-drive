@@ -40,7 +40,7 @@
     "reload": "Reload the page",
     "startOver": "Start over",
     "pending": "Checking…",
-    "enrollText": "The admin panel is protected by a second factor. Scan the QR code with an authenticator app (for example, Google Authenticator) and enter the code it shows.",
+    "enrollText": "The admin panel is protected by a second factor. Scan the QR code with an authenticator app (for example, Google Authenticator) and enter the code it shows. If the app already has a FLAGMAN entry from an earlier attempt, delete it: its codes no longer work.",
     "qrAlt": "QR code for the authenticator app",
     "secret": "If you cannot scan it, enter this key in the app:",
     "errors": {
