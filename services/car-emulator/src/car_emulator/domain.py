@@ -10,6 +10,11 @@ from enum import StrEnum
 MINSK_LAT_RANGE = (53.84, 53.97)
 MINSK_LON_RANGE = (27.40, 27.70)
 
+# Car ids are a contract with the API seed (apps/api, flagman.fleet): it derives the same ids from
+# EMULATOR_SEED and EMULATOR_CAR_COUNT, so telemetry lands on the cars the API knows. Changing the
+# namespace or the name format changes every id on both sides.
+CAR_ID_NAMESPACE = uuid.UUID("b3dbc708-f7ca-4013-88f6-d3564a1f0b2c")
+
 
 class CommandType(StrEnum):
     OPEN = "open"
@@ -50,12 +55,17 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
     car.updated_at = now
 
 
+def car_id(seed: int, index: int) -> uuid.UUID:
+    return uuid.uuid5(CAR_ID_NAMESPACE, f"{seed}:{index}")
+
+
 def seed_fleet(count: int, seed: int, now: datetime) -> list[Car]:
-    # A fixed seed gives every developer the same cars, so ids can be shared in docs and seed data.
+    # A fixed seed gives every developer the same cars. Ids do not depend on the random state,
+    # so the API can derive them without repeating how positions and charge are drawn.
     rng = random.Random(seed)  # noqa: S311 - not used for security
     return [
         Car(
-            id=uuid.UUID(int=rng.getrandbits(128), version=4),
+            id=car_id(seed, index),
             lat=round(rng.uniform(*MINSK_LAT_RANGE), 6),
             lon=round(rng.uniform(*MINSK_LON_RANGE), 6),
             battery_pct=rng.randint(20, 100),
@@ -64,5 +74,5 @@ def seed_fleet(count: int, seed: int, now: datetime) -> list[Car]:
             engine_locked=False,
             updated_at=now,
         )
-        for _ in range(count)
+        for index in range(count)
     ]

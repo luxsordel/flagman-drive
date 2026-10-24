@@ -1,3 +1,4 @@
+import uuid
 from datetime import UTC, datetime
 
 import pytest
@@ -9,6 +10,7 @@ from car_emulator.domain import (
     CommandRejectedError,
     CommandType,
     apply_command,
+    car_id,
     seed_fleet,
 )
 
@@ -24,6 +26,21 @@ def car() -> Car:
 def test_seed_is_deterministic() -> None:
     assert seed_fleet(10, seed=3, now=NOW) == seed_fleet(10, seed=3, now=NOW)
     assert seed_fleet(10, seed=3, now=NOW) != seed_fleet(10, seed=4, now=NOW)
+
+
+def test_car_ids_match_the_api_seed() -> None:
+    # Reference vector shared with apps/api/src/flagman/fleet/tests/test_domain.py
+    # (test_emulator_car_ids_match_the_emulator): if this changes, telemetry no longer lands on the
+    # cars the API seeded.
+    cars = seed_fleet(30, seed=42, now=NOW)
+
+    assert cars[0].id == uuid.UUID("a0b2fa60-ac1d-5ee4-b7a5-2b037e18bd35")
+    assert cars[29].id == uuid.UUID("c6069517-01a5-59b6-a91c-291f0738f6d3")
+    assert [car.id for car in cars] == [car_id(42, index) for index in range(30)]
+
+
+def test_car_ids_do_not_depend_on_the_count() -> None:
+    assert seed_fleet(5, seed=42, now=NOW) == seed_fleet(30, seed=42, now=NOW)[:5]
 
 
 def test_seeded_cars_are_parked_in_minsk() -> None:

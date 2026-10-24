@@ -127,6 +127,11 @@ services:
       S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
       KYC_MIN_AGE_YEARS: ${KYC_MIN_AGE_YEARS:-}
       KYC_MIN_DRIVING_YEARS: ${KYC_MIN_DRIVING_YEARS:-}
+      FLEET_MIN_BATTERY_PCT: ${FLEET_MIN_BATTERY_PCT:-}
+      FLEET_TELEMETRY_MAX_AGE_SECONDS: ${FLEET_TELEMETRY_MAX_AGE_SECONDS:-}
+      # For `flagman-fleet seed`: the same values as the emulator, so the seeded cars get its ids.
+      EMULATOR_SEED: ${EMULATOR_SEED:-42}
+      EMULATOR_CAR_COUNT: ${EMULATOR_CAR_COUNT:-30}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
@@ -189,6 +194,7 @@ services:
       EMULATOR_TELEMETRY_SECRET: ${EMULATOR_TELEMETRY_SECRET:?set EMULATOR_TELEMETRY_SECRET in .env}
       EMULATOR_TELEMETRY_URL: ${EMULATOR_TELEMETRY_URL:-}
       EMULATOR_CAR_COUNT: ${EMULATOR_CAR_COUNT:-30}
+      EMULATOR_SEED: ${EMULATOR_SEED:-42}
     ports:
       - "127.0.0.1:${EMULATOR_PORT:-8100}:8100"
     healthcheck:
