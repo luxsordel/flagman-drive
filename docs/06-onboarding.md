@@ -69,16 +69,21 @@ Docker Desktop должен быть запущен. Все команды — �
    ```
 
 2. Заполнить в `.env` пустые значения: `API_ENV` (локально `dev`), `POSTGRES_PASSWORD`, `REDIS_PASSWORD`,
-   `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `API_JWT_SECRET`, `API_OTP_PEPPER`, `API_TOTP_ENCRYPTION_KEY`.
+   `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `API_JWT_SECRET`, `API_OTP_PEPPER`, `API_TOTP_ENCRYPTION_KEY`,
+   `EMULATOR_COMMAND_SECRET`, `EMULATOR_TELEMETRY_SECRET`.
    Для локальной разработки придумайте их сами, например `openssl rand -hex 24` в Git Bash.
+   Секреты эмулятора — не короче 32 символов и разные. `EMULATOR_TELEMETRY_SECRET` читают и эмулятор,
+   и API: им подписывается и проверяется телеметрия.
    `API_JWT_SECRET` и `API_OTP_PEPPER` — не короче 32 символов и разные (`openssl rand -hex 32` даёт 64),
    иначе API не стартует. `API_TOTP_ENCRYPTION_KEY` — ровно 32 байта в base64: `openssl rand -base64 32`.
    Если `.env` у вас уже был, перенесите в него из `.env.example` новые строки
    `API_JWT_SECRET`, `API_OTP_PEPPER`, `SMS_BACKEND`, `SMS_FIXED_CODE`, `SMS_FIXED_PHONES`,
    `API_TOTP_ENCRYPTION_KEY`, `S3_ENDPOINT_URL`, `S3_REGION`, `S3_PUBLIC_URL`, `FLEET_MIN_BATTERY_PCT`,
-   `FLEET_TELEMETRY_MAX_AGE_SECONDS` и `EMULATOR_SEED`. Локально можно оставить пустыми `S3_ENDPOINT_URL`,
-   `S3_REGION`, `S3_PUBLIC_URL`, `FLEET_MIN_BATTERY_PCT` и `FLEET_TELEMETRY_MAX_AGE_SECONDS`; `EMULATOR_SEED`
-   возьмите как в шаблоне.
+   `FLEET_TELEMETRY_MAX_AGE_SECONDS`, `TELEMATICS_SIGNATURE_TOLERANCE_SECONDS` и `EMULATOR_SEED`.
+   Локально можно оставить пустыми `S3_ENDPOINT_URL`, `S3_REGION`, `S3_PUBLIC_URL`, `FLEET_MIN_BATTERY_PCT`,
+   `FLEET_TELEMETRY_MAX_AGE_SECONDS` и `TELEMATICS_SIGNATURE_TOLERANCE_SECONDS`; `EMULATOR_SEED`
+   возьмите как в шаблоне. Если в старом `.env` у `EMULATOR_TELEMETRY_URL` стоит адрес, очистите его:
+   пустое значение в Compose — это API из того же Compose.
    На сервере пилота `API_ENV=prod`, а `S3_PUBLIC_URL` — `https`-адрес хранилища, по которому клиенты
    открывают фото документов ([ADR-0012](adr/0012-kyc-document-storage.md)).
    Пустое значение — ошибка запуска, это сделано специально (SeaweedFS без ключей открыт анонимно).
@@ -104,6 +109,17 @@ Docker Desktop должен быть запущен. Все команды — �
 
 5. Применить миграции и добавить демо-машины — команды в [`apps/api/README.md`](../apps/api/README.md)
    (разделы «Запуск в Docker» и «Демо-парк»).
+
+6. Проверить, что телеметрия доходит до API. Эмулятор шлёт снимок каждые 5 секунд:
+
+   ```bash
+   docker compose --env-file .env -f infra/docker-compose.yml logs --tail 20 api
+   ```
+
+   Ищите строки `"path": "/fleet/telemetry", "status": 200`. Ответ `401` значит, что у API и эмулятора
+   разные `EMULATOR_TELEMETRY_SECRET` или расходятся часы. Ответ `503` значит, что API не получил секрет.
+   Если API запущен на хосте через `uv run`, а эмулятор в Docker, задайте
+   `EMULATOR_TELEMETRY_URL=http://host.docker.internal:8000/fleet/telemetry`.
 
 | Сервис | Адрес | Доступ |
 |---|---|---|

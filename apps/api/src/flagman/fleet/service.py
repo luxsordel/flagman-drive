@@ -1,14 +1,16 @@
 """Public interface of the fleet for other modules.
 
 Reads join the caller's transaction if one is open; changes run only inside it, so a rental
-(stage 3) changes the car status and its own rows in one transaction. The demo seed is the
-exception: it is a command of its own and opens its own transaction.
+(stage 3) changes the car status and its own rows in one transaction. The demo seed and the
+telemetry intake are the exceptions: each is a command of its own and opens its own transaction.
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.config import Settings
@@ -20,7 +22,10 @@ from flagman.fleet.domain import (
     CarState,
     CarStatus,
     CarTransition,
+    SnapshotFromFutureError,
     SnapshotOutcome,
+    TelemetryReport,
+    TelemetrySnapshot,
     apply_transition,
     check_snapshot_time,
     emulator_car_id,
@@ -28,6 +33,15 @@ from flagman.fleet.domain import (
     normalize_vin,
 )
 from flagman.fleet.seed import DEMO_MODELS, MAX_DEMO_CARS, demo_plate, demo_vin
+
+logger = structlog.get_logger(__name__)
+
+# Enough to find the cars in the emulator or the seed; a wrong seed would list every car.
+_LOGGED_UNKNOWN_CARS = 10
+
+
+def telemetry_clock_skew(settings: Settings) -> timedelta:
+    return timedelta(seconds=settings.telematics_signature_tolerance_seconds)
 
 
 def availability_rules(settings: Settings) -> AvailabilityRules:
@@ -74,15 +88,55 @@ async def change_status(
 
 
 async def apply_state_snapshot(
-    db: AsyncSession, telematics_id: UUID, state: CarState, now: datetime
+    db: AsyncSession, telematics_id: UUID, state: CarState, now: datetime, max_skew: timedelta
 ) -> SnapshotOutcome:
     """Stores a telematics snapshot unless a newer one is stored already.
 
-    Raises SnapshotFromFutureError for a snapshot too far ahead of `now`.
+    Raises SnapshotFromFutureError for a snapshot more than `max_skew` ahead of `now`.
     """
     _require_transaction(db, "apply_state_snapshot")
-    check_snapshot_time(state.recorded_at, now)
+    check_snapshot_time(state.recorded_at, now, max_skew)
     return await repository.apply_state(db, telematics_id, state, now)
+
+
+async def receive_telemetry(
+    db: AsyncSession, snapshots: Sequence[TelemetrySnapshot], now: datetime, max_skew: timedelta
+) -> TelemetryReport:
+    """Applies a telemetry batch in one transaction of its own.
+
+    A snapshot that cannot be applied is counted and skipped: one unknown car or one skewed clock
+    must not hold back the state of the rest of the fleet.
+    """
+    counts = dict.fromkeys(SnapshotOutcome, 0)
+    unknown: list[UUID] = []
+    from_future = 0
+    async with db.begin():
+        for snapshot in snapshots:
+            try:
+                outcome = await apply_state_snapshot(
+                    db, snapshot.telematics_id, snapshot.state, now, max_skew
+                )
+            except SnapshotFromFutureError:
+                from_future += 1
+                continue
+            counts[outcome] += 1
+            if outcome is SnapshotOutcome.UNKNOWN_CAR:
+                unknown.append(snapshot.telematics_id)
+    report = TelemetryReport(
+        applied=counts[SnapshotOutcome.APPLIED],
+        stale=counts[SnapshotOutcome.STALE],
+        unknown_car=counts[SnapshotOutcome.UNKNOWN_CAR],
+        from_future=from_future,
+    )
+    if unknown or from_future:
+        # Telematics ids only: the coordinates in the snapshots show where clients drive.
+        logger.warning(
+            "telemetry_partly_rejected",
+            unknown_car=report.unknown_car,
+            unknown_telematics_ids=[str(car_id) for car_id in unknown[:_LOGGED_UNKNOWN_CARS]],
+            from_future=from_future,
+        )
+    return report
 
 
 @dataclass(frozen=True)

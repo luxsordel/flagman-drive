@@ -21,11 +21,6 @@ PLATE_PATTERN = re.compile(r"[0-9]{4} [ABEIKMHOPCTX]{2}-[1-8]")
 # I, O and Q never appear in a VIN: they are too easy to mistake for 1 and 0 (ISO 3779).
 VIN_PATTERN = re.compile(r"[A-HJ-NPR-Z0-9]{17}")
 
-# Same as the clock skew window of telematics requests (docs/adr/0007): a snapshot further ahead
-# would count as fresh for longer than the threshold allows. Within the window it still may, by up
-# to this much (docs/02-architecture.md, the fleet section); the window becomes a setting with #91.
-MAX_CLOCK_SKEW = timedelta(seconds=300)
-
 # Car ids of the emulator (services/car-emulator, car_emulator.domain.car_id): the seed derives
 # the same telematics ids, so telemetry lands on the seeded cars. Both sides test one vector.
 EMULATOR_CAR_ID_NAMESPACE = uuid.UUID("b3dbc708-f7ca-4013-88f6-d3564a1f0b2c")
@@ -106,6 +101,26 @@ class SnapshotFromFutureError(ValueError):
     """The telematics clock is ahead of ours by more than the skew window."""
 
 
+class TelemetrySignatureInvalidError(AppError):
+    """The reason stays in the server log: telling a caller which check failed helps a forger."""
+
+    status = HTTPStatus.UNAUTHORIZED
+    slug = "invalid-signature"
+    title = "Invalid signature"
+
+
+class TelemetryTooLargeError(AppError):
+    status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    slug = "telemetry-too-large"
+    title = "The telemetry batch is too large"
+
+
+class TelemetryUnavailableError(AppError):
+    status = HTTPStatus.SERVICE_UNAVAILABLE
+    slug = "telemetry-unavailable"
+    title = "Telemetry is not accepted now"
+
+
 def apply_transition(status: CarStatus, transition: CarTransition) -> CarStatus:
     rule = _RULES[transition]
     if status not in rule.sources:
@@ -174,8 +189,27 @@ class AvailabilityRules:
     max_state_age: timedelta
 
 
-def check_snapshot_time(recorded_at: datetime, now: datetime) -> None:
-    if recorded_at > now + MAX_CLOCK_SKEW:
+@dataclass(frozen=True)
+class TelemetrySnapshot:
+    telematics_id: uuid.UUID
+    state: CarState
+
+
+@dataclass(frozen=True)
+class TelemetryReport:
+    """How a batch went, car by car; the counts add up to the number of snapshots in it."""
+
+    applied: int = 0
+    stale: int = 0
+    unknown_car: int = 0
+    from_future: int = 0
+
+
+def check_snapshot_time(recorded_at: datetime, now: datetime, max_skew: timedelta) -> None:
+    # The skew is the signature window of telematics requests (docs/adr/0007): a snapshot further
+    # ahead would count as fresh for longer than the threshold allows. Within the window it still
+    # may, by up to `max_skew` (docs/02-architecture.md, the fleet section).
+    if recorded_at > now + max_skew:
         raise SnapshotFromFutureError
 
 

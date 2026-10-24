@@ -277,3 +277,17 @@ def test_cleanup_retention_must_be_at_least_a_day(days: int) -> None:
     # Zero would delete a session the moment it is revoked, together with its reuse evidence.
     with pytest.raises(ValidationError):
         _worker_settings(auth_cleanup_retention_days=days)
+
+
+def test_telemetry_secret_must_be_long(make_settings: SettingsFactory) -> None:
+    with pytest.raises(ValidationError, match="EMULATOR_TELEMETRY_SECRET"):
+        make_settings(emulator_telemetry_secret="t" * 31)
+
+
+def test_empty_telemetry_secret_leaves_telemetry_off(
+    monkeypatch: pytest.MonkeyPatch, make_settings: SettingsFactory
+) -> None:
+    # docker compose passes an unset variable as an empty one.
+    monkeypatch.setenv("EMULATOR_TELEMETRY_SECRET", "")
+
+    assert make_settings().emulator_telemetry_secret is None

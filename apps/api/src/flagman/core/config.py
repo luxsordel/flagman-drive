@@ -11,6 +11,7 @@ from sqlalchemy import URL
 Environment = Literal["dev", "test", "prod"]
 
 TOTP_KEY_BYTES = 32  # AES-256-GCM
+MIN_SECRET_LENGTH = 32
 
 # Same rules as the API accepts (flagman.identity.schemas), so every listed phone can sign in.
 # [0-9] rather than \d: \d also matches non-ASCII digits.
@@ -119,6 +120,12 @@ class Settings(DatabaseSettings):
     # are the emulator's own, so one .env drives both.
     emulator_seed: int = 42
     emulator_car_count: int = Field(default=30, ge=1, le=1000)
+    # Checks the emulator's telemetry webhooks (docs/adr/0007), the same name as the emulator's.
+    # The API never gets the command secret: a leaked webhook secret must not move cars.
+    # Unset: the API runs, but telemetry answers 503 and no car becomes rentable.
+    emulator_telemetry_secret: SecretStr | None = None
+    # Clock skew allowed between the API and telematics, for signatures and snapshot times alike.
+    telematics_signature_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
 
     @field_validator("api_cors_origins", "sms_fixed_phones", mode="before")
     @classmethod
@@ -154,6 +161,15 @@ class Settings(DatabaseSettings):
                 "(openssl rand -base64 32)"
             )
         return key
+
+    @field_validator("emulator_telemetry_secret")
+    @classmethod
+    def _validate_telemetry_secret(cls, secret: SecretStr | None) -> SecretStr | None:
+        if secret is not None and len(secret.get_secret_value()) < MIN_SECRET_LENGTH:
+            raise ValueError(
+                f"EMULATOR_TELEMETRY_SECRET must be at least {MIN_SECRET_LENGTH} chars"
+            )
+        return secret
 
     @field_validator("s3_endpoint_url", "s3_public_url")
     @classmethod
