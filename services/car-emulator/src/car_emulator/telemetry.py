@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 class LogSink:
-    """Stub used until apps/api can receive telemetry webhooks."""
+    """For running the emulator alone, without an API to send telemetry to."""
 
     async def send(self, batch: TelemetryBatch) -> None:
         logger.info("telemetry batch (log stub): %d cars", len(batch.cars))
@@ -34,8 +34,11 @@ class HttpWebhookSink:
 
 
 def build_batch(fleet: FleetService, clock: Clock) -> TelemetryBatch:
+    now = clock()
+    # Each car reports its state as of now, like a tracker on a schedule: the API judges how fresh
+    # a car is by this time, and a car parked for hours is still where it was a moment ago.
     return TelemetryBatch(
-        sent_at=clock(), cars=[CarState.from_domain(car) for car in fleet.list_cars()]
+        sent_at=now, cars=[CarState.from_domain(car, as_of=now) for car in fleet.list_cars()]
     )
 
 

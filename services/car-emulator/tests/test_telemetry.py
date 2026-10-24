@@ -49,6 +49,16 @@ async def test_webhook_is_signed(fleet: FleetService, clock: FakeClock) -> None:
     assert [car.id for car in batch.cars] == [car.id for car in fleet.list_cars()]
 
 
+def test_batch_reports_parked_cars_as_of_sending(fleet: FleetService, clock: FakeClock) -> None:
+    # Nothing changed for an hour, yet the API needs a fresh time to keep offering the cars.
+    clock.advance(3600)
+
+    batch = build_batch(fleet, clock)
+
+    assert {car.updated_at for car in batch.cars} == {clock()}
+    assert batch.sent_at == clock()
+
+
 async def test_webhook_error_status_raises(fleet: FleetService, clock: FakeClock) -> None:
     transport = httpx.MockTransport(lambda _: httpx.Response(500))
     async with httpx.AsyncClient(transport=transport) as client:

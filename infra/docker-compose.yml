@@ -132,6 +132,10 @@ services:
       # For `flagman-fleet seed`: the same values as the emulator, so the seeded cars get its ids.
       EMULATOR_SEED: ${EMULATOR_SEED:-42}
       EMULATOR_CAR_COUNT: ${EMULATOR_CAR_COUNT:-30}
+      # Checks the emulator's telemetry webhooks. The command secret stays with the emulator:
+      # the API does not send commands yet (docs/adr/0007).
+      EMULATOR_TELEMETRY_SECRET: ${EMULATOR_TELEMETRY_SECRET:?set EMULATOR_TELEMETRY_SECRET in .env}
+      TELEMATICS_SIGNATURE_TOLERANCE_SECONDS: ${TELEMATICS_SIGNATURE_TOLERANCE_SECONDS:-}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"
     depends_on:
@@ -192,7 +196,9 @@ services:
     environment:
       EMULATOR_COMMAND_SECRET: ${EMULATOR_COMMAND_SECRET:?set EMULATOR_COMMAND_SECRET in .env}
       EMULATOR_TELEMETRY_SECRET: ${EMULATOR_TELEMETRY_SECRET:?set EMULATOR_TELEMETRY_SECRET in .env}
-      EMULATOR_TELEMETRY_URL: ${EMULATOR_TELEMETRY_URL:-}
+      # The API in this compose file by default; while it is down, the emulator logs a warning per
+      # batch and keeps going.
+      EMULATOR_TELEMETRY_URL: ${EMULATOR_TELEMETRY_URL:-http://api:8000/fleet/telemetry}
       EMULATOR_CAR_COUNT: ${EMULATOR_CAR_COUNT:-30}
       EMULATOR_SEED: ${EMULATOR_SEED:-42}
     ports:
