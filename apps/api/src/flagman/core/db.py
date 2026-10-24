@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
-from flagman.core.config import Settings
+from flagman.core.config import DatabaseSettings
 from flagman.core.resources import get_resources
 
 # Stable constraint names keep Alembic autogenerate diffs deterministic.
@@ -27,7 +27,7 @@ class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING_CONVENTION)
 
 
-def create_engine(settings: Settings) -> AsyncEngine:
+def create_engine(settings: DatabaseSettings) -> AsyncEngine:
     # hide_parameters keeps bound values (phones, document numbers) out of exception text and logs.
     return create_async_engine(
         settings.database_url,
