@@ -16,7 +16,8 @@ import { isRetryable, type KycError } from './kycErrors';
 import { KycErrorMessage } from './KycErrorMessage';
 import { canEditDocuments, documentSteps, firstStep, isUploaded, stepAfter } from './kycFlow';
 import { useKycApplication, useKycStore } from './KycProvider';
-import { discardPhoto, pickPhoto, type PhotoSource } from './photos';
+import { discardPhoto, pickPhoto, type PhotoSource, usesInAppCamera } from './photos';
+import { allowSelfieCamera, SelfieCamera } from './SelfieCamera';
 
 /** Step-by-step document upload, then the overview to send the application for review. */
 export function KycUploadScreen() {
@@ -90,6 +91,8 @@ function DocumentStep({
   const [progress, setProgress] = useState<number | null>(null);
   const [error, setError] = useState<KycError | null>(null);
   const [picking, setPicking] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const selfie = kind === 'selfie_with_license';
   // Refs, not state: the unmount cleanup must see the latest photo and upload.
   const photoRef = useRef<string | null>(null);
   const uploadRef = useRef<UploadHandle | null>(null);
@@ -113,7 +116,12 @@ function DocumentStep({
     setPicking(true);
     setError(null);
     try {
-      const result = await pickPhoto(source, { selfie: kind === 'selfie_with_license' });
+      if (source === 'camera' && usesInAppCamera({ selfie })) {
+        if (!(await allowSelfieCamera())) setError({ kind: 'cameraDenied' });
+        else if (mounted.current) setCameraOpen(true);
+        return;
+      }
+      const result = await pickPhoto(source, { selfie });
       if (result.kind === 'picked') {
         // The client left the step while the camera was open.
         if (!mounted.current) discardPhoto(result.uri);
@@ -148,6 +156,24 @@ function DocumentStep({
   const sending = progress !== null;
   const stepNumber = documentSteps.indexOf(kind) + 1;
   const title = t(`kyc.steps.${kind}.title`);
+
+  if (cameraOpen) {
+    return (
+      <SelfieCamera
+        onTaken={(uri) => {
+          setCameraOpen(false);
+          keepPhoto(uri);
+        }}
+        onCancel={() => {
+          setCameraOpen(false);
+        }}
+        onError={() => {
+          setCameraOpen(false);
+          setError({ kind: 'unknown' });
+        }}
+      />
+    );
+  }
 
   return (
     <Screen>
