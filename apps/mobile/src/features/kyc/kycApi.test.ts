@@ -1,5 +1,6 @@
 import { fakeApi, json, problem } from '../auth/session/testing';
 import { createKycApi } from './kycApi';
+import type { PhotoBody } from './sendPhoto';
 import { FakeXhr, kycApplication } from './testing';
 
 const photo = new Blob(['jpeg bytes'], { type: 'image/jpeg' });
@@ -8,7 +9,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 function setup(token: string | null = 'access-1') {
   const http = fakeApi();
   const xhr = new FakeXhr();
-  const loadPhoto = jest.fn<Promise<Blob>, [string]>(() => Promise.resolve(photo));
+  const loadPhoto = jest.fn<Promise<PhotoBody>, [string]>(() => Promise.resolve(photo));
   const kyc = createKycApi({
     api: http.client,
     baseUrl: 'http://api.test/',
@@ -60,6 +61,20 @@ describe('createKycApi', () => {
     expect(xhr.url).toBe('http://api.test/kyc/documents/license_front');
     expect(xhr.body).toBe(photo);
     expect(onProgress).toHaveBeenCalledWith(0.5);
+  });
+
+  it('sends the bytes a phone reads as they are, not wrapped in a Blob', async () => {
+    const { xhr, kyc, loadPhoto } = setup();
+    const bytes = new Uint8Array([0xff, 0xd8, 0xff, 0xe0]);
+    loadPhoto.mockResolvedValueOnce(bytes);
+
+    const upload = kyc.upload('passport', 'file:///cache/photo.jpg');
+    await flush();
+    xhr.respond(200, kycApplication(['passport']));
+
+    await expect(upload.done).resolves.toMatchObject({ ok: true });
+    expect(xhr.body).toBe(bytes);
+    expect(xhr.headers['Content-Type']).toBe('image/jpeg');
   });
 
   it('explains an upload the API refused', async () => {
