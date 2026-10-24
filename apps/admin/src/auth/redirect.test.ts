@@ -18,6 +18,12 @@ describe('redirect after sign-in', () => {
       { from: 42 },
       { from: '//evil.example' },
       { from: '/\\evil.example' },
+      { from: '/\t/evil.example' },
+      { from: '/\n/evil.example' },
+      { from: '/\r\\evil.example' },
+      { from: '/a/../\t/evil.example' },
+      { from: '//[' },
+      { from: '//x:y' },
     ]) {
       expect(redirectTarget(state)).toBe('/');
     }
