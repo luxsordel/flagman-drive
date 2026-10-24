@@ -1,23 +1,34 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Navigate } from 'react-router';
+import { Navigate, useLocation } from 'react-router';
 
 import { ForbiddenPage } from '../pages/ForbiddenPage';
 import { useAuth, useStaff } from './context';
+import { loginRedirect } from './redirect';
 import type { StaffRole } from './staff';
 
-export function RequireAuth({ children }: { children: ReactNode }) {
+/** Shown while the session is being restored from the refresh cookie. */
+export function AuthLoading() {
   const { t } = useTranslation();
-  const { state } = useAuth();
+  return (
+    <p role="status" className="page-status muted">
+      {t('auth.loading')}
+    </p>
+  );
+}
 
-  if (state.status === 'loading') {
+export function RequireAuth({ children }: { children: ReactNode }) {
+  const { state } = useAuth();
+  const location = useLocation();
+
+  if (state.status === 'loading') return <AuthLoading />;
+  if (state.status === 'signedOut') {
+    // After an expired session the sign-in page returns here. After signing out it does not:
+    // the next person at this computer may have another role and no access to the page.
     return (
-      <p role="status" className="page-status muted">
-        {t('auth.loading')}
-      </p>
+      <Navigate to="/login" replace state={state.byUser ? undefined : loginRedirect(location)} />
     );
   }
-  if (state.status === 'signedOut') return <Navigate to="/login" replace />;
   return children;
 }
 

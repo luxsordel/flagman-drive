@@ -211,11 +211,43 @@ a {
   margin-top: var(--space-md);
 }
 
-.login-status {
+.login-status,
+.login-error {
   min-height: var(--font-size-md);
   margin: 0;
   color: var(--color-ink-muted);
   font-size: var(--font-size-sm);
+}
+
+.login-error {
+  color: var(--color-danger);
+}
+
+.enrollment {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.enrollment p {
+  margin: 0;
+}
+
+.enrollment-qr {
+  align-self: center;
+  width: 50%;
+  aspect-ratio: 1;
+  border-radius: var(--radius-field);
+}
+
+.enrollment-secret {
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-background);
+  font-family: var(--font-body);
+  font-size: var(--font-size-md);
+  overflow-wrap: anywhere;
 }
 
 .filters {

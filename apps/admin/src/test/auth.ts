@@ -1,6 +1,7 @@
 import { vi } from 'vitest';
 
 import type { StaffAuthApi } from '../auth/session';
+import type { StaffSignInApi } from '../auth/staffApi';
 import type { Staff, StaffRole } from '../auth/staff';
 
 export function testStaff(role: StaffRole = 'admin'): Staff {
@@ -18,4 +19,26 @@ export function fakeStaffAuthApi(staff: Staff | null) {
     ),
     logout: vi.fn<StaffAuthApi['logout']>(() => Promise.resolve()),
   } satisfies StaffAuthApi;
+}
+
+/** Sign-in steps that accept any password and code; `enrolled: false` asks for the 2FA setup first. */
+export function fakeStaffSignInApi({ enrolled = true }: { enrolled?: boolean } = {}) {
+  return {
+    checkPassword: vi.fn<StaffSignInApi['checkPassword']>(() =>
+      Promise.resolve({
+        challenge_token: 'challenge-1',
+        expires_in: 300,
+        next_step: enrolled ? 'totp' : 'totp_enrollment',
+      }),
+    ),
+    startTotpEnrollment: vi.fn<StaffSignInApi['startTotpEnrollment']>(() =>
+      Promise.resolve({
+        otpauth_uri: 'otpauth://totp/FLAGMAN:operator@example.com?secret=JBSWY3DPEHPK3PXP',
+        secret: 'JBSWY3DPEHPK3PXP',
+      }),
+    ),
+    verifyTotp: vi.fn<StaffSignInApi['verifyTotp']>(() =>
+      Promise.resolve({ accessToken: 'access-1', expiresInSeconds: 900 }),
+    ),
+  } satisfies StaffSignInApi;
 }

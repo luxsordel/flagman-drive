@@ -1,7 +1,12 @@
 import type { Staff } from './staff';
 
+export interface AccessToken {
+  accessToken: string;
+  expiresInSeconds: number;
+}
+
 /** A new access token, or `rejected` when the API answered 401 to the refresh cookie. */
-export type RefreshResult = { accessToken: string; expiresInSeconds: number } | 'rejected';
+export type RefreshResult = AccessToken | 'rejected';
 
 /**
  * Staff auth endpoints (#32). The refresh token never reaches this code: it lives in an HttpOnly
@@ -18,6 +23,11 @@ export interface StaffSession {
   accessToken(): string | null;
   /** Signs in again from the refresh cookie; null when there is no live session. */
   restore(): Promise<Staff | null>;
+  /**
+   * Starts using the token of a sign-in that has just passed 2FA. Rejects when the staff profile
+   * cannot be loaded; the server session and its cookie stay, so a reload restores them.
+   */
+  signIn(token: AccessToken): Promise<Staff>;
   /** Ends the session on the server and forgets the access token even if that call fails. */
   signOut(): Promise<void>;
   /** Called when the session ends: sign-out or a refresh the API rejected. Returns an unsubscribe function. */
@@ -60,6 +70,20 @@ export function createStaffSession(api: StaffAuthApi): StaffSession {
     }, delayMs);
   };
 
+  const accept = (token: AccessToken): void => {
+    accessToken = token.accessToken;
+    schedule(Math.max(token.expiresInSeconds * 1000 - refreshMarginMs, 0));
+  };
+
+  const loadStaff = async (token: string): Promise<Staff> => {
+    try {
+      return await api.me(token);
+    } catch (error) {
+      forget();
+      throw error;
+    }
+  };
+
   const refreshOnce = async (): Promise<boolean> => {
     // ADR-0009: tabs share one cookie, and a 401 can mean another tab rotated it a moment ago.
     // By the retry the browser already has the new cookie; a second 401 means the session is over.
@@ -69,8 +93,7 @@ export function createStaffSession(api: StaffAuthApi): StaffSession {
       forget();
       return false;
     }
-    accessToken = result.accessToken;
-    schedule(Math.max(result.expiresInSeconds * 1000 - refreshMarginMs, 0));
+    accept(result);
     return true;
   };
 
@@ -87,12 +110,12 @@ export function createStaffSession(api: StaffAuthApi): StaffSession {
 
     async restore() {
       if (!(await refresh()) || accessToken === null) return null;
-      try {
-        return await api.me(accessToken);
-      } catch (error) {
-        forget();
-        throw error;
-      }
+      return loadStaff(accessToken);
+    },
+
+    signIn(token) {
+      accept(token);
+      return loadStaff(token.accessToken);
     },
 
     async signOut() {
