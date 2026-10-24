@@ -1,170 +1,44 @@
 import asyncio
-import secrets
 import time
-import urllib.error
-import urllib.request
 import uuid
 from collections.abc import Callable, Iterator
 from datetime import timedelta
 from http import HTTPStatus
 from io import BytesIO
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
-from redis import Redis
-from sqlalchemy import Row, text
+from sqlalchemy import text
 
 from conftest import SettingsFactory
-from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.ratelimit import Limit
-from flagman.identity.api import get_sms_sender
-from flagman.identity.domain import generate_otp_code
 from flagman.kyc import service
 from flagman.kyc.api import get_document_storage
 from flagman.kyc.domain import REQUIRED_DOCUMENTS, DocumentKind, KycStatus
 from flagman.kyc.images import MAX_UPLOAD_BYTES
 from flagman.kyc.ports import DocumentStorage, create_document_storage
-from flagman.kyc.tests.conftest import S3Endpoint
+from flagman.kyc.tests.conftest import (
+    Person,
+    S3Endpoint,
+    client_for,
+    open_url,
+    photo,
+    problem_type,
+    query,
+)
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3 import S3Client
 
 pytestmark = pytest.mark.integration
 
-_EXIF_MAKE = 0x010F
-
-
-class FakeSms:
-    def __init__(self) -> None:
-        self.sent: dict[str, str] = {}
-
-    def choose_code(self, phone: str) -> str:
-        return generate_otp_code()
-
-    async def send_otp(self, phone: str, code: str) -> None:
-        self.sent[phone] = code
-
-
-@pytest.fixture
-def env_values(integration_env: dict[str, str], migrated_database: None) -> dict[str, str]:
-    return {name.lower(): value for name, value in integration_env.items()}
-
-
-@pytest.fixture
-def kyc_settings(
-    env_values: dict[str, str], make_settings: SettingsFactory, seaweedfs: S3Endpoint
-) -> Settings:
-    return make_settings(
-        **env_values,
-        s3_endpoint_url=seaweedfs.url,
-        # Another name for the same container: proves links are signed for the public address.
-        s3_public_url=seaweedfs.url.replace("localhost", "127.0.0.1"),
-        s3_access_key=seaweedfs.access_key,
-        s3_secret_key=seaweedfs.secret_key,
-        s3_bucket=seaweedfs.bucket,
-    )
-
-
-def _reset_limits(settings: Settings) -> None:
-    # The Redis container is shared by the test session.
-    with Redis(
-        host=settings.redis_host,
-        port=settings.redis_port,
-        password=settings.redis_password.get_secret_value(),
-    ) as redis:
-        redis.flushdb()
-
-
-def _client_for(settings: Settings) -> Iterator[TestClient]:
-    app = create_app(settings)
-    app.dependency_overrides[get_sms_sender] = FakeSms
-    _reset_limits(settings)
-    with TestClient(app, base_url="https://testserver") as client:
-        yield client
-
-
-@pytest.fixture
-def client(kyc_settings: Settings) -> Iterator[TestClient]:
-    yield from _client_for(kyc_settings)
-
-
-class Person:
-    """A signed-in client with a fresh phone: users stay in the shared database between tests."""
-
-    def __init__(self, client: TestClient) -> None:
-        self.client = client
-        self.phone = f"+37529{secrets.randbelow(10**7):07d}"
-        sms = FakeSms()
-        self.client.app.dependency_overrides[get_sms_sender] = lambda: sms  # type: ignore[attr-defined]
-        accepted = client.post("/auth/otp/request", json={"phone": self.phone})
-        assert accepted.status_code == HTTPStatus.ACCEPTED, accepted.text
-        verified = client.post(
-            "/auth/otp/verify",
-            json={
-                "phone": self.phone,
-                "code": sms.sent[self.phone],
-                "device_id": str(uuid.uuid4()),
-            },
-        )
-        assert verified.status_code == HTTPStatus.OK, verified.text
-        self.headers = {"Authorization": f"Bearer {verified.json()['access_token']}"}
-
-    def application(self) -> Any:
-        return self.client.get("/kyc/application", headers=self.headers)
-
-    def upload(
-        self, kind: DocumentKind | str, data: bytes | None = None, content_type: str = "image/jpeg"
-    ) -> Any:
-        return self.client.put(
-            f"/kyc/documents/{kind}",
-            content=_photo() if data is None else data,
-            headers={**self.headers, "Content-Type": content_type},
-        )
-
-    def upload_all(self) -> None:
-        for kind in REQUIRED_DOCUMENTS:
-            response = self.upload(kind)
-            assert response.status_code == HTTPStatus.OK, response.text
-
-    def url(self, kind: DocumentKind) -> Any:
-        return self.client.get(f"/kyc/documents/{kind}/url", headers=self.headers)
-
-    def submit(self) -> Any:
-        return self.client.post("/kyc/application/submit", headers=self.headers)
-
-
-@pytest.fixture
-def person(client: TestClient) -> Callable[[], Person]:
-    return lambda: Person(client)
-
-
-def _photo(marker: str = "SecretPhone") -> bytes:
-    exif = Image.Exif()
-    exif[_EXIF_MAKE] = marker
-    output = BytesIO()
-    Image.new("RGB", (64, 48), (10, 120, 200)).save(output, format="JPEG", exif=exif)
-    return output.getvalue()
-
-
-def _query(settings: Settings, sql: str, **params: Any) -> list[Row[Any]]:
-    async def run() -> list[Row[Any]]:
-        engine = create_engine(settings)
-        try:
-            async with engine.begin() as connection:
-                result = await connection.execute(text(sql), params)
-                return list(result.all()) if result.returns_rows else []
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(run())
-
 
 def _keys(settings: Settings, phone: str) -> dict[DocumentKind, str]:
-    rows = _query(
+    rows = query(
         settings,
         """
         SELECT d.kind, d.object_key FROM kyc_documents d
@@ -178,7 +52,7 @@ def _keys(settings: Settings, phone: str) -> dict[DocumentKind, str]:
 
 
 def _application_id(settings: Settings, phone: str) -> uuid.UUID:
-    rows = _query(
+    rows = query(
         settings,
         "SELECT a.id FROM kyc_applications a JOIN users u ON u.id = a.user_id"
         " WHERE u.phone = :phone",
@@ -205,19 +79,6 @@ def _stored_object(seaweedfs: S3Endpoint, key: str) -> bytes:
     return seaweedfs.call(read)
 
 
-def _open(url: str) -> tuple[int, bytes]:
-    try:
-        with urllib.request.urlopen(url, timeout=10) as response:  # noqa: S310 - test container
-            return response.status, response.read()
-    except urllib.error.HTTPError as error:
-        return error.code, b""
-
-
-def _problem_type(response: Any) -> str:
-    problem_type: str = response.json()["type"]
-    return problem_type.removeprefix("urn:flagman:problem:")
-
-
 def test_a_new_client_has_an_empty_application(person: Callable[[], Person]) -> None:
     response = person().application()
 
@@ -236,7 +97,7 @@ def test_the_stored_photo_is_a_jpeg_without_metadata(
 ) -> None:
     client = person()
     png = BytesIO()
-    Image.open(BytesIO(_photo())).save(png, format="PNG")
+    Image.open(BytesIO(photo())).save(png, format="PNG")
 
     # The declared type is ignored: a PNG sent as JPEG is accepted and stored as JPEG.
     response = client.upload(DocumentKind.PASSPORT, png.getvalue(), content_type="image/jpeg")
@@ -261,7 +122,7 @@ def test_the_bucket_is_private(
     client.upload(DocumentKind.PASSPORT)
     key = _keys(kyc_settings, client.phone)[DocumentKind.PASSPORT]
 
-    status, _ = _open(f"{seaweedfs.url}/{seaweedfs.bucket}/{key}")
+    status, _ = open_url(f"{seaweedfs.url}/{seaweedfs.bucket}/{key}")
 
     assert status == HTTPStatus.FORBIDDEN
 
@@ -278,7 +139,7 @@ def test_a_signed_link_opens_the_own_photo(
     assert response.json()["expires_in"] == 300
     url = response.json()["url"]
     assert url.startswith(f"{kyc_settings.storage_public_url}/")
-    status, photo = _open(url)
+    status, photo = open_url(url)
     assert status == HTTPStatus.OK
     assert Image.open(BytesIO(photo)).format == "JPEG"
 
@@ -294,14 +155,14 @@ def test_a_signed_link_stops_working_after_its_ttl(
     url = asyncio.run(storage.signed_get_url(key, timedelta(seconds=1)))
     time.sleep(3)
 
-    assert _open(url)[0] == HTTPStatus.FORBIDDEN
+    assert open_url(url)[0] == HTTPStatus.FORBIDDEN
 
 
 def test_a_link_to_a_document_not_uploaded_is_404(person: Callable[[], Person]) -> None:
     response = person().url(DocumentKind.PASSPORT)
 
     assert response.status_code == HTTPStatus.NOT_FOUND
-    assert _problem_type(response) == "kyc-document-not-found"
+    assert problem_type(response) == "kyc-document-not-found"
 
 
 def test_another_client_never_sees_the_documents(person: Callable[[], Person]) -> None:
@@ -320,7 +181,7 @@ def test_a_new_upload_replaces_the_photo_and_deletes_the_old_one(
     client.upload(DocumentKind.PASSPORT)
     old_key = _keys(kyc_settings, client.phone)[DocumentKind.PASSPORT]
 
-    response = client.upload(DocumentKind.PASSPORT, _photo("retake"))
+    response = client.upload(DocumentKind.PASSPORT, photo("retake"))
 
     assert response.status_code == HTTPStatus.OK
     assert len(response.json()["documents"]) == 1
@@ -375,10 +236,10 @@ def test_a_photo_stored_while_the_application_was_submitted_is_rolled_back(
     )
     client.client.app.dependency_overrides[get_document_storage] = lambda: racing  # type: ignore[attr-defined]
 
-    response = client.upload(DocumentKind.PASSPORT, _photo("retake"))
+    response = client.upload(DocumentKind.PASSPORT, photo("retake"))
 
     assert response.status_code == HTTPStatus.CONFLICT
-    assert _problem_type(response) == "kyc-locked"
+    assert problem_type(response) == "kyc-locked"
     # The photo did reach the storage before the second check, and was deleted after it.
     assert len(racing.put_keys) == 1
     assert _stored_keys(seaweedfs, prefix) == stored_before
@@ -392,7 +253,7 @@ def test_submission_needs_every_document(person: Callable[[], Person]) -> None:
     response = client.submit()
 
     assert response.status_code == HTTPStatus.CONFLICT
-    assert _problem_type(response) == "kyc-incomplete"
+    assert problem_type(response) == "kyc-incomplete"
     assert response.json()["detail"] == (
         "Missing documents: license_back, license_front, selfie_with_license."
     )
@@ -414,8 +275,8 @@ def test_a_submitted_application_is_pending_and_locked(
     stored_before = _stored_keys(seaweedfs, prefix)
     locked = client.upload(DocumentKind.PASSPORT)
     assert locked.status_code == HTTPStatus.CONFLICT
-    assert _problem_type(locked) == "kyc-locked"
-    assert _problem_type(client.submit()) == "kyc-locked"
+    assert problem_type(locked) == "kyc-locked"
+    assert problem_type(client.submit()) == "kyc-locked"
     # The refused upload left nothing behind in the storage.
     assert _stored_keys(seaweedfs, prefix) == stored_before
     # The client still sees what was sent for review.
@@ -429,7 +290,7 @@ def test_after_a_rejection_the_client_fixes_one_photo_and_submits_again(
     client.upload_all()
     client.submit()
     # Operator decisions come with #35; until then the test makes one in the database.
-    _query(
+    query(
         kyc_settings,
         "UPDATE kyc_applications SET status = 'rejected', rejection_reason = :reason"
         " WHERE id = :id",
@@ -454,7 +315,7 @@ def test_the_admission_status_is_public_for_other_modules(
     client = person()
     client.upload_all()
     client.submit()
-    user_id = _query(kyc_settings, "SELECT id FROM users WHERE phone = :p", p=client.phone)[0].id
+    user_id = query(kyc_settings, "SELECT id FROM users WHERE phone = :p", p=client.phone)[0].id
 
     async def statuses() -> tuple[KycStatus, KycStatus, KycStatus]:
         engine = create_engine(kyc_settings)
@@ -489,7 +350,7 @@ def test_a_bad_file_is_refused(person: Callable[[], Person], data: bytes, proble
 
     response = client.upload(DocumentKind.PASSPORT, data)
 
-    assert _problem_type(response) == problem
+    assert problem_type(response) == problem
     assert client.application().json()["documents"] == []
 
 
@@ -537,24 +398,24 @@ def test_uploads_are_rate_limited(
     ],
 )
 def test_every_endpoint_needs_a_client_token(client: TestClient, method: str, path: str) -> None:
-    response = client.request(method, path, content=_photo() if method == "PUT" else None)
+    response = client.request(method, path, content=photo() if method == "PUT" else None)
 
     assert response.status_code == HTTPStatus.UNAUTHORIZED
-    assert _problem_type(response) == "access-token-invalid"
+    assert problem_type(response) == "access-token-invalid"
 
 
 def test_without_storage_uploads_answer_503_and_the_rest_works(
     env_values: dict[str, str], make_settings: SettingsFactory
 ) -> None:
     settings = make_settings(**env_values, s3_access_key=None, s3_secret_key=None)
-    for client in _client_for(settings):
+    for client in client_for(settings):
         someone = Person(client)
 
         upload = someone.upload(DocumentKind.PASSPORT)
         link = someone.url(DocumentKind.PASSPORT)
 
         assert upload.status_code == HTTPStatus.SERVICE_UNAVAILABLE
-        assert _problem_type(upload) == "document-storage-unavailable"
+        assert problem_type(upload) == "document-storage-unavailable"
         assert link.status_code == HTTPStatus.SERVICE_UNAVAILABLE
         assert someone.application().status_code == HTTPStatus.OK
 

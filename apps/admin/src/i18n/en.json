@@ -109,7 +109,10 @@
       "staffTotpEnrolled": "2FA set up",
       "staffTotpReset": "2FA reset",
       "staffPasswordChanged": "Staff password changed",
-      "staffDisabled": "Staff member disabled"
+      "staffDisabled": "Staff member disabled",
+      "kycApproved": "Documents approved",
+      "kycRejected": "Documents rejected",
+      "kycDocumentViewed": "Document photo viewed"
     },
     "noTarget": "none",
     "loading": "Loading the log…",

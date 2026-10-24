@@ -109,7 +109,10 @@
       "staffTotpEnrolled": "2FA подключена",
       "staffTotpReset": "2FA сброшена",
       "staffPasswordChanged": "Пароль сотрудника изменён",
-      "staffDisabled": "Сотрудник отключён"
+      "staffDisabled": "Сотрудник отключён",
+      "kycApproved": "Документы одобрены",
+      "kycRejected": "Документы отклонены",
+      "kycDocumentViewed": "Просмотр фото документа"
     },
     "noTarget": "нет",
     "loading": "Загружаем журнал…",
