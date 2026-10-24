@@ -1,5 +1,6 @@
 import asyncio
 import time
+import urllib.parse
 import uuid
 from collections.abc import Callable, Iterator
 from datetime import timedelta
@@ -122,9 +123,7 @@ def test_the_bucket_is_private(
     client.upload(DocumentKind.PASSPORT)
     key = _keys(kyc_settings, client.phone)[DocumentKind.PASSPORT]
 
-    status, _ = open_url(f"{seaweedfs.url}/{seaweedfs.bucket}/{key}")
-
-    assert status == HTTPStatus.FORBIDDEN
+    assert open_url(f"{seaweedfs.url}/{seaweedfs.bucket}/{key}").status == HTTPStatus.FORBIDDEN
 
 
 def test_a_signed_link_opens_the_own_photo(
@@ -139,9 +138,38 @@ def test_a_signed_link_opens_the_own_photo(
     assert response.json()["expires_in"] == 300
     url = response.json()["url"]
     assert url.startswith(f"{kyc_settings.storage_public_url}/")
-    status, photo = open_url(url)
-    assert status == HTTPStatus.OK
-    assert Image.open(BytesIO(photo)).format == "JPEG"
+    opened = open_url(url)
+    assert opened.status == HTTPStatus.OK
+    assert Image.open(BytesIO(opened.body)).format == "JPEG"
+
+
+def test_a_signed_link_tells_the_browser_not_to_store_the_photo(
+    person: Callable[[], Person],
+) -> None:
+    client = person()
+    client.upload(DocumentKind.PASSPORT)
+
+    response = client.url(DocumentKind.PASSPORT)
+
+    assert response.headers["Cache-Control"] == "no-store"
+    assert open_url(response.json()["url"]).cache_control == "no-store"
+
+
+def test_the_no_store_parameter_is_signed(person: Callable[[], Person]) -> None:
+    client = person()
+    client.upload(DocumentKind.PASSPORT)
+    url: str = client.url(DocumentKind.PASSPORT).json()["url"]
+    parts = urllib.parse.urlsplit(url)
+    params = urllib.parse.parse_qsl(parts.query)
+
+    def rebuilt(dropped: str | None) -> str:
+        kept = [(name, value) for name, value in params if name != dropped]
+        return parts._replace(query=urllib.parse.urlencode(kept)).geturl()
+
+    assert ("response-cache-control", "no-store") in params
+    # Rebuilding alone must not break the link, or the 403 below would prove nothing.
+    assert open_url(rebuilt(None)).status == HTTPStatus.OK
+    assert open_url(rebuilt("response-cache-control")).status == HTTPStatus.FORBIDDEN
 
 
 def test_a_signed_link_stops_working_after_its_ttl(
@@ -155,7 +183,7 @@ def test_a_signed_link_stops_working_after_its_ttl(
     url = asyncio.run(storage.signed_get_url(key, timedelta(seconds=1)))
     time.sleep(3)
 
-    assert open_url(url)[0] == HTTPStatus.FORBIDDEN
+    assert open_url(url).status == HTTPStatus.FORBIDDEN
 
 
 def test_a_link_to_a_document_not_uploaded_is_404(person: Callable[[], Person]) -> None:
