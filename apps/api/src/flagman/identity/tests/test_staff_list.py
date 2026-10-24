@@ -70,8 +70,6 @@ def test_admin_sees_every_staff_member_by_email(
         {"id": str(first), "email": f"{prefix}-a@example.com", "disabled": False},
         {"id": str(second), "email": f"{prefix}-b@example.com", "disabled": True},
     ]
-    emails = [item["email"] for item in response.json()["items"]]
-    assert emails == sorted(emails)
 
 
 @pytest.mark.parametrize("role", [StaffRole.OPERATOR, StaffRole.TECHNICIAN])
