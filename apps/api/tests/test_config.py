@@ -1,9 +1,11 @@
 import base64
+from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
 from conftest import SettingsFactory
+from flagman.core.config import WorkerSettings
 
 
 def test_cors_origins_are_parsed_from_a_comma_separated_env_var(
@@ -230,3 +232,48 @@ def test_fleet_settings_out_of_range_are_refused(
 ) -> None:
     with pytest.raises(ValidationError):
         make_settings(**overrides)
+
+
+_API_SECRETS = (
+    "API_JWT_SECRET",
+    "API_OTP_PEPPER",
+    "API_TOTP_ENCRYPTION_KEY",
+    "REDIS_PASSWORD",
+    "S3_ACCESS_KEY",
+    "S3_SECRET_KEY",
+)
+
+
+def _worker_settings(**overrides: Any) -> WorkerSettings:
+    values: dict[str, Any] = {
+        "postgres_user": "test",
+        "postgres_password": "test",
+        "postgres_db": "test",
+        **overrides,
+    }
+    return WorkerSettings(_env_file=None, **values)
+
+
+def test_worker_starts_without_the_api_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The worker container gets only the database settings (docs/adr/0013).
+    for name in _API_SECRETS:
+        monkeypatch.delenv(name, raising=False)
+
+    settings = _worker_settings()
+
+    assert settings.auth_cleanup_retention_days == 7
+    assert not any(hasattr(settings, name.lower()) for name in _API_SECRETS)
+
+
+def test_empty_cleanup_retention_falls_back_to_the_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Compose passes AUTH_CLEANUP_RETENTION_DAYS through even when .env leaves it empty.
+    monkeypatch.setenv("AUTH_CLEANUP_RETENTION_DAYS", "")
+
+    assert _worker_settings().auth_cleanup_retention_days == 7
+
+
+@pytest.mark.parametrize("days", [0, -1])
+def test_cleanup_retention_must_be_at_least_a_day(days: int) -> None:
+    # Zero would delete a session the moment it is revoked, together with its reuse evidence.
+    with pytest.raises(ValidationError):
+        _worker_settings(auth_cleanup_retention_days=days)

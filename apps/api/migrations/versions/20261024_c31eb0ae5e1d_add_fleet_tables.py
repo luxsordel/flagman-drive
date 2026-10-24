@@ -1,7 +1,7 @@
 """add fleet tables
 
 Revision ID: c31eb0ae5e1d
-Revises: c7d2e9f14a68
+Revises: 3e7a9c1d5b20
 Create Date: 2026-10-24 12:00:00.000000
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "c31eb0ae5e1d"
-down_revision: str | Sequence[str] | None = "c7d2e9f14a68"
+down_revision: str | Sequence[str] | None = "3e7a9c1d5b20"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

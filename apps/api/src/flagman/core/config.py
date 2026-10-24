@@ -19,7 +19,9 @@ OTP_CODE_RE = re.compile(r"[0-9]{6}")
 _DIGIT_RUNS = "0123456789"
 
 
-class Settings(BaseSettings):
+class DatabaseSettings(BaseSettings):
+    """What every process that talks to the database needs: the API and the worker."""
+
     # The variable names are shared with infra/docker-compose.yml, so there is no prefix
     # for Postgres and Redis. The .env paths are relative to apps/api, where the API is run from.
     model_config = SettingsConfigDict(
@@ -33,13 +35,40 @@ class Settings(BaseSettings):
 
     api_env: Environment = "dev"
     api_log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
-    api_cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     postgres_host: str = "localhost"
     postgres_port: int = 5432
     postgres_user: str
     postgres_password: SecretStr
     postgres_db: str
+
+    @property
+    def is_prod(self) -> bool:
+        return self.api_env == "prod"
+
+    @property
+    def database_url(self) -> URL:
+        return URL.create(
+            "postgresql+asyncpg",
+            username=self.postgres_user,
+            password=self.postgres_password.get_secret_value(),
+            host=self.postgres_host,
+            port=self.postgres_port,
+            database=self.postgres_db,
+        )
+
+
+class WorkerSettings(DatabaseSettings):
+    """`flagman-worker` gets none of the API secrets: it does not sign or check anything."""
+
+    # Ended sessions and their refresh tokens are kept this long before the periodic cleanup
+    # deletes them (#46). Until then an old used token of an ended session, when replayed,
+    # still revokes the sessions of its device (docs/adr/0009, to be fixed in #89).
+    auth_cleanup_retention_days: int = Field(default=7, ge=1)
+
+
+class Settings(DatabaseSettings):
+    api_cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     redis_host: str = "localhost"
     redis_port: int = 6379
@@ -184,10 +213,6 @@ class Settings(BaseSettings):
         return base64.b64decode(self.api_totp_encryption_key.get_secret_value())
 
     @property
-    def is_prod(self) -> bool:
-        return self.api_env == "prod"
-
-    @property
     def storage_configured(self) -> bool:
         return self.s3_access_key is not None and self.s3_secret_key is not None
 
@@ -195,17 +220,10 @@ class Settings(BaseSettings):
     def storage_public_url(self) -> str:
         return self.s3_public_url or self.s3_endpoint_url
 
-    @property
-    def database_url(self) -> URL:
-        return URL.create(
-            "postgresql+asyncpg",
-            username=self.postgres_user,
-            password=self.postgres_password.get_secret_value(),
-            host=self.postgres_host,
-            port=self.postgres_port,
-            database=self.postgres_db,
-        )
-
 
 def load_settings() -> Settings:
     return Settings()
+
+
+def load_worker_settings() -> WorkerSettings:
+    return WorkerSettings()

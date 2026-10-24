@@ -1,11 +1,13 @@
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.sql.dml import ReturningDelete
 
 from flagman.identity.domain import Language, OtpChallenge, RefreshTokenState, StaffRole
 from flagman.identity.models import (
@@ -374,4 +376,81 @@ async def mark_staff_refresh_token_used(db: AsyncSession, token_hash: str, now: 
         update(StaffRefreshToken)
         .where(StaffRefreshToken.token_hash == token_hash)
         .values(used_at=now)
+    )
+
+
+# Well below Postgres' deadlock_timeout (1 s by default): when the cleanup and a refresh wait on
+# each other, the cleanup gives up first, so the refresh never fails as the deadlock victim.
+CLEANUP_LOCK_WAIT = timedelta(milliseconds=100)
+# lock_not_available: a statement waited longer than lock_timeout.
+_LOCK_TIMEOUT_SQLSTATE = "55P03"
+
+
+class CleanupLockTimeoutError(Exception):
+    """A row the cleanup needs stayed locked longer than CLEANUP_LOCK_WAIT."""
+
+
+async def limit_lock_wait(db: AsyncSession) -> None:
+    """For the rest of the transaction, a lock not free within CLEANUP_LOCK_WAIT fails."""
+    # set_config(..., true) is SET LOCAL that takes a bound value.
+    milliseconds = int(CLEANUP_LOCK_WAIT.total_seconds() * 1000)
+    await db.execute(
+        text("SELECT set_config('lock_timeout', :value, true)"), {"value": f"{milliseconds}ms"}
+    )
+
+
+async def _delete_count[T](db: AsyncSession, statement: ReturningDelete[T]) -> int:
+    # Counted by Postgres: the deleted rows themselves never travel to the worker.
+    count = select(func.count()).select_from(statement.cte("deleted"))
+    try:
+        deleted = await db.scalar(count)
+    except DBAPIError as error:
+        if getattr(error.orig, "sqlstate", None) == _LOCK_TIMEOUT_SQLSTATE:
+            raise CleanupLockTimeoutError from error
+        raise
+    return deleted or 0
+
+
+async def delete_expired_otps(db: AsyncSession, now: datetime, limit: int) -> int:
+    # SKIP LOCKED: a code someone is entering right now is left for the next run.
+    batch = (
+        select(PendingOtp.phone)
+        .where(PendingOtp.expires_at < now)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    return await _delete_count(
+        db, delete(PendingOtp).where(PendingOtp.phone.in_(batch)).returning(PendingOtp.phone)
+    )
+
+
+async def delete_ended_sessions(db: AsyncSession, ended_before: datetime, limit: int) -> int:
+    """Their refresh tokens go with them (ON DELETE CASCADE).
+
+    A refresh locks the token and then its session, while this locks the session and then its
+    tokens; run it under limit_lock_wait so that it is this side that gives up, not the refresh.
+    A live session is never picked, however old its used tokens are: they are what proves a copied
+    token is being replayed (docs/adr/0009).
+    """
+    batch = (
+        select(AuthSession.id)
+        .where(or_(AuthSession.expires_at < ended_before, AuthSession.revoked_at < ended_before))
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    return await _delete_count(
+        db, delete(AuthSession).where(AuthSession.id.in_(batch)).returning(AuthSession.id)
+    )
+
+
+async def delete_ended_staff_sessions(db: AsyncSession, ended_before: datetime, limit: int) -> int:
+    """The same as delete_ended_sessions, for the admin panel."""
+    batch = (
+        select(StaffSession.id)
+        .where(or_(StaffSession.expires_at < ended_before, StaffSession.revoked_at < ended_before))
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    return await _delete_count(
+        db, delete(StaffSession).where(StaffSession.id.in_(batch)).returning(StaffSession.id)
     )

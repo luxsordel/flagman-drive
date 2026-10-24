@@ -93,6 +93,8 @@ services:
 
   # Migrations are not run on start: `run --rm api alembic upgrade head`, see apps/api/README.md.
   api:
+    # One image for the API and the worker, so rebuilding it updates both.
+    image: flagman-api:local
     build:
       context: ../apps/api
     environment:
@@ -141,6 +143,39 @@ services:
       seaweedfs-init:
         condition: service_completed_successfully
     # The API keeps no state on disk, so the container filesystem can be read-only.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
+  # Periodic jobs, see docs/adr/0013. The image of the API, but only the database
+  # settings: the worker signs and checks nothing, so it gets none of the API secrets.
+  worker:
+    # The same build and tag as the api service, so `up worker` alone still finds the image.
+    image: flagman-api:local
+    build:
+      context: ../apps/api
+    command: ["flagman-worker"]
+    environment:
+      API_ENV: ${API_ENV:?set API_ENV in .env (dev locally, prod on a server)}
+      API_LOG_LEVEL: ${API_LOG_LEVEL:-INFO}
+      AUTH_CLEANUP_RETENTION_DAYS: ${AUTH_CLEANUP_RETENTION_DAYS:-}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # The image checks the API's HTTP port, which the worker does not open. A crash ends the
+    # process, and the restart policy brings it back.
+    healthcheck:
+      disable: true
     read_only: true
     tmpfs:
       - /tmp

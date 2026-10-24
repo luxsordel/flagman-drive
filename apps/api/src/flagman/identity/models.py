@@ -49,7 +49,8 @@ class PendingOtp(Base):
     phone: Mapped[str] = mapped_column(String(PHONE_LENGTH), primary_key=True)
     code_hash: Mapped[str] = mapped_column(String(HASH_LENGTH))
     attempts: Mapped[int]
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Indexed for the periodic cleanup, as are the ends of sessions below.
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -63,8 +64,8 @@ class AuthSession(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     device_id: Mapped[UUID]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class RefreshToken(Base):
@@ -117,8 +118,8 @@ class StaffSession(Base):
         ForeignKey("staff_members.id", ondelete="CASCADE"), index=True
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class StaffRefreshToken(Base):

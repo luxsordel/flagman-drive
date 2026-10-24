@@ -99,6 +99,8 @@ Docker Desktop должен быть запущен. Все команды — �
 
    `postgres`, `redis`, `seaweedfs` — `Up (healthy)`; `seaweedfs-init` — `Exited (0)`
    (это одноразовая задача, которая создаёт приватный бакет `S3_BUCKET`).
+   `worker` — `Up` без пометки `healthy`: проверки здоровья у него нет, это фоновые задачи
+   ([ADR-0013](adr/0013-periodic-jobs-worker.md)).
 
 5. Применить миграции и добавить демо-машины — команды в [`apps/api/README.md`](../apps/api/README.md)
    (разделы «Запуск в Docker» и «Демо-парк»).

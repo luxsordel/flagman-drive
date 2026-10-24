@@ -115,6 +115,11 @@ export const en: Translation = {
         hint: 'Hold the licence next to your face: both your face and the licence photo must be visible',
       },
     },
+    camera: {
+      preview: 'Front camera',
+      shoot: 'Take',
+      cancel: 'Cancel',
+    },
     upload: {
       step: 'Step {{current}} of {{total}}',
       takePhoto: 'Take a photo',
