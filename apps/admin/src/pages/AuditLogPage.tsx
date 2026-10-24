@@ -6,8 +6,9 @@ import { ApiError } from '../api/client';
 import { useApis } from '../api/context';
 import { actionLabelKey, auditActions, isAuditAction } from '../audit/actions';
 import type { AuditEvent, AuditLogFilter } from '../audit/api';
-import { firstLogDay, formatMinskTime, isCalendarDay } from '../audit/minskTime';
+import { firstLogDay, isCalendarDay } from '../audit/minskTime';
 import { useAuth } from '../auth/context';
+import { formatMinskTime } from '../time/minsk';
 
 // Filters live in the address, so a filtered log can be reloaded or sent to a colleague.
 const filterParams = { actorId: 'staff', action: 'action', from: 'from', to: 'to' } as const;

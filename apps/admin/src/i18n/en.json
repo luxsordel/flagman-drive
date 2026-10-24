@@ -124,5 +124,95 @@
     "moreFailed": "Could not load more events. Please try again.",
     "invertedRange": "\"From\" is later than \"To\": swap the dates.",
     "rejected": "The server did not accept this log request. Change or reset the filters."
+  },
+  "kyc": {
+    "menuCount": "Waiting for a check: {{count}}",
+    "queue": {
+      "total": "In the queue: {{count}}",
+      "shown": "Showing the first {{shown}}; the rest appear as these are decided.",
+      "columns": {
+        "client": "Client",
+        "submitted": "Submitted (Minsk)",
+        "waiting": "Waiting"
+      },
+      "loading": "Loading the queue…",
+      "failed": "Could not load the queue.",
+      "empty": "No new applications.",
+      "approved": "Application approved: the client may now rent.",
+      "rejected": "Application rejected: the client will see the reason and can submit again."
+    },
+    "noName": "No name given",
+    "back": "Back to the queue",
+    "loading": "Loading the application…",
+    "failed": "Could not load the application.",
+    "notFound": "Application not found.",
+    "retry": "Try again",
+    "profile": {
+      "title": "Profile data",
+      "hint": "Check it against the documents in the photos.",
+      "lastName": "Last name",
+      "firstName": "First name",
+      "birthDate": "Date of birth",
+      "age": "Age, full years",
+      "submitted": "Submitted (Minsk)",
+      "status": "Status",
+      "notGiven": "not given"
+    },
+    "status": {
+      "not_submitted": "Not submitted",
+      "pending": "Under review",
+      "approved": "Approved",
+      "rejected": "Rejected"
+    },
+    "decided": "This application has already been decided.",
+    "notSubmitted": "The client has not submitted the application yet.",
+    "decidedRejected": "Rejection reason: {{reason}}",
+    "documents": {
+      "title": "Documents",
+      "kinds": {
+        "license_front": "Driving license, front",
+        "license_back": "Driving license, back",
+        "passport": "Passport",
+        "selfie_with_license": "Selfie with the license"
+      },
+      "missing": "Not uploaded",
+      "loading": "Loading the photo…",
+      "failed": "Could not load the photo.",
+      "rateLimited": "Too many photo views. Try again later.",
+      "reload": "Load again",
+      "open": "Open large: {{document}}"
+    },
+    "viewer": {
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "rotate": "Rotate",
+      "close": "Close"
+    },
+    "approve": {
+      "title": "Approve",
+      "licenseIssuedOn": "License issue date (from the license photo)",
+      "hint": "The server checks the age and the driving experience against this date and the date of birth.",
+      "submit": "Approve"
+    },
+    "reject": {
+      "title": "Reject",
+      "reason": "Reason, shown to the client",
+      "hint": "Say what to fix, for example: \"The selfie is blurry, take it in good light\".",
+      "length": "{{length}} of {{max}}",
+      "submit": "Reject"
+    },
+    "pending": "Saving…",
+    "errors": {
+      "dateRequired": "Enter the license issue date.",
+      "reasonRequired": "Enter the rejection reason.",
+      "reasonTooLong": "The reason is longer than {{max}} characters.",
+      "licenseDateInvalid": "The license issue date cannot be in the future or before the date of birth.",
+      "requirementsNotMet": "The client is too young or has too little driving experience. Reject the application with a reason.",
+      "profileIncomplete": "The client's profile has no name or date of birth. Reject the application and ask them to fill in the profile.",
+      "notPending": "Another staff member has already decided this application.",
+      "invalid": "The server did not accept the decision: check what you entered.",
+      "forbidden": "Decisions on applications are not available for your role.",
+      "failed": "Could not save the decision. Please try again."
+    }
   }
 }

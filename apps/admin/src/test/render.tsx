@@ -8,28 +8,37 @@ import type { Staff } from '../auth/staff';
 import { routes } from '../routes';
 import { fakeAuditLogApi } from './audit';
 import { fakeStaffAuthApi, fakeStaffSignInApi, testStaff } from './auth';
+import { fakeKycReviewApi } from './kyc';
 
 /**
  * Renders the whole app at `path` (a location object to pass history state), with the same
  * routes as in the browser, signed in as `staff` (an admin by default; null for no session).
  * The session is restored asynchronously, so use `findBy*`.
- * Page APIs not given in `apis` answer with nothing found.
+ * Page APIs not given in `apis` answer with nothing found. `router` moves to another address.
  */
 export function renderAt(
   path: InitialEntry,
   staff: Staff | null = testStaff(),
   apis: Partial<AdminApis> = {},
-): RenderResult & { api: ReturnType<typeof fakeStaffAuthApi> } {
+): RenderResult & {
+  api: ReturnType<typeof fakeStaffAuthApi>;
+  router: ReturnType<typeof createMemoryRouter>;
+} {
   const api = fakeStaffAuthApi(staff);
   const router = createMemoryRouter(routes, { initialEntries: [path] });
   const result = render(
     <AuthProvider session={createStaffSession(api)}>
       <ApiContext
-        value={{ auditLog: fakeAuditLogApi(), staffSignIn: fakeStaffSignInApi(), ...apis }}
+        value={{
+          auditLog: fakeAuditLogApi(),
+          kycReview: fakeKycReviewApi(),
+          staffSignIn: fakeStaffSignInApi(),
+          ...apis,
+        }}
       >
         <RouterProvider router={router} />
       </ApiContext>
     </AuthProvider>,
   );
-  return { ...result, api };
+  return { ...result, api, router };
 }
