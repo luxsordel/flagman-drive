@@ -4,6 +4,7 @@ import type { AuditLogApi } from '../audit/api';
 import type { StaffSignInApi } from '../auth/staffApi';
 import type { KycReviewApi } from '../kyc/api';
 import type { StaffListApi } from '../staff/api';
+import type { ZonesApi } from '../zones/api';
 
 /** The API calls the pages make; tests put fakes here instead of the network. */
 export interface AdminApis {
@@ -11,6 +12,7 @@ export interface AdminApis {
   kycReview: KycReviewApi;
   staffList: StaffListApi;
   staffSignIn: StaffSignInApi;
+  zones: ZonesApi;
 }
 
 export const ApiContext = createContext<AdminApis | null>(null);

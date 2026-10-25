@@ -8,6 +8,8 @@ const api = 'http://127.0.0.1:8000';
 
 export default defineConfig({
   plugins: [react()],
+  // MapLibre starts its worker as an ES module (src/map/worker.ts).
+  worker: { format: 'es' },
   // Bound to localhost only, like the rest of the local stack (infra/docker-compose.yml).
   server: {
     host: '127.0.0.1',

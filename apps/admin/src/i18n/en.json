@@ -4,7 +4,8 @@
     "subtitle": "Control panel"
   },
   "layout": {
-    "menu": "Main menu"
+    "menu": "Main menu",
+    "pageLoading": "Loading the section…"
   },
   "nav": {
     "dashboard": "Overview",
@@ -224,6 +225,67 @@
       "invalid": "The server did not accept the decision: check what you entered.",
       "forbidden": "Decisions on applications are not available for your role.",
       "failed": "Could not save the decision. Please try again."
+    }
+  },
+  "zones": {
+    "map": "Zone map",
+    "list": "Zones",
+    "loading": "Loading zones…",
+    "failed": "Could not load the zones. Check the connection and try again.",
+    "retry": "Retry",
+    "empty": "No zones yet.",
+    "create": "Draw a zone",
+    "edit": "Edit",
+    "disable": "Disable",
+    "disabling": "Disabling…",
+    "kindLabel": "Kind",
+    "updated": "Changed",
+    "kind": {
+      "allowed": "Rentals may end here",
+      "forbidden": "Rentals may not end here"
+    },
+    "disableConfirm": {
+      "title": "Confirm disabling",
+      "text": "Disable the zone “{{name}}”? It stops counting but stays in the history and the audit log.",
+      "confirm": "Disable the zone",
+      "keep": "Keep it"
+    },
+    "cancelConfirm": {
+      "title": "Confirm cancelling",
+      "text": "The changes to the zone will be lost.",
+      "discard": "Discard",
+      "keep": "Keep editing"
+    },
+    "form": {
+      "createTitle": "New zone",
+      "editTitle": "Edit zone",
+      "drawHint": "Click on the map to place vertices. Click the first vertex to close the polygon.",
+      "editHint": "Drag the vertices. Click the point in the middle of a side to add a vertex; right-click a vertex to delete it.",
+      "name": "Name",
+      "vertices": "Vertices: {{count}} of {{max}}",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "problems": {
+        "noName": "Enter a name for the zone.",
+        "longName": "The name is too long.",
+        "noOutline": "Draw the zone on the map.",
+        "tooFewVertices": "A zone needs at least three vertices.",
+        "tooManyVertices": "A zone may have at most {{max}} vertices."
+      }
+    },
+    "errors": {
+      "selfIntersecting": "The sides of the zone cross. Press Cancel and draw the zone so that the outline does not cross itself.",
+      "tooManyVertices": "Too many vertices. Simplify the outline.",
+      "tooFewVertices": "A zone needs at least three distinct vertices.",
+      "outsideArea": "The zone goes outside the pilot area around Minsk.",
+      "notClosed": "The outline is not closed. Draw the zone again.",
+      "holes": "A zone has only an outer outline. Draw a forbidden zone to cut a piece out.",
+      "invalid": "The server did not accept the zone. Check the name and the outline.",
+      "notFound": "The zone is gone: it may have been disabled. Reload the page.",
+      "disabled": "The zone is disabled and cannot be changed. Draw a new one.",
+      "forbidden": "Only an administrator may change zones.",
+      "failed": "Could not save. Check the connection and try again."
     }
   }
 }

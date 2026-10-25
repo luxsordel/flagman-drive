@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { NavLink, Outlet, useLocation } from 'react-router';
 
@@ -48,7 +48,16 @@ export function AppLayout() {
         <Header />
         <main className="content">
           <RefreshKycCountContext value={refreshKycCount}>
-            <Outlet />
+            {/* Pages with heavy libraries load on first visit (navigation.ts). */}
+            <Suspense
+              fallback={
+                <p role="status" className="muted">
+                  {t('layout.pageLoading')}
+                </p>
+              }
+            >
+              <Outlet />
+            </Suspense>
           </RefreshKycCountContext>
         </main>
       </div>

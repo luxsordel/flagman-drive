@@ -477,3 +477,118 @@ a {
   max-width: none;
   transition: transform 0.15s ease-out;
 }
+
+.button-danger {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  font-weight: 600;
+}
+
+/* The map takes the room; the list and the form sit beside it, or under it on a narrow screen. */
+.zones-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 22rem);
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (max-width: 60rem) {
+  .zones-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.zone-map {
+  height: 70vh;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+
+.zones-panel {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+}
+
+.zones-list {
+  display: grid;
+  gap: var(--space-xs);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.zones-item {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--space-sm);
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.zones-item[aria-pressed='true'] {
+  border-color: var(--color-primary);
+}
+
+.zones-item .muted {
+  grid-column: 2;
+  font-size: var(--font-size-sm);
+}
+
+.zones-swatch {
+  align-self: center;
+  width: var(--space-md);
+  height: var(--space-md);
+  border-radius: var(--radius-field);
+}
+
+.zones-swatch-allowed {
+  background: var(--color-success);
+}
+
+.zones-swatch-forbidden {
+  background: var(--color-danger);
+}
+
+.zones-form,
+.zones-selected {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.zones-form p,
+.zones-selected p {
+  margin: 0;
+}
+
+.zones-kinds {
+  display: grid;
+  gap: var(--space-sm);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.zones-kinds legend {
+  margin-bottom: var(--space-sm);
+}
+
+.zones-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.zones-confirm {
+  display: grid;
+  gap: var(--space-sm);
+}

@@ -1,10 +1,15 @@
-import type { ComponentType } from 'react';
+import { lazy, type ComponentType } from 'react';
 
 import type { StaffRole } from './auth/staff';
 import type ru from './i18n/ru.json';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { KycApplicationPage } from './pages/KycApplicationPage';
 import { KycQueuePage } from './pages/KycQueuePage';
+
+// The map library is large: it loads with the zones page, not with the sign-in page.
+const ZonesPage = lazy(() =>
+  import('./pages/ZonesPage').then(({ ZonesPage }) => ({ default: ZonesPage })),
+);
 
 export type SectionKey = keyof typeof ru.nav;
 
@@ -36,7 +41,8 @@ export const sections: readonly Section[] = [
   { key: 'fleet', path: '/fleet', roles: everyone },
   { key: 'rentals', path: '/rentals', roles: support },
   { key: 'clients', path: '/clients', roles: support },
-  { key: 'zones', path: '/zones', roles: adminOnly },
+  // Everyone sees the zones; only an admin changes them, inside the page and in the API.
+  { key: 'zones', path: '/zones', roles: everyone, page: ZonesPage },
   { key: 'tariffs', path: '/tariffs', roles: adminOnly },
   { key: 'audit', path: '/audit', roles: adminOnly, page: AuditLogPage },
 ];
