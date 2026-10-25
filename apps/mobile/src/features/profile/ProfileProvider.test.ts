@@ -1,104 +1,121 @@
 import { getLocales } from 'expo-localization';
 import i18next from 'i18next';
 
-import { detectLanguage, initI18n } from '../../i18n';
+import { detectLanguage, initI18n, type Language } from '../../i18n';
 import { json, testSession, tokens } from '../auth/session/testing';
 import { createAppProfileStore } from './ProfileProvider';
+import { profile } from './testing';
 
 initI18n('ru');
 
-async function signIn(setup: ReturnType<typeof testSession>, phone: string) {
-  setup.api.on('/auth/otp/request', json({ expires_in: 300, resend_after: 60 }, 202));
-  setup.api.on('/auth/otp/verify', json(tokens(1)));
-  await setup.session.requestCode(phone);
-  await setup.session.verifyCode('123456');
+const device = detectLanguage(getLocales());
+const other: Language = device === 'en' ? 'ru' : 'en';
+const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+function setup(options: Parameters<typeof testSession>[0] = {}) {
+  const auth = testSession(options);
+  return { ...auth, profiles: createAppProfileStore(auth.session, auth.api.client) };
 }
 
-/** The mock answers after a simulated round trip; fake timers skip the wait. */
-async function settle<T>(request: Promise<T>): Promise<T> {
-  await jest.runAllTimersAsync();
-  return request;
+async function signIn({ api, session }: ReturnType<typeof testSession>) {
+  api.on('/auth/otp/request', json({ expires_in: 300, resend_after: 60 }, 202));
+  api.on('/auth/otp/verify', json(tokens(1)));
+  await session.requestCode('+375291234567');
+  await session.verifyCode('123456');
+}
+
+async function signOut({ api, session }: ReturnType<typeof testSession>) {
+  api.on('/auth/logout', new Response(null, { status: 204 }));
+  await session.signOut();
 }
 
 describe('createAppProfileStore', () => {
-  beforeEach(() => {
-    jest.useFakeTimers();
-  });
-
   afterEach(async () => {
-    jest.useRealTimers();
     await i18next.changeLanguage('ru');
   });
 
-  it('starts a client with a blank profile, their phone and the device language', async () => {
-    const setup = testSession();
-    const store = createAppProfileStore(setup.session);
-    await signIn(setup, '+375291234567');
+  it('loads the profile at sign-in and speaks its language before any screen opens it', async () => {
+    const auth = setup();
+    auth.api.on('/me', json(profile({ language: other })));
 
-    await settle(store.load());
+    await signIn(auth);
+    await flush();
 
-    expect(store.getState().profile).toEqual({
-      first_name: '',
-      last_name: '',
-      birth_date: null,
-      email: null,
-      language: detectLanguage(getLocales()),
-      phone: '+375291234567',
+    expect(auth.profiles.getState().profile).toEqual(profile({ language: other }));
+    expect(i18next.language).toBe(other);
+  });
+
+  it('loads the profile when a stored session is restored at launch', async () => {
+    const auth = setup({ refreshToken: 'refresh-0' });
+    auth.api.on('/auth/token/refresh', json(tokens(1)));
+    auth.api.on('/me', json(profile({ language: other })));
+
+    await auth.session.restore();
+    await flush();
+
+    expect(auth.profiles.getState().profile?.phone).toBe('+375291234567');
+    expect(i18next.language).toBe(other);
+  });
+
+  it('loads at once when the client is already signed in', async () => {
+    const auth = testSession();
+    await signIn(auth);
+    auth.api.on('/me', json(profile()));
+
+    const store = createAppProfileStore(auth.session, auth.api.client);
+    await flush();
+
+    expect(store.getState().profile).toEqual(profile());
+  });
+
+  it('does not reload the profile when the session changes without signing in again', async () => {
+    const auth = setup();
+    auth.api.on('/me', json(profile()));
+    await signIn(auth);
+    await flush();
+
+    await auth.session.requestCode('+375291234567').catch(() => undefined);
+    await flush();
+
+    expect(auth.api.calls.filter((call) => call.path === '/me')).toHaveLength(1);
+  });
+
+  it('leaves no endless loading when the API cannot be reached', async () => {
+    const auth = setup();
+    auth.api.on('/me', new TypeError('Network request failed'));
+
+    await signIn(auth);
+    await flush();
+
+    expect(auth.profiles.getState()).toMatchObject({
+      profile: null,
+      loading: false,
+      loadError: { kind: 'network' },
     });
   });
 
-  it('leaves the phone empty when the number is no longer known', async () => {
-    const setup = testSession();
-    const store = createAppProfileStore(setup.session);
-
-    await settle(store.load());
-
-    expect(store.getState().profile?.phone).toBe('');
-  });
-
-  it('never shows one client the profile of the previous one', async () => {
-    const setup = testSession();
-    const store = createAppProfileStore(setup.session);
-    await signIn(setup, '+375291234567');
-    await settle(store.save({ first_name: 'Ivan', email: 'ivan@example.com', language: 'en' }));
-
-    setup.api.on('/auth/logout', new Response(null, { status: 204 }));
-    await setup.session.signOut();
-    expect(store.getState().profile).toBeNull();
-
-    await signIn(setup, '+375447654321');
-    await settle(store.load());
-    expect(store.getState().profile).toEqual({
-      first_name: '',
-      last_name: '',
-      birth_date: null,
-      email: null,
-      language: detectLanguage(getLocales()),
-      phone: '+375447654321',
-    });
-  });
-
-  it('gives the sign-in screen the device language back at sign-out', async () => {
-    const setup = testSession();
-    const store = createAppProfileStore(setup.session);
-    await signIn(setup, '+375291234567');
-    const device = detectLanguage(getLocales());
-    const other = device === 'en' ? 'ru' : 'en';
-    await settle(store.save({ language: other }));
+  it('forgets the profile and gives the sign-in screen the device language back', async () => {
+    const auth = setup();
+    auth.api.on('/me', json(profile({ language: other })));
+    await signIn(auth);
+    await flush();
     expect(i18next.language).toBe(other);
 
-    setup.api.on('/auth/logout', new Response(null, { status: 204 }));
-    await setup.session.signOut();
+    await signOut(auth);
 
+    expect(auth.profiles.getState().profile).toBeNull();
     expect(i18next.language).toBe(device);
   });
 
-  it('switches the app language to the one kept in the profile', async () => {
-    const setup = testSession();
-    const store = createAppProfileStore(setup.session);
+  it('switches the app language to the one the client saves', async () => {
+    const auth = setup();
+    auth.api.on('/me', json(profile({ language: device })));
+    await signIn(auth);
+    await flush();
 
-    await settle(store.save({ language: 'en' }));
+    auth.api.on('/me', json(profile({ language: other })));
+    await auth.profiles.save({ language: other });
 
-    expect(i18next.language).toBe('en');
+    expect(i18next.language).toBe(other);
   });
 });

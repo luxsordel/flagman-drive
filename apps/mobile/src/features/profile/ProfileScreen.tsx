@@ -138,7 +138,9 @@ function ProfileForm({ profile, saving }: SectionProps) {
     if (!mounted.current) return;
     setBusy(false);
     if (!result.ok) {
-      setSaveError(result.error);
+      // Belongs next to the date, like the checks the form makes itself.
+      if (result.error.kind === 'birthDateInvalid') setErrors({ birthDate: 'dateRejected' });
+      else setSaveError(result.error);
       return;
     }
     // What the API kept, e.g. trimmed, rather than what the client typed.
@@ -214,11 +216,7 @@ function ProfileForm({ profile, saving }: SectionProps) {
       />
       <Card>
         <AppText variant="label">{t('profile.phone')}</AppText>
-        {profile.phone === '' ? (
-          <AppText tone="muted">{t('profile.phoneUnknown')}</AppText>
-        ) : (
-          <AppText>{formatBelarusMobile(profile.phone)}</AppText>
-        )}
+        <AppText>{formatBelarusMobile(profile.phone)}</AppText>
         <AppText variant="caption" tone="muted">
           {t('profile.phoneHint')}
         </AppText>
