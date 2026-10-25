@@ -31,6 +31,15 @@ conflict with open PRs and work in progress; ask which one to take.
 7. Read the docs relevant to the issue area (`docs/01..07`, ADRs) and the code it touches.
 8. Present a plan: files to change, tests to add, risks (security-sensitive modules: identity, kyc, payments,
    rentals, car commands), and any overlap with other open PRs (`gh pr list --state open` + their files).
+   The whole issue is delivered in **one PR** (see «Жизненный цикл задачи» in `docs/04-workflow.md`): plan all
+   acceptance criteria and every layer the issue names (API, admin, mobile, emulator) on this one branch, in order
+   API → generated client → UI → tests. Do not propose sub-issues, a backend-first PR or "the screen in a
+   follow-up". Instead, lay the plan out as a sequence of commits (one per layer or logical step, generated code
+   in its own commit) so the big PR stays readable for the reviewer.
+   Splitting is a last resort: only when part of the issue is blocked by unmerged work of someone else, or the
+   issue turns out to be far larger than two ordinary tasks. Then say why, name the split, and let the user decide.
    For anything bigger than a trivial change, wait for the user's approval of the plan before writing code.
-9. After the plan is approved, post it as a short comment on the issue (`gh issue comment <n>`) so the
+9. While implementing, keep going until every acceptance criterion is met on this branch. Do not stop halfway to
+   ship a partial PR; if a criterion cannot be met, tell the user before `/ship`, not after.
+10. After the plan is approved, post it as a short comment on the issue (`gh issue comment <n>`) so the
    teammates see what is going on, unless the user says not to.
