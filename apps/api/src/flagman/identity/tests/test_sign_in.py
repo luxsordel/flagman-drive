@@ -99,16 +99,28 @@ def _request_code(client: TestClient, phone: str) -> None:
     assert response.status_code == HTTPStatus.ACCEPTED, response.text
 
 
-def _verify(client: TestClient, phone: str, code: str, device_id: uuid.UUID | None = None) -> Any:
+def _verify(
+    client: TestClient,
+    phone: str,
+    code: str,
+    device_id: uuid.UUID | None = None,
+    language: str | None = None,
+) -> Any:
     body = {"phone": phone, "code": code, "device_id": str(device_id or uuid.uuid4())}
+    if language is not None:
+        body["language"] = language
     return client.post("/auth/otp/verify", json=body)
 
 
 def _sign_in(
-    client: TestClient, sms: FakeSms, phone: str, device_id: uuid.UUID | None = None
+    client: TestClient,
+    sms: FakeSms,
+    phone: str,
+    device_id: uuid.UUID | None = None,
+    language: str | None = None,
 ) -> dict[str, Any]:
     _request_code(client, phone)
-    response = _verify(client, phone, sms.code_for(phone), device_id)
+    response = _verify(client, phone, sms.code_for(phone), device_id, language)
     assert response.status_code == HTTPStatus.OK, response.text
     tokens: dict[str, Any] = response.json()
     return tokens
@@ -486,6 +498,50 @@ def test_replay_from_an_expired_session_revokes_nothing(
     assert revoked[0].revoked_at is None
     assert "refresh_token_replayed_after_session_end" in caplog.text
     assert "refresh_token_reuse_detected" not in caplog.text
+
+
+def _language(client: TestClient, tokens: dict[str, Any]) -> str:
+    response = client.get("/me", headers={"Authorization": f"Bearer {tokens['access_token']}"})
+    assert response.status_code == HTTPStatus.OK, response.text
+    language: str = response.json()["language"]
+    return language
+
+
+@pytest.mark.parametrize(("sent", "stored"), [("en", "en"), ("ru", "ru"), (None, "ru")])
+def test_new_client_gets_the_language_of_the_device(
+    client: TestClient, sms: FakeSms, phone: str, sent: str | None, stored: str
+) -> None:
+    tokens = _sign_in(client, sms, phone, language=sent)
+
+    assert _language(client, tokens) == stored
+
+
+def test_sign_in_keeps_the_language_the_client_chose(
+    client: TestClient, sms: FakeSms, phone: str, reset_limits: Callable[[], None]
+) -> None:
+    tokens = _sign_in(client, sms, phone, language="en")
+    chosen = client.patch(
+        "/me",
+        json={"language": "ru"},
+        headers={"Authorization": f"Bearer {tokens['access_token']}"},
+    )
+    assert chosen.status_code == HTTPStatus.OK, chosen.text
+    reset_limits()
+
+    # A phone with English settings must not undo the choice made in the app.
+    again = _sign_in(client, sms, phone, language="en")
+
+    assert _language(client, again) == "ru"
+
+
+def test_unknown_device_language_is_rejected(client: TestClient, sms: FakeSms, phone: str) -> None:
+    _request_code(client, phone)
+
+    response = _verify(client, phone, sms.code_for(phone), language="de")
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    # Rejected by the schema before the code is checked: the code is still pending.
+    assert _verify(client, phone, sms.code_for(phone)).status_code == HTTPStatus.OK
 
 
 def test_unknown_refresh_token_is_rejected(client: TestClient) -> None:

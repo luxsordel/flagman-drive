@@ -35,6 +35,7 @@ from flagman.identity.domain import (
     STAFF_SESSION_TTL,
     AccessClaims,
     AccessTokenInvalidError,
+    Language,
     OtpExpiredError,
     OtpInvalidError,
     OtpOutcome,
@@ -180,6 +181,13 @@ async def _delete_in_batches(
 
 
 @dataclass(frozen=True)
+class ClientDevice:
+    device_id: UUID
+    # Only a first sign-in uses it, as the language the new client starts with.
+    language: Language
+
+
+@dataclass(frozen=True)
 class SignInService:
     db: AsyncSession
     limiter: RateLimiter
@@ -209,7 +217,7 @@ class SignInService:
         )
 
     async def verify_otp(
-        self, phone: str, code: str, device_id: UUID, client_ip: str, now: datetime
+        self, phone: str, code: str, device: ClientDevice, client_ip: str, now: datetime
     ) -> TokenPair:
         await self.limiter.hit(OTP_VERIFY_IP_LIMIT, keyed_hash(client_ip, self._pepper))
 
@@ -230,7 +238,7 @@ class SignInService:
                     # Accepted or used up: either way this code must never work again.
                     await repository.delete_pending_otp(self.db, phone)
                 if outcome is OtpOutcome.ACCEPTED:
-                    tokens = await self._sign_in(phone, device_id, now)
+                    tokens = await self._sign_in(phone, device, now)
         # Raised after the transaction so that the counted attempt is committed, not rolled back.
         if outcome is OtpOutcome.WRONG:
             raise OtpInvalidError
@@ -283,12 +291,12 @@ class SignInService:
             if record is not None:
                 await repository.revoke_session(self.db, record.session_id, now)
 
-    async def _sign_in(self, phone: str, device_id: UUID, now: datetime) -> TokenPair:
-        user_id = await repository.get_or_create_user(self.db, phone, now)
+    async def _sign_in(self, phone: str, device: ClientDevice, now: datetime) -> TokenPair:
+        user_id = await repository.get_or_create_user(self.db, phone, device.language, now)
         # A new sign-in on the same device replaces whatever session it had before.
-        await repository.revoke_device_sessions(self.db, user_id, device_id, now)
+        await repository.revoke_device_sessions(self.db, user_id, device.device_id, now)
         session_id = await repository.create_session(
-            self.db, user_id, device_id, now + REFRESH_TOKEN_TTL, now
+            self.db, user_id, device.device_id, now + REFRESH_TOKEN_TTL, now
         )
         return await self._issue_tokens(user_id, session_id, now)
 

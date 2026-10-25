@@ -1,5 +1,6 @@
 import { createApiClient, type TokenPair } from '@flagman/api-client';
 
+import type { Language } from '../../../i18n';
 import { AuthSession, type TokenStore } from './authSession';
 
 /** Test doubles shared by the session and screen tests. */
@@ -105,7 +106,12 @@ export function memoryStore(
 }
 
 export function testSession(
-  options: { transport?: 'body' | 'cookie'; refreshToken?: string | null; now?: () => number } = {},
+  options: {
+    transport?: 'body' | 'cookie';
+    refreshToken?: string | null;
+    now?: () => number;
+    deviceLanguage?: () => Language;
+  } = {},
 ) {
   const api = fakeApi();
   const store = memoryStore(options.transport, options.refreshToken);
@@ -113,6 +119,8 @@ export function testSession(
     api: api.client,
     store,
     ...(options.now ? { now: options.now } : {}),
+    // Fixed unless a test asks otherwise: the device settings would leak into every request body.
+    deviceLanguage: options.deviceLanguage ?? (() => 'ru'),
   });
   return { api, store, session };
 }

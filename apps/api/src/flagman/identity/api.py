@@ -45,6 +45,7 @@ from flagman.identity.schemas import (
     TokenPair,
 )
 from flagman.identity.service import (
+    ClientDevice,
     ClientProfileService,
     SignInService,
     StaffSignInService,
@@ -154,8 +155,9 @@ async def request_otp(
 async def verify_otp(
     body: OtpVerifyRequest, request: Request, response: Response, service: Service
 ) -> TokenPair:
+    device = ClientDevice(body.device_id, body.language)
     tokens = await service.verify_otp(
-        body.phone, body.code, body.device_id, _client_ip(request), datetime.now(UTC)
+        body.phone, body.code, device, _client_ip(request), datetime.now(UTC)
     )
     return _deliver(tokens, body.refresh_token_transport, response)
 

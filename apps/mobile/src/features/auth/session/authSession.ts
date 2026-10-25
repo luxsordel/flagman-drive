@@ -1,5 +1,7 @@
 import type { createApiClient, TokenPair } from '@flagman/api-client';
+import { getLocales } from 'expo-localization';
 
+import { detectLanguage, type Language } from '../../../i18n';
 import { authErrorFromResponse, type AuthError } from './authErrors';
 
 export type ApiClient = ReturnType<typeof createApiClient>;
@@ -27,6 +29,8 @@ export interface AuthSessionOptions {
   api: ApiClient;
   store: TokenStore;
   now?: () => number;
+  /** Read at each sign-in: the server makes it the language of a client signing in first time. */
+  deviceLanguage?: () => Language;
 }
 
 // Refresh ahead of expiry so a request does not leave with a token that dies in flight.
@@ -42,6 +46,7 @@ export class AuthSession {
   private readonly api: ApiClient;
   private readonly store: TokenStore;
   private readonly now: () => number;
+  private readonly deviceLanguage: () => Language;
   private readonly listeners = new Set<() => void>();
   private status: AuthStatus = 'restoring';
   private pending: PendingSignIn | null = null;
@@ -50,10 +55,16 @@ export class AuthSession {
   // Bumped by forget(): a rotation that was in flight then must not store its tokens.
   private generation = 0;
 
-  constructor({ api, store, now = Date.now }: AuthSessionOptions) {
+  constructor({
+    api,
+    store,
+    now = Date.now,
+    deviceLanguage = () => detectLanguage(getLocales()),
+  }: AuthSessionOptions) {
     this.api = api;
     this.store = store;
     this.now = now;
+    this.deviceLanguage = deviceLanguage;
   }
 
   readonly subscribe = (listener: () => void): (() => void) => {
@@ -104,6 +115,7 @@ export class AuthSession {
           code,
           device_id: deviceId,
           refresh_token_transport: this.store.transport,
+          language: this.deviceLanguage(),
         },
       }),
     );

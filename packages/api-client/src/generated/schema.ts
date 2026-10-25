@@ -816,6 +816,11 @@ export interface components {
        */
       device_id: string;
       /**
+       * @description Language of the device. Becomes the app language only when this sign-in creates the client; a returning client keeps the language they chose. An unsupported device language is sent as `ru`.
+       * @default ru
+       */
+      language: components['schemas']['Language'];
+      /**
        * Phone
        * @description Belarusian mobile number in E.164 format.
        * @example +375291234567

@@ -1,4 +1,9 @@
-import { deviceId, json, problem, testSession, tokens } from './testing';
+import { getLocales } from 'expo-localization';
+
+import { AuthSession } from './authSession';
+import { deviceId, fakeApi, json, memoryStore, problem, testSession, tokens } from './testing';
+
+jest.mock('expo-localization', () => ({ getLocales: jest.fn() }));
 
 const phone = '+375291234567';
 const accepted = json({ expires_in: 300, resend_after: 60 }, 202);
@@ -62,6 +67,7 @@ describe('AuthSession sign-in', () => {
       code: '123456',
       device_id: deviceId,
       refresh_token_transport: 'body',
+      language: 'ru',
     });
     expect(session.getStatus()).toBe('signedIn');
     expect(store.refreshToken).toBe('refresh-1');
@@ -78,6 +84,32 @@ describe('AuthSession sign-in', () => {
 
     expect(api.calls.at(-1)?.body).toMatchObject({ refresh_token_transport: 'cookie' });
     expect(session.getStatus()).toBe('signedIn');
+  });
+
+  it('sends the device language for a client signing in the first time', async () => {
+    const { api, session } = testSession({ deviceLanguage: () => 'en' });
+    api.on('/auth/otp/request', accepted);
+    api.on('/auth/otp/verify', json(tokens(1)));
+    await session.requestCode(phone);
+
+    await session.verifyCode('123456');
+
+    expect(api.calls.at(-1)?.body).toMatchObject({ language: 'en' });
+  });
+
+  it('takes the device language from the phone settings by default', async () => {
+    const devicePreferences = [{ languageCode: 'de' }, { languageCode: 'en' }];
+    jest.mocked(getLocales).mockReturnValue(devicePreferences as ReturnType<typeof getLocales>);
+    const api = fakeApi();
+    const session = new AuthSession({ api: api.client, store: memoryStore() });
+    api.on('/auth/otp/request', accepted);
+    api.on('/auth/otp/verify', json(tokens(1)));
+    await session.requestCode(phone);
+
+    await session.verifyCode('123456');
+
+    // German is not supported, so the next language in the list wins.
+    expect(api.calls.at(-1)?.body).toMatchObject({ language: 'en' });
   });
 
   it('reports a keychain failure as an error instead of throwing', async () => {
