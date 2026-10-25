@@ -166,6 +166,8 @@ async def get_document_url(
             "model": Problem,
             "description": (
                 "`urn:flagman:problem:kyc-incomplete`: documents are missing; "
+                "`urn:flagman:problem:kyc-profile-incomplete`: no name or birth date in the "
+                "profile; "
                 "`urn:flagman:problem:kyc-locked`: already under review or approved."
             ),
         },

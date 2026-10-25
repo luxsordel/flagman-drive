@@ -157,8 +157,10 @@ class KycService:
     async def submit(self, user_id: UUID, now: datetime) -> KycApplicationOut:
         async with self.db.begin():
             record = await repository.get_application(self.db, user_id, for_update=True)
+            # Read after the lock: a name or birth date change in progress has committed by now.
+            applicant = await _applicant(self.db, user_id)
             # Raises for a missing application too: then every document is missing.
-            (record.state if record else KycApplication()).submit()
+            (record.state if record else KycApplication()).submit(applicant)
             if record is None:
                 raise RuntimeError("an application without documents passed the submission")
             await repository.set_submitted(self.db, record.id, now)
@@ -275,11 +277,7 @@ class KycReviewService:
         return record
 
     async def _applicant(self, user_id: UUID) -> Applicant:
-        person = (await identity.get_client_identities(self.db, [user_id])).get(user_id)
-        if person is None:
-            # The foreign key keeps the client while the application exists.
-            raise RuntimeError("an application without its client")
-        return Applicant(person.first_name, person.last_name, person.birth_date)
+        return await _applicant(self.db, user_id)
 
     async def _decide(
         self,
@@ -299,6 +297,15 @@ class KycReviewService:
                 AuditTarget(_APPLICATION_TARGET, application_id),
             ),
         )
+
+
+async def _applicant(db: AsyncSession, user_id: UUID) -> Applicant:
+    person = (await identity.get_client_identities(db, [user_id])).get(user_id)
+    if person is None:
+        # Only a signed-in client reaches the submission, and the foreign key keeps the client
+        # while the application exists.
+        raise RuntimeError("an application without its client")
+    return Applicant(person.first_name, person.last_name, person.birth_date)
 
 
 async def _delete_quietly(storage: DocumentStorage, key: str, kind: DocumentKind) -> None:

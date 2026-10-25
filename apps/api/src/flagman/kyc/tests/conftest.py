@@ -207,6 +207,13 @@ class Person:
     def update_profile(self, **fields: str | None) -> Any:
         return self.client.patch("/me", json=fields, headers=self.headers)
 
+    def fill_profile(self, birth_date: str = "1990-05-17") -> None:
+        """The name and birth date a submission needs."""
+        response = self.update_profile(
+            first_name="Анна", last_name="Ковалёва", birth_date=birth_date
+        )
+        assert response.status_code == HTTPStatus.OK, response.text
+
 
 @pytest.fixture
 def person(client: TestClient) -> Callable[[], Person]:
