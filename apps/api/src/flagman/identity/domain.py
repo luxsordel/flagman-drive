@@ -159,6 +159,9 @@ class RefreshTokenState:
 class RefreshDecision(StrEnum):
     ROTATE = "rotate"
     REUSE_DETECTED = "reuse-detected"
+    # A used token of a session that has already ended: turned down and logged, but nothing is
+    # revoked, or anyone holding an old copy could sign the owner out of the device at will.
+    REPLAYED_AFTER_END = "replayed-after-end"
     # Rotated moments ago by a concurrent request of the same client: the client retries with
     # the newer token, so the session is left alone.
     ALREADY_ROTATED = "already-rotated"
@@ -168,14 +171,17 @@ class RefreshDecision(StrEnum):
 def decide_refresh(state: RefreshTokenState | None, now: datetime) -> RefreshDecision:
     if state is None:
         return RefreshDecision.REJECT
+    session_ended = state.session_revoked or now >= state.session_expires_at
     if state.used_at is not None:
-        if not state.session_revoked and now < state.used_at + REFRESH_REUSE_GRACE:
+        if session_ended:
+            return RefreshDecision.REPLAYED_AFTER_END
+        if now < state.used_at + REFRESH_REUSE_GRACE:
             return RefreshDecision.ALREADY_ROTATED
-        # Later on, a used token comes back only if it was copied: either the thief or the owner
-        # is replaying it, and we cannot tell which, so every session of the device goes
-        # (docs/03-security.md).
+        # Later on, a used token of a live session comes back only if it was copied: either
+        # the thief or the owner is replaying it, and we cannot tell which, so every session
+        # of the device goes (docs/03-security.md).
         return RefreshDecision.REUSE_DETECTED
-    if state.session_revoked or now >= state.session_expires_at:
+    if session_ended:
         return RefreshDecision.REJECT
     return RefreshDecision.ROTATE
 

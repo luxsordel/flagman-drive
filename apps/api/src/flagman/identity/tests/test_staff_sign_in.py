@@ -469,6 +469,38 @@ def test_reused_refresh_cookie_ends_the_session(
     assert _refresh(client).status_code == HTTPStatus.UNAUTHORIZED
 
 
+def _revoked_at(settings: Settings, refresh_token: str) -> datetime | None:
+    rows = _query(
+        settings,
+        "SELECT s.revoked_at FROM staff_sessions s"
+        " JOIN staff_refresh_tokens t ON t.session_id = s.id WHERE t.token_hash = :token_hash",
+        token_hash=hash_refresh_token(refresh_token),
+    )
+    revoked_at: datetime | None = rows[0].revoked_at
+    return revoked_at
+
+
+def test_replay_after_logout_is_turned_down_without_revoking(
+    client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _first_sign_in(client, operator)
+    stolen = client.cookies[COOKIE]
+    assert _refresh(client).status_code == HTTPStatus.OK
+    assert client.post("/staff/auth/logout", json={}).status_code == HTTPStatus.NO_CONTENT
+    signed_out_at = _revoked_at(integration_settings, stolen)
+
+    replay = _refresh(client, stolen)
+
+    assert replay.status_code == HTTPStatus.UNAUTHORIZED
+    assert _problem(replay) == "refresh-token-invalid"
+    assert _revoked_at(integration_settings, stolen) == signed_out_at
+    assert "staff_refresh_token_replayed_after_session_end" in caplog.text
+    assert "staff_refresh_token_reuse_detected" not in caplog.text
+
+
 def test_refresh_brings_the_current_role(
     client: TestClient, operator: Staff, integration_settings: Settings
 ) -> None:

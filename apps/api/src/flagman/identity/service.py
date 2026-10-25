@@ -258,6 +258,12 @@ class SignInService:
                     user_id=str(record.user_id),
                     device_id=str(record.device_id),
                 )
+            elif record is not None and decision is RefreshDecision.REPLAYED_AFTER_END:
+                logger.warning(
+                    "refresh_token_replayed_after_session_end",
+                    user_id=str(record.user_id),
+                    device_id=str(record.device_id),
+                )
             elif record is not None and decision is RefreshDecision.ALREADY_ROTATED:
                 # Expected from web tabs; a spike for one device may still be worth a look.
                 logger.info(
@@ -580,6 +586,10 @@ class StaffSignInService:
                 # Staff have no device ids: the session the token belongs to is what goes.
                 await repository.revoke_staff_session(self.db, record.session_id, now)
                 logger.warning("staff_refresh_token_reuse_detected", staff_id=str(record.staff_id))
+            elif record is not None and decision is RefreshDecision.REPLAYED_AFTER_END:
+                logger.warning(
+                    "staff_refresh_token_replayed_after_session_end", staff_id=str(record.staff_id)
+                )
             elif record is not None and decision is RefreshDecision.ALREADY_ROTATED:
                 logger.info("staff_refresh_token_already_rotated", staff_id=str(record.staff_id))
         if tokens is None:

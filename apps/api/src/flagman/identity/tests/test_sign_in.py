@@ -410,6 +410,84 @@ def test_new_sign_in_on_the_same_device_ends_the_old_session(
     assert _refresh(client, new["refresh_token"]).status_code == HTTPStatus.OK
 
 
+def _sign_in_again_after_refresh(
+    client: TestClient, sms: FakeSms, phone: str, reset_limits: Callable[[], None]
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Issue #82: the old session's first token is used, then a new session replaces it."""
+    device_id = uuid.uuid4()
+    old = _sign_in(client, sms, phone, device_id=device_id)
+    _refresh(client, old["refresh_token"])
+    reset_limits()
+    new = _sign_in(client, sms, phone, device_id=device_id)
+    return old, new
+
+
+def _assert_replay_leaves_the_new_session_alone(
+    client: TestClient, old: dict[str, Any], new: dict[str, Any]
+) -> None:
+    # Repeated on purpose: each replay used to sign the owner out of the device again.
+    for _ in range(2):
+        replay = _refresh(client, old["refresh_token"])
+        assert replay.status_code == HTTPStatus.UNAUTHORIZED
+        assert replay.json()["type"] == "urn:flagman:problem:refresh-token-invalid"
+
+    assert _refresh(client, new["refresh_token"]).status_code == HTTPStatus.OK
+
+
+def test_replay_from_a_revoked_session_leaves_the_new_session_alone(
+    client: TestClient, sms: FakeSms, phone: str, reset_limits: Callable[[], None]
+) -> None:
+    old, new = _sign_in_again_after_refresh(client, sms, phone, reset_limits)
+
+    _assert_replay_leaves_the_new_session_alone(client, old, new)
+
+
+def test_late_replay_from_a_revoked_session_leaves_the_new_session_alone(
+    client: TestClient,
+    sms: FakeSms,
+    phone: str,
+    reset_limits: Callable[[], None],
+    integration_settings: Settings,
+) -> None:
+    old, new = _sign_in_again_after_refresh(client, sms, phone, reset_limits)
+    _end_reuse_grace(integration_settings, old["refresh_token"])
+
+    _assert_replay_leaves_the_new_session_alone(client, old, new)
+
+
+def test_replay_from_an_expired_session_revokes_nothing(
+    client: TestClient,
+    sms: FakeSms,
+    phone: str,
+    integration_settings: Settings,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    tokens = _sign_in(client, sms, phone)
+    _refresh(client, tokens["refresh_token"])
+    _end_reuse_grace(integration_settings, tokens["refresh_token"])
+    token_hash = hash_refresh_token(tokens["refresh_token"])
+    _query(
+        integration_settings,
+        "UPDATE auth_sessions SET expires_at = now() - interval '1 second'"
+        " WHERE id = (SELECT session_id FROM refresh_tokens WHERE token_hash = :token_hash)",
+        token_hash=token_hash,
+    )
+
+    replay = _refresh(client, tokens["refresh_token"])
+
+    assert replay.status_code == HTTPStatus.UNAUTHORIZED
+    assert replay.json()["type"] == "urn:flagman:problem:refresh-token-invalid"
+    revoked = _query(
+        integration_settings,
+        "SELECT s.revoked_at FROM auth_sessions s"
+        " JOIN refresh_tokens t ON t.session_id = s.id WHERE t.token_hash = :token_hash",
+        token_hash=token_hash,
+    )
+    assert revoked[0].revoked_at is None
+    assert "refresh_token_replayed_after_session_end" in caplog.text
+    assert "refresh_token_reuse_detected" not in caplog.text
+
+
 def test_unknown_refresh_token_is_rejected(client: TestClient) -> None:
     response = _refresh(client, secrets.token_urlsafe(32))
 
