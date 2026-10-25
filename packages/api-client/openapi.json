@@ -20,7 +20,10 @@
           "staff.disabled",
           "kyc.approved",
           "kyc.rejected",
-          "kyc.document_viewed"
+          "kyc.document_viewed",
+          "zone.created",
+          "zone.updated",
+          "zone.disabled"
         ],
         "title": "AuditAction",
         "type": "string"
@@ -182,7 +185,7 @@
       },
       "AuditTargetType": {
         "description": "Every kind of object an event names, so the admin panel can label each one.\n\nValues are stored as is, like AuditAction: renaming one leaves older events with the old name.",
-        "enum": ["staff_member", "kyc_application"],
+        "enum": ["staff_member", "kyc_application", "zone"],
         "title": "AuditTargetType",
         "type": "string"
       },
@@ -770,6 +773,58 @@
         "title": "OtpVerifyRequest",
         "type": "object"
       },
+      "PolygonGeometry": {
+        "additionalProperties": false,
+        "description": "A GeoJSON `Polygon` (RFC 7946): `[lon, lat]` pairs, the first point repeated at the end.",
+        "properties": {
+          "coordinates": {
+            "description": "One outer ring of at most 500 vertices, without holes: forbidden zones cut pieces out instead.",
+            "examples": [
+              [
+                [
+                  [27.55, 53.89],
+                  [27.57, 53.89],
+                  [27.57, 53.91],
+                  [27.55, 53.91],
+                  [27.55, 53.89]
+                ]
+              ]
+            ],
+            "items": {
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "maximum": 180.0,
+                    "minimum": -180.0,
+                    "type": "number"
+                  },
+                  {
+                    "maximum": 90.0,
+                    "minimum": -90.0,
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              "maxItems": 1000,
+              "type": "array"
+            },
+            "maxItems": 8,
+            "title": "Coordinates",
+            "type": "array"
+          },
+          "type": {
+            "const": "Polygon",
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": ["type", "coordinates"],
+        "title": "PolygonGeometry",
+        "type": "object"
+      },
       "Problem": {
         "additionalProperties": false,
         "description": "Error response body. Extension members are `request_id` and `errors`.",
@@ -1104,6 +1159,93 @@
         },
         "required": ["access_token", "expires_in"],
         "title": "TokenPair",
+        "type": "object"
+      },
+      "ZoneIn": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ZoneKind"
+          },
+          "name": {
+            "description": "1-100 characters.",
+            "maxLength": 1000,
+            "title": "Name",
+            "type": "string"
+          },
+          "polygon": {
+            "$ref": "#/components/schemas/PolygonGeometry"
+          }
+        },
+        "required": ["name", "kind", "polygon"],
+        "title": "ZoneIn",
+        "type": "object"
+      },
+      "ZoneKind": {
+        "description": "Values are stored as is: renaming one needs a migration.",
+        "enum": ["allowed", "forbidden"],
+        "title": "ZoneKind",
+        "type": "string"
+      },
+      "ZoneList": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ZoneOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": ["items"],
+        "title": "ZoneList",
+        "type": "object"
+      },
+      "ZoneOut": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "disabled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set once the zone is disabled: it no longer counts anywhere.",
+            "title": "Disabled At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ZoneKind"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "polygon": {
+            "$ref": "#/components/schemas/PolygonGeometry"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "kind", "polygon", "created_at", "updated_at", "disabled_at"],
+        "title": "ZoneOut",
         "type": "object"
       }
     },
@@ -1854,6 +1996,433 @@
         ],
         "summary": "All staff members, disabled ones included",
         "tags": ["staff"]
+      }
+    },
+    "/admin/zones": {
+      "get": {
+        "operationId": "list_zones_admin_zones_get",
+        "parameters": [
+          {
+            "description": "Also list disabled zones.",
+            "in": "query",
+            "name": "include_disabled",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Also list disabled zones.",
+              "title": "Include Disabled",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `admin` changes zones."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Zones in the order they were drawn",
+        "tags": ["zones"]
+      },
+      "post": {
+        "operationId": "create_zone_admin_zones_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `admin` changes zones."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:validation-error`: see `errors`. The polygon breaks a rule: `urn:flagman:problem:zone-polygon-not-closed`, `zone-polygon-too-few-vertices`, `zone-polygon-too-many-vertices`, `zone-polygon-holes`, `zone-polygon-self-intersecting`, `zone-polygon-outside-area`."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Draw a zone",
+        "tags": ["zones"]
+      }
+    },
+    "/admin/zones/{zone_id}": {
+      "get": {
+        "operationId": "get_zone_admin_zones__zone_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "zone_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Zone Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `admin` changes zones."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:zone-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "One zone",
+        "tags": ["zones"]
+      },
+      "put": {
+        "operationId": "update_zone_admin_zones__zone_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "zone_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Zone Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ZoneIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `admin` changes zones."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:zone-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:zone-disabled`: draw a new zone instead."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:validation-error`: see `errors`. The polygon breaks a rule: `urn:flagman:problem:zone-polygon-not-closed`, `zone-polygon-too-few-vertices`, `zone-polygon-too-many-vertices`, `zone-polygon-holes`, `zone-polygon-self-intersecting`, `zone-polygon-outside-area`."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Replace the name, the kind and the outline of a zone",
+        "tags": ["zones"]
+      }
+    },
+    "/admin/zones/{zone_id}/disable": {
+      "post": {
+        "description": "Disabling a disabled zone returns it as it is.",
+        "operationId": "disable_zone_admin_zones__zone_id__disable_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "zone_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Zone Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ZoneOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `admin` changes zones."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:zone-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Take a zone out of every check; it stays in the history",
+        "tags": ["zones"]
       }
     },
     "/auth/logout": {

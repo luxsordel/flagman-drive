@@ -17,6 +17,7 @@ dependencies = [
     "pyjwt>=2.15.1",
     "pyotp>=2.10.0",
     "redis>=8.1.0",
+    "shapely>=2.1",
     "sqlalchemy[asyncio]>=2.1.6",
     "structlog>=26.1.0",
     "uvicorn[standard]>=0.54.0",
@@ -25,6 +26,7 @@ dependencies = [
 [project.scripts]
 flagman-staff = "flagman.identity.cli:main"
 flagman-fleet = "flagman.fleet.cli:main"
+flagman-geo = "flagman.geo.cli:main"
 flagman-worker = "flagman.worker:main"
 
 [build-system]
@@ -44,6 +46,7 @@ dev = [
     "ruff>=0.17.1",
     "testcontainers[postgres,redis]>=4.15.0",
     "types-aioboto3[s3]>=15.5.0",
+    "types-shapely>=2.1",
 ]
 
 [tool.ruff]

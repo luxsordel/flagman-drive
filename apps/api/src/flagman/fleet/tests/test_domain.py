@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import (
     RENTAL_TRANSITIONS,
     AvailabilityRules,
@@ -10,7 +11,6 @@ from flagman.fleet.domain import (
     CarStatus,
     CarTransition,
     CarTransitionNotAllowedError,
-    GeoPoint,
     SnapshotFromFutureError,
     apply_transition,
     check_snapshot_time,

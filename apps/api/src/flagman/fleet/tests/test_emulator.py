@@ -6,9 +6,9 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
+from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import (
     CarState,
-    GeoPoint,
     TelemetrySignatureInvalidError,
     TelemetrySnapshot,
 )

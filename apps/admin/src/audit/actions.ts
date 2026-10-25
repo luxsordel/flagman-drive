@@ -17,6 +17,9 @@ const labelKeys: Record<AuditAction, ActionLabelKey> = {
   'kyc.approved': 'kycApproved',
   'kyc.rejected': 'kycRejected',
   'kyc.document_viewed': 'kycDocumentViewed',
+  'zone.created': 'zoneCreated',
+  'zone.updated': 'zoneUpdated',
+  'zone.disabled': 'zoneDisabled',
 };
 
 export const auditActions = Object.keys(labelKeys) as AuditAction[];

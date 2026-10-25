@@ -129,6 +129,62 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/zones': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Zones in the order they were drawn */
+    get: operations['list_zones_admin_zones_get'];
+    put?: never;
+    /** Draw a zone */
+    post: operations['create_zone_admin_zones_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/zones/{zone_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One zone */
+    get: operations['get_zone_admin_zones__zone_id__get'];
+    /** Replace the name, the kind and the outline of a zone */
+    put: operations['update_zone_admin_zones__zone_id__put'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/zones/{zone_id}/disable': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Take a zone out of every check; it stays in the history
+     * @description Disabling a disabled zone returns it as it is.
+     */
+    post: operations['disable_zone_admin_zones__zone_id__disable_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/auth/logout': {
     parameters: {
       query?: never;
@@ -471,7 +527,10 @@ export interface components {
       | 'staff.disabled'
       | 'kyc.approved'
       | 'kyc.rejected'
-      | 'kyc.document_viewed';
+      | 'kyc.document_viewed'
+      | 'zone.created'
+      | 'zone.updated'
+      | 'zone.disabled';
     /** AuditEventOut */
     AuditEventOut: {
       /**
@@ -538,7 +597,7 @@ export interface components {
      *     Values are stored as is, like AuditAction: renaming one leaves older events with the old name.
      * @enum {string}
      */
-    AuditTargetType: 'staff_member' | 'kyc_application';
+    AuditTargetType: 'staff_member' | 'kyc_application' | 'zone';
     /**
      * CheckStatus
      * @enum {string}
@@ -830,6 +889,46 @@ export interface components {
       refresh_token_transport: 'body' | 'cookie';
     };
     /**
+     * PolygonGeometry
+     * @description A GeoJSON `Polygon` (RFC 7946): `[lon, lat]` pairs, the first point repeated at the end.
+     */
+    PolygonGeometry: {
+      /**
+       * Coordinates
+       * @description One outer ring of at most 500 vertices, without holes: forbidden zones cut pieces out instead.
+       * @example [
+       *       [
+       *         [
+       *           27.55,
+       *           53.89
+       *         ],
+       *         [
+       *           27.57,
+       *           53.89
+       *         ],
+       *         [
+       *           27.57,
+       *           53.91
+       *         ],
+       *         [
+       *           27.55,
+       *           53.91
+       *         ],
+       *         [
+       *           27.55,
+       *           53.89
+       *         ]
+       *       ]
+       *     ]
+       */
+      coordinates: [number, number][][];
+      /**
+       * Type
+       * @constant
+       */
+      type: 'Polygon';
+    };
+    /**
      * Problem
      * @description Error response body. Extension members are `request_id` and `errors`.
      */
@@ -1022,6 +1121,54 @@ export interface components {
        * @constant
        */
       token_type: 'Bearer';
+    };
+    /** ZoneIn */
+    ZoneIn: {
+      kind: components['schemas']['ZoneKind'];
+      /**
+       * Name
+       * @description 1-100 characters.
+       */
+      name: string;
+      polygon: components['schemas']['PolygonGeometry'];
+    };
+    /**
+     * ZoneKind
+     * @description Values are stored as is: renaming one needs a migration.
+     * @enum {string}
+     */
+    ZoneKind: 'allowed' | 'forbidden';
+    /** ZoneList */
+    ZoneList: {
+      /** Items */
+      items: components['schemas']['ZoneOut'][];
+    };
+    /** ZoneOut */
+    ZoneOut: {
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Disabled At
+       * @description Set once the zone is disabled: it no longer counts anywhere.
+       */
+      disabled_at: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      kind: components['schemas']['ZoneKind'];
+      /** Name */
+      name: string;
+      polygon: components['schemas']['PolygonGeometry'];
+      /**
+       * Updated At
+       * Format: date-time
+       */
+      updated_at: string;
     };
   };
   responses: never;
@@ -1501,6 +1648,339 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:forbidden`: only `admin` sees the staff list. */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_zones_admin_zones_get: {
+    parameters: {
+      query?: {
+        /** @description Also list disabled zones. */
+        include_disabled?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ZoneList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `admin` changes zones. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  create_zone_admin_zones_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ZoneIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ZoneOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `admin` changes zones. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:validation-error`: see `errors`. The polygon breaks a rule: `urn:flagman:problem:zone-polygon-not-closed`, `zone-polygon-too-few-vertices`, `zone-polygon-too-many-vertices`, `zone-polygon-holes`, `zone-polygon-self-intersecting`, `zone-polygon-outside-area`. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_zone_admin_zones__zone_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        zone_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ZoneOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `admin` changes zones. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:zone-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  update_zone_admin_zones__zone_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        zone_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ZoneIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ZoneOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `admin` changes zones. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:zone-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:zone-disabled`: draw a new zone instead. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:validation-error`: see `errors`. The polygon breaks a rule: `urn:flagman:problem:zone-polygon-not-closed`, `zone-polygon-too-few-vertices`, `zone-polygon-too-many-vertices`, `zone-polygon-holes`, `zone-polygon-self-intersecting`, `zone-polygon-outside-area`. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  disable_zone_admin_zones__zone_id__disable_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        zone_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ZoneOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `admin` changes zones. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:zone-not-found`. */
+      404: {
         headers: {
           [name: string]: unknown;
         };

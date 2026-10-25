@@ -10,17 +10,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
+from flagman.core.geo import SRID_WGS84, GeoPoint
 from flagman.fleet.domain import (
     Car,
     CarIdentityTakenError,
     CarModelSpec,
     CarState,
     CarStatus,
-    GeoPoint,
     SnapshotOutcome,
 )
-from flagman.fleet.models import SRID_WGS84, CarModel
 from flagman.fleet.models import Car as CarRow
+from flagman.fleet.models import CarModel
 
 _point = cast(CarRow.location, Geometry)
 _LAT = func.ST_Y(_point).label("lat")
