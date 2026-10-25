@@ -502,6 +502,10 @@ function Decision({
   const [pending, setPending] = useState<'approve' | 'reject' | null>(null);
   const [approveError, setApproveError] = useState<DecisionError | null>(null);
   const [rejectError, setRejectError] = useState<DecisionError | null>(null);
+  // Sent before the submission asked for the profile (#114): the API refuses the approval, and
+  // the client cannot fill the profile in while the application waits.
+  const profileMissing =
+    !application.first_name || !application.last_name || application.birth_date === null;
 
   const decide = (
     decision: 'approve' | 'reject',
@@ -554,37 +558,46 @@ function Decision({
 
   return (
     <div className="kyc-decision">
-      <form
-        className="card decision-form"
-        noValidate
-        aria-labelledby="kyc-approve-title"
-        onSubmit={approve}
-      >
-        <h2 id="kyc-approve-title">{t('kyc.approve.title')}</h2>
-        <label className="stacked-label">
-          {t('kyc.approve.licenseIssuedOn')}
-          <input
-            className="field"
-            type="date"
-            value={licenseIssuedOn}
-            min={application.birth_date ?? undefined}
-            max={apiToday()}
-            aria-invalid={approveError === 'dateRequired' || approveError === 'licenseDateInvalid'}
-            onChange={(event) => {
-              setLicenseIssuedOn(event.target.value);
-            }}
-          />
-        </label>
-        <p className="muted">{t('kyc.approve.hint')}</p>
-        {approveError && (
-          <p role="alert" className="login-error">
-            {errorText(approveError)}
-          </p>
-        )}
-        <button type="submit" className="button button-primary" disabled={pending !== null}>
-          {pending === 'approve' ? t('kyc.pending') : t('kyc.approve.submit')}
-        </button>
-      </form>
+      {profileMissing ? (
+        <section className="card" aria-labelledby="kyc-profile-missing-title">
+          <h2 id="kyc-profile-missing-title">{t('kyc.profileMissing.title')}</h2>
+          <p>{t('kyc.profileMissing.text')}</p>
+        </section>
+      ) : (
+        <form
+          className="card decision-form"
+          noValidate
+          aria-labelledby="kyc-approve-title"
+          onSubmit={approve}
+        >
+          <h2 id="kyc-approve-title">{t('kyc.approve.title')}</h2>
+          <label className="stacked-label">
+            {t('kyc.approve.licenseIssuedOn')}
+            <input
+              className="field"
+              type="date"
+              value={licenseIssuedOn}
+              min={application.birth_date ?? undefined}
+              max={apiToday()}
+              aria-invalid={
+                approveError === 'dateRequired' || approveError === 'licenseDateInvalid'
+              }
+              onChange={(event) => {
+                setLicenseIssuedOn(event.target.value);
+              }}
+            />
+          </label>
+          <p className="muted">{t('kyc.approve.hint')}</p>
+          {approveError && (
+            <p role="alert" className="login-error">
+              {errorText(approveError)}
+            </p>
+          )}
+          <button type="submit" className="button button-primary" disabled={pending !== null}>
+            {pending === 'approve' ? t('kyc.pending') : t('kyc.approve.submit')}
+          </button>
+        </form>
+      )}
       <form
         className="card decision-form"
         noValidate
@@ -608,6 +621,19 @@ function Decision({
           {t('kyc.reject.length', { length: reasonLength(reason), max: rejectionReasonMaxLength })}
         </p>
         <p className="muted">{t('kyc.reject.hint')}</p>
+        {profileMissing && (
+          <button
+            type="button"
+            className="button"
+            disabled={pending !== null}
+            onClick={() => {
+              setReason(t('kyc.profileMissing.reason'));
+              setRejectError(null);
+            }}
+          >
+            {t('kyc.profileMissing.useReason')}
+          </button>
+        )}
         {rejectError && (
           <p role="alert" className="login-error">
             {errorText(rejectError)}

@@ -200,6 +200,12 @@
       "rotate": "Rotate",
       "close": "Close"
     },
+    "profileMissing": {
+      "title": "The client's profile is not filled in",
+      "text": "The application was sent without a last name, first name or date of birth, so it cannot be approved, and the client cannot complete the profile while it is under review. Reject it asking to fill in the profile: the client will then do so and send the documents again.",
+      "useReason": "Use this reason",
+      "reason": "Fill in your last name, first name and date of birth in the profile as in your passport, and send the documents again."
+    },
     "approve": {
       "title": "Approve",
       "licenseIssuedOn": "License issue date (from the license photo)",
