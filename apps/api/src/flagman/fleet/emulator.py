@@ -5,9 +5,9 @@ from datetime import datetime
 
 import structlog
 
+from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import (
     CarState,
-    GeoPoint,
     TelemetrySignatureInvalidError,
     TelemetrySnapshot,
 )

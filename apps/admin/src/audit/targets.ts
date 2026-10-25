@@ -10,6 +10,7 @@ type TargetLabelKey = keyof typeof ru.audit.targets;
 const labelKeys: Record<AuditTargetType, TargetLabelKey> = {
   staff_member: 'staffMember',
   kyc_application: 'kycApplication',
+  zone: 'zone',
 };
 
 export function isAuditTargetType(value: string): value is AuditTargetType {

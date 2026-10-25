@@ -8,6 +8,7 @@ from enum import StrEnum
 from http import HTTPStatus
 
 from flagman.core.errors import AppError
+from flagman.core.geo import GeoPoint
 
 PLATE_MAX_LENGTH = 16
 VIN_LENGTH = 17
@@ -126,16 +127,6 @@ def apply_transition(status: CarStatus, transition: CarTransition) -> CarStatus:
     if status not in rule.sources:
         raise CarTransitionNotAllowedError
     return rule.target
-
-
-@dataclass(frozen=True)
-class GeoPoint:
-    lat: float
-    lon: float
-
-    def __post_init__(self) -> None:
-        if not (-90 <= self.lat <= 90 and -180 <= self.lon <= 180):  # noqa: PLR2004
-            raise ValueError("coordinates out of range")
 
 
 @dataclass(frozen=True)

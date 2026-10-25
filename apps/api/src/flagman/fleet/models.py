@@ -14,6 +14,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
+from flagman.core.geo import SRID_WGS84
 from flagman.fleet.domain import (
     BRAND_MAX_LENGTH,
     MODEL_NAME_MAX_LENGTH,
@@ -24,8 +25,6 @@ from flagman.fleet.domain import (
 )
 
 STATUS_LENGTH = 16
-# Coordinates as GPS gives them; geography measures distances in meters on the sphere.
-SRID_WGS84 = 4326
 
 _STATE_COLUMNS = ("location", "battery_pct", "doors_locked", "ignition_on", "state_at")
 

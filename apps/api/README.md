@@ -109,6 +109,22 @@ uv run flagman-staff reset-totp --email admin@flagman.by
 uv run flagman-staff disable --email admin@flagman.by
 ```
 
+## Демо-зона
+
+Команда `flagman-geo seed` добавляет одну разрешённую зону внутри МКАД, над той же областью, где эмулятор
+ставит машины. Повторный запуск ничего не меняет, в том числе если зону уже поправили в админке.
+С `API_ENV=prod` команда не работает.
+
+```bash
+uv run flagman-geo seed
+```
+
+В Docker — из корня репозитория, после миграций:
+
+```bash
+docker compose --env-file .env -f infra/docker-compose.yml run --rm api flagman-geo seed
+```
+
 ## Демо-парк
 
 Машины для пилота добавляет команда `flagman-fleet seed`: 4 модели китайских электромобилей и

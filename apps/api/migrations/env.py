@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 # `models` here as modules get tables, otherwise autogenerate will not see them.
 import flagman.audit.models
 import flagman.fleet.models
+import flagman.geo.models
 import flagman.identity.models
 import flagman.kyc.models  # noqa: F401
 from flagman.core.config import load_settings

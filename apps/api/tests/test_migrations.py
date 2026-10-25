@@ -43,6 +43,7 @@ async def test_migrations_match_the_models(integration_settings: Settings) -> No
     # Importing the models registers their tables on Base.metadata.
     import flagman.audit.models  # noqa: PLC0415
     import flagman.fleet.models  # noqa: PLC0415
+    import flagman.geo.models  # noqa: PLC0415
     import flagman.identity.models  # noqa: PLC0415
     import flagman.kyc.models  # noqa: F401, PLC0415
 

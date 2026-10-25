@@ -115,11 +115,15 @@
       "staffDisabled": "Сотрудник отключён",
       "kycApproved": "Документы одобрены",
       "kycRejected": "Документы отклонены",
-      "kycDocumentViewed": "Просмотр фото документа"
+      "kycDocumentViewed": "Просмотр фото документа",
+      "zoneCreated": "Зона создана",
+      "zoneUpdated": "Зона изменена",
+      "zoneDisabled": "Зона отключена"
     },
     "targets": {
       "staffMember": "Сотрудник",
-      "kycApplication": "Заявка KYC"
+      "kycApplication": "Заявка KYC",
+      "zone": "Зона"
     },
     "noTarget": "нет",
     "loading": "Загружаем журнал…",

@@ -15,8 +15,9 @@ from conftest import SettingsFactory
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.geo import GeoPoint
 from flagman.fleet import repository, service
-from flagman.fleet.domain import CarState, CarStatus, GeoPoint
+from flagman.fleet.domain import CarState, CarStatus
 from flagman.fleet.schemas import MAX_TELEMETRY_BODY_BYTES, MAX_TELEMETRY_CARS
 from flagman.fleet.seed import DEMO_MODELS
 from flagman.fleet.signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, sign

@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.geo import GeoPoint
 from flagman.fleet import repository, service
 from flagman.fleet.domain import (
     CarIdentityTakenError,
@@ -18,7 +19,6 @@ from flagman.fleet.domain import (
     CarStatus,
     CarTransition,
     CarTransitionNotAllowedError,
-    GeoPoint,
     SnapshotFromFutureError,
     SnapshotOutcome,
     emulator_car_id,

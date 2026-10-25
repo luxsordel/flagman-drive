@@ -115,11 +115,15 @@
       "staffDisabled": "Staff member disabled",
       "kycApproved": "Documents approved",
       "kycRejected": "Documents rejected",
-      "kycDocumentViewed": "Document photo viewed"
+      "kycDocumentViewed": "Document photo viewed",
+      "zoneCreated": "Zone created",
+      "zoneUpdated": "Zone changed",
+      "zoneDisabled": "Zone disabled"
     },
     "targets": {
       "staffMember": "Staff member",
-      "kycApplication": "KYC application"
+      "kycApplication": "KYC application",
+      "zone": "Zone"
     },
     "noTarget": "none",
     "loading": "Loading the log…",

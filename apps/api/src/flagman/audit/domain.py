@@ -46,6 +46,9 @@ class AuditAction(StrEnum):
     KYC_APPROVED = "kyc.approved"
     KYC_REJECTED = "kyc.rejected"
     KYC_DOCUMENT_VIEWED = "kyc.document_viewed"
+    ZONE_CREATED = "zone.created"
+    ZONE_UPDATED = "zone.updated"
+    ZONE_DISABLED = "zone.disabled"
 
 
 class AuditTargetType(StrEnum):
@@ -56,6 +59,7 @@ class AuditTargetType(StrEnum):
 
     STAFF_MEMBER = "staff_member"
     KYC_APPLICATION = "kyc_application"
+    ZONE = "zone"
 
 
 @dataclass(frozen=True)
