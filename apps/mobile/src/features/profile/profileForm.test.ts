@@ -81,12 +81,41 @@ describe('checkDraft', () => {
     });
   });
 
-  it('rejects names longer than the limit', () => {
-    expect(checkDraft(draft({ lastName: 'a'.repeat(51) }), today)).toEqual({
+  it('shows names with null from the API as blanks', () => {
+    expect(draftFromProfile(profile({ first_name: null, last_name: null }))).toMatchObject({
+      firstName: '',
+      lastName: '',
+    });
+  });
+
+  it('accepts names up to the API limit and rejects longer ones', () => {
+    expect(checkDraft(draft({ lastName: 'a'.repeat(100) }), today).ok).toBe(true);
+    expect(checkDraft(draft({ lastName: 'a'.repeat(101) }), today)).toEqual({
       ok: false,
       errors: { lastName: 'tooLong' },
     });
   });
+
+  it('counts a letter with a combining mark as one character, as the API does', () => {
+    const name = 'E\u0308'.repeat(100);
+    const result = checkDraft(draft({ firstName: name }), today);
+    expect(result.ok && result.update.first_name).toBe('\u00cb'.repeat(100));
+  });
+
+  it('turns any run of spaces into one plain space', () => {
+    const result = checkDraft(draft({ firstName: 'Anna\u00a0 \u2009Maria' }), today);
+    expect(result.ok && result.update.first_name).toBe('Anna Maria');
+  });
+
+  it.each(['An\u200bna', 'An\u202ena', 'An\nna', 'An\u2028na', 'An\u0000na'])(
+    'rejects a name with an invisible or control character: %j',
+    (firstName) => {
+      expect(checkDraft(draft({ firstName }), today)).toEqual({
+        ok: false,
+        errors: { firstName: 'nameCharacters' },
+      });
+    },
+  );
 
   it.each([
     ['1995-03-15', 'dateFormat'],
@@ -96,6 +125,7 @@ describe('checkDraft', () => {
     ['00.01.1995', 'dateInvalid'],
     ['15.13.1995', 'dateInvalid'],
     ['15.03.1899', 'dateInvalid'],
+    ['31.12.1905', 'dateInvalid'],
     ['24.10.2026', 'dateFuture'],
   ])('rejects the date of birth %s as %s', (birthDate, error) => {
     expect(checkDraft(draft({ birthDate }), today)).toEqual({
@@ -104,15 +134,16 @@ describe('checkDraft', () => {
     });
   });
 
-  it.each(['29.02.2000', '23.10.2026', '01.01.1900', ' 15.03.1995 '])(
+  it.each(['29.02.2000', '23.10.2026', '01.01.1906', ' 15.03.1995 '])(
     'accepts the date of birth %p',
     (birthDate) => {
       expect(checkDraft(draft({ birthDate }), today).ok).toBe(true);
     },
   );
 
-  it('rejects the last day before the oldest accepted year', () => {
-    expect(checkDraft(draft({ birthDate: '31.12.1899' }), today)).toEqual({
+  it('accepts dates back to 1 January 120 years ago, as the API does', () => {
+    expect(checkDraft(draft({ birthDate: '01.01.1907' }), new Date(2027, 0, 1)).ok).toBe(true);
+    expect(checkDraft(draft({ birthDate: '31.12.1906' }), new Date(2027, 0, 1))).toEqual({
       ok: false,
       errors: { birthDate: 'dateInvalid' },
     });
@@ -127,13 +158,17 @@ describe('checkDraft', () => {
     });
   });
 
-  it.each(['ivan', 'ivan@', 'ivan@example', 'iv an@example.com'])(
-    'rejects the email %s',
-    (email) => {
-      expect(checkDraft(draft({ email }), today)).toEqual({
-        ok: false,
-        errors: { email: 'email' },
-      });
-    },
-  );
+  it.each([
+    'ivan',
+    'ivan@',
+    'ivan@example',
+    'iv an@example.com',
+    'иван@example.com',
+    'ivan@пример.by',
+  ])('rejects the email %s', (email) => {
+    expect(checkDraft(draft({ email }), today)).toEqual({
+      ok: false,
+      errors: { email: 'email' },
+    });
+  });
 });

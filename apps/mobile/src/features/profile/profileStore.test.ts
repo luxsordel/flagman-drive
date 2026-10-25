@@ -1,4 +1,4 @@
-import { createMockProfileApi, type ProfileResult } from './profileApi';
+import type { ProfileResult } from './profileApi';
 import { followProfileLanguage, ProfileStore } from './profileStore';
 import { fakeProfileApi, ok, profile } from './testing';
 
@@ -206,15 +206,5 @@ describe('followProfileLanguage', () => {
     store.reset();
 
     expect(apply).not.toHaveBeenCalled();
-  });
-});
-
-describe('createMockProfileApi', () => {
-  it('keeps updates for later reads', async () => {
-    const api = createMockProfileApi({ initial: profile(), delayMs: 0 });
-
-    await api.updateProfile({ email: 'ivan@example.com' });
-
-    await expect(api.getProfile()).resolves.toEqual(ok(profile({ email: 'ivan@example.com' })));
   });
 });
