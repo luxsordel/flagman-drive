@@ -47,3 +47,11 @@ Expo SDK — согласованный набор версий: `expo-*`, `reac
 - CI для JS-частей стал дольше примерно на минуту (сборка бандлов).
 - Когда `typescript-eslint` начнёт поддерживать TypeScript 7, линт `packages/*` нужно перевести на ту же
   версию, что и typecheck: сейчас линт фактически идёт на TypeScript из корня `node_modules`.
+
+## Дополнение от 2026-10-26: dev-сборка (#92)
+
+С картой MapLibre приложение на телефоне запускается в dev-сборке (`expo-dev-client`), см.
+[ADR-0016](0016-maplibre-react-native-dev-build.md). Нативный пакет `@maplibre/maplibre-react-native` не входит
+в SDK, поэтому `expo install --check` его версию не проверяет: обновлять его вместе с SDK и проверять
+совместимость по его `peerDependencies` (`expo`, `react-native`). После обновления SDK или нативных зависимостей
+dev-сборку нужно пересобрать (`npm run android --workspace @flagman/mobile`).
