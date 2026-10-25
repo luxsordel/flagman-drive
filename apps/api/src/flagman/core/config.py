@@ -63,8 +63,8 @@ class WorkerSettings(DatabaseSettings):
     """`flagman-worker` gets none of the API secrets: it does not sign or check anything."""
 
     # Ended sessions and their refresh tokens are kept this long before the periodic cleanup
-    # deletes them (#46). Until then an old used token of an ended session, when replayed,
-    # still revokes the sessions of its device (docs/adr/0009, to be fixed in #89).
+    # deletes them (#46). Not a security knob: a replayed token of an ended session revokes
+    # nothing either way (docs/adr/0009).
     auth_cleanup_retention_days: int = Field(default=7, ge=1)
 
 

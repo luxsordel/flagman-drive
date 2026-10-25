@@ -82,6 +82,14 @@ class OtpVerifyRequest(BaseModel):
             "and left out of the response body."
         ),
     )
+    language: Language = Field(
+        default=Language.RU,
+        description=(
+            "Language of the device. Becomes the app language only when this sign-in "
+            "creates the client; a returning client keeps the language they chose. "
+            "An unsupported device language is sent as `ru`."
+        ),
+    )
 
 
 class RefreshRequest(BaseModel):
