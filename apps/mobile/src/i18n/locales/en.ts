@@ -144,6 +144,11 @@ export const en: Translation = {
       submit: 'Send for review',
       back: 'Back',
     },
+    profileRequired: {
+      title: 'Fill in your profile first',
+      text: 'Your documents are checked against the last name, first name and date of birth in your profile. While they are under review, these cannot be changed',
+      open: 'Fill in the profile',
+    },
     errors: {
       network: 'Cannot reach the server. Check your connection',
       sessionExpired: 'Your session has ended. Sign out in your profile and sign in again',
@@ -151,6 +156,8 @@ export const en: Translation = {
       unsupported: 'Could not read the photo. A JPEG, PNG or WebP image is needed',
       locked: 'Your documents are already under review and cannot be changed',
       incomplete: 'Not all documents are uploaded',
+      profileIncomplete:
+        'Fill in your last name, first name and date of birth in the profile first',
       rateLimited: 'Too many attempts. Try again later',
       rateLimitedFor: 'Too many attempts. Try again in {{time}}',
       storageUnavailable: 'Document upload is temporarily unavailable. Try again later',

@@ -1,4 +1,5 @@
-import { canEditDocuments, firstStep, isUploaded, stepAfter } from './kycFlow';
+import { profile } from '../profile/testing';
+import { canEditDocuments, firstStep, hasProfileForKyc, isUploaded, stepAfter } from './kycFlow';
 import { kycApplication } from './testing';
 
 describe('kycFlow', () => {
@@ -7,6 +8,14 @@ describe('kycFlow', () => {
     expect(canEditDocuments('rejected')).toBe(true);
     expect(canEditDocuments('pending')).toBe(false);
     expect(canEditDocuments('approved')).toBe(false);
+  });
+
+  it('needs the name and birth date the documents are checked against', () => {
+    expect(hasProfileForKyc(profile())).toBe(true);
+    expect(hasProfileForKyc(profile({ email: null }))).toBe(true);
+    expect(hasProfileForKyc(profile({ first_name: null }))).toBe(false);
+    expect(hasProfileForKyc(profile({ last_name: '' }))).toBe(false);
+    expect(hasProfileForKyc(profile({ birth_date: null }))).toBe(false);
   });
 
   it('starts at the first missing document in the step order', () => {

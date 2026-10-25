@@ -1,6 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react-native';
 
 import { initI18n } from '../../i18n';
+import type { Profile } from '../profile/profileApi';
+import { ProfileProvider } from '../profile/ProfileProvider';
+import { profile, profileStoreWith } from '../profile/testing';
 import { KycProvider } from './KycProvider';
 import { KycStatusScreen } from './KycStatusScreen';
 import { KycStore } from './kycStore';
@@ -15,11 +18,17 @@ jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 const allDocuments = ['license_front', 'license_back', 'passport', 'selfie_with_license'] as const;
 
 async function renderStatus(...answers: KycResult[]) {
+  return renderStatusWith(profile(), ...answers);
+}
+
+async function renderStatusWith(client: Profile, ...answers: KycResult[]) {
   const { api } = fakeKycApi();
   for (const answer of answers) api.getApplication.mockResolvedValueOnce(answer);
   await render(
     <KycProvider store={new KycStore(api)}>
-      <KycStatusScreen />
+      <ProfileProvider store={profileStoreWith(client).store}>
+        <KycStatusScreen />
+      </ProfileProvider>
     </KycProvider>,
   );
   return api;
@@ -37,6 +46,21 @@ describe('KycStatusScreen', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Загрузить документы' }));
     expect(mockRouter.push).toHaveBeenCalledWith('/kyc/upload');
   });
+
+  it.each(['not_submitted', 'rejected'] as const)(
+    'leads to the profile before documents when the name or birth date is missing (%s)',
+    async (status) => {
+      await renderStatusWith(profile({ birth_date: null }), ok(kycApplication([], { status })));
+
+      expect(await screen.findByText('Сначала заполните профиль')).toBeOnTheScreen();
+      expect(screen.queryByRole('button', { name: 'Загрузить документы' })).not.toBeOnTheScreen();
+      expect(
+        screen.queryByRole('button', { name: 'Исправить и отправить заново' }),
+      ).not.toBeOnTheScreen();
+      await fireEvent.press(screen.getByRole('button', { name: 'Заполнить профиль' }));
+      expect(mockRouter.push).toHaveBeenCalledWith('/profile');
+    },
+  );
 
   it('shows an application under review with the date it was sent', async () => {
     const api = await renderStatus(

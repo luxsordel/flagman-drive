@@ -8,6 +8,7 @@ export type KycErrorKind =
   | 'unsupported'
   | 'locked'
   | 'incomplete'
+  | 'profileIncomplete'
   | 'rateLimited'
   | 'storageUnavailable'
   | 'cameraDenied'
@@ -25,6 +26,7 @@ const kindByProblem: Readonly<Record<string, KycErrorKind>> = {
   'document-type-unsupported': 'unsupported',
   'kyc-locked': 'locked',
   'kyc-incomplete': 'incomplete',
+  'kyc-profile-incomplete': 'profileIncomplete',
   'rate-limited': 'rateLimited',
   'document-storage-unavailable': 'storageUnavailable',
 };

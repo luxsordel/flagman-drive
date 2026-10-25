@@ -1,4 +1,5 @@
 import type { Profile, ProfileApi, ProfileResult, ProfileUpdate } from './profileApi';
+import { ProfileStore } from './profileStore';
 
 /** Test doubles shared by the profile tests. */
 
@@ -21,4 +22,11 @@ export function fakeProfileApi() {
     getProfile: jest.fn<Promise<ProfileResult>, []>(),
     updateProfile: jest.fn<Promise<ProfileResult>, [ProfileUpdate]>(),
   } satisfies ProfileApi;
+}
+
+/** A store that loads `value`, for screens outside the profile that read it. */
+export function profileStoreWith(value: Profile) {
+  const api = fakeProfileApi();
+  api.getProfile.mockResolvedValue(ok(value));
+  return { api, store: new ProfileStore(api) };
 }
