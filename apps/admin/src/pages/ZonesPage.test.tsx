@@ -61,7 +61,10 @@ const closedTriangle = [[...triangle, triangle[0]]];
 /** A zone in the list beside the map, not its stand-in on the map. */
 async function listedZone(name: string): Promise<HTMLElement> {
   const list = await screen.findByRole('list', { name: ru.zones.list });
-  return within(list).getByRole('button', { name: new RegExp(name) });
+  // The button's name also holds the kind of the zone, so it is matched by the zone name inside it.
+  return within(list).getByRole('button', {
+    name: (accessibleName) => accessibleName.includes(name),
+  });
 }
 
 describe('zones page', () => {
