@@ -37,7 +37,8 @@ async function renderProfile(
       </KycProvider>
     </AuthProvider>,
   );
-  if (firstLoad.ok) await screen.findByDisplayValue('Ivan');
+  // The form appears once the profile is loaded.
+  if (firstLoad.ok) await screen.findByLabelText('Имя');
   return { auth, api, store };
 }
 
@@ -66,12 +67,12 @@ describe('ProfileScreen', () => {
     expect(await screen.findByText('На проверке')).toBeOnTheScreen();
   });
 
-  it('says the phone is unknown instead of showing a made-up number', async () => {
-    await renderProfile(ok(profile({ phone: '' })));
+  it('shows blanks for names the client has not filled in yet', async () => {
+    await renderProfile(ok(profile({ first_name: null, last_name: null, birth_date: null })));
 
-    expect(
-      screen.getByText('Номер появится, когда профиль начнёт храниться на сервере'),
-    ).toBeOnTheScreen();
+    expect(field('Имя')).toHaveDisplayValue('');
+    expect(field('Фамилия')).toHaveDisplayValue('');
+    expect(field('Дата рождения')).toHaveDisplayValue('');
   });
 
   it('saves the edited fields and shows what was kept', async () => {
@@ -125,13 +126,13 @@ describe('ProfileScreen', () => {
     const { api } = await renderProfile();
 
     await fireEvent.changeText(field('Имя'), '');
-    await fireEvent.changeText(field('Фамилия'), 'a'.repeat(51));
+    await fireEvent.changeText(field('Фамилия'), 'a'.repeat(101));
     await fireEvent.changeText(field('Дата рождения'), '31021995');
     await fireEvent.changeText(field('Email'), 'anna@');
     await fireEvent.press(saveButton());
 
     expect(screen.getByText('Заполните это поле')).toBeOnTheScreen();
-    expect(screen.getByText('Слишком длинно. Максимум символов: 50')).toBeOnTheScreen();
+    expect(screen.getByText('Слишком длинно. Максимум символов: 100')).toBeOnTheScreen();
     expect(screen.getByText('Такой даты нет. Проверьте день, месяц и год')).toBeOnTheScreen();
     expect(
       screen.getByText('Проверьте адрес: он должен быть вида name@example.com'),
@@ -154,6 +155,16 @@ describe('ProfileScreen', () => {
 
     expect(screen.queryByText('Нет связи с сервером. Проверьте интернет')).toBeNull();
     expect(screen.getByText('Заполните это поле')).toBeOnTheScreen();
+  });
+
+  it('shows a date the API refused at the date field', async () => {
+    const { api } = await renderProfile();
+    api.updateProfile.mockResolvedValue({ ok: false, error: { kind: 'birthDateInvalid' } });
+
+    await fireEvent.press(saveButton());
+
+    expect(await screen.findByText('Сервер не принял эту дату. Проверьте её')).toBeOnTheScreen();
+    expect(screen.queryByText('Сервер не принял дату рождения. Проверьте её')).toBeNull();
   });
 
   it('switches the app language through the profile', async () => {

@@ -47,11 +47,14 @@ async def delete_pending_otp(db: AsyncSession, phone: str) -> None:
     await db.execute(delete(PendingOtp).where(PendingOtp.phone == phone))
 
 
-async def get_or_create_user(db: AsyncSession, phone: str, now: datetime) -> UUID:
-    # ON CONFLICT instead of select-then-insert: two first sign-ins at once must not both insert.
+async def get_or_create_user(
+    db: AsyncSession, phone: str, language: Language, now: datetime
+) -> UUID:
+    # ON CONFLICT instead of select-then-insert: two first sign-ins at once must not both insert,
+    # and a returning client keeps their language.
     created: UUID | None = await db.scalar(
         insert(User)
-        .values(phone=phone, created_at=now)
+        .values(phone=phone, language=language.value, created_at=now)
         .on_conflict_do_nothing(index_elements=[User.phone])
         .returning(User.id)
     )

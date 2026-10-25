@@ -754,6 +754,11 @@
             "title": "Device Id",
             "type": "string"
           },
+          "language": {
+            "$ref": "#/components/schemas/Language",
+            "default": "ru",
+            "description": "Language of the device. Becomes the app language only when this sign-in creates the client; a returning client keeps the language they chose. An unsupported device language is sent as `ru`."
+          },
           "phone": {
             "description": "Belarusian mobile number in E.164 format.",
             "examples": ["+375291234567"],

@@ -136,10 +136,18 @@ def _state(
         ),
         (_state(used_ago=REFRESH_REUSE_GRACE), RefreshDecision.REUSE_DETECTED),
         (_state(used_ago=timedelta(days=1)), RefreshDecision.REUSE_DETECTED),
-        # Reuse wins over revocation: a stolen old token still burns the device's new sessions,
-        # and a revoked session gets no grace, it has nothing left to retry for.
-        (_state(used_ago=timedelta(days=1), revoked=True), RefreshDecision.REUSE_DETECTED),
-        (_state(used_ago=timedelta(0), revoked=True), RefreshDecision.REUSE_DETECTED),
+        # An ended session has nothing left to steal or retry for, grace window or not: the
+        # replay must not burn the sessions the owner signed in to since.
+        (_state(used_ago=timedelta(days=1), revoked=True), RefreshDecision.REPLAYED_AFTER_END),
+        (_state(used_ago=timedelta(0), revoked=True), RefreshDecision.REPLAYED_AFTER_END),
+        (
+            _state(used_ago=timedelta(days=1), expires_in=timedelta(0)),
+            RefreshDecision.REPLAYED_AFTER_END,
+        ),
+        (
+            _state(used_ago=timedelta(0), expires_in=-timedelta(seconds=1)),
+            RefreshDecision.REPLAYED_AFTER_END,
+        ),
         (_state(revoked=True), RefreshDecision.REJECT),
         (_state(expires_in=timedelta(0)), RefreshDecision.REJECT),
     ],

@@ -12,25 +12,32 @@ export interface ProfileDraft {
 export type DraftField = keyof ProfileDraft;
 
 export type FieldError =
-  'required' | 'tooLong' | 'dateFormat' | 'dateInvalid' | 'dateFuture' | 'email';
+  | 'required'
+  | 'tooLong'
+  | 'nameCharacters'
+  | 'dateFormat'
+  | 'dateInvalid'
+  | 'dateFuture'
+  | 'dateRejected'
+  | 'email';
 
 // `undefined` allowed explicitly: the screen clears a field's error by setting it so.
 export type DraftErrors = { [K in DraftField]?: FieldError | undefined };
 
 export type DraftCheck = { ok: true; update: ProfileUpdate } | { ok: false; errors: DraftErrors };
 
-// The limits below are the client's proposal for #33; the API has the final word.
-// Long enough for any real name, short enough to fit on a rental contract.
-export const maxNameLength = 50;
+// The limits below repeat the API's (identity/domain.py), so the client hears about a mistake
+// at the field rather than as a refused save.
+export const maxNameLength = 100;
 // RFC 5321 limit for a forward path.
 export const maxEmailLength = 254;
-// Nobody older than this signs up for car sharing; anything earlier is a typo in the year.
-const oldestBirthYear = 1900;
+// The earliest birth date is 1 January this many years ago.
+const maxAgeYears = 120;
 
 export function draftFromProfile(profile: Profile): ProfileDraft {
   return {
-    firstName: profile.first_name,
-    lastName: profile.last_name,
+    firstName: profile.first_name ?? '',
+    lastName: profile.last_name ?? '',
     birthDate: profile.birth_date === null ? '' : isoToDisplayDate(profile.birth_date),
     email: profile.email ?? '',
   };
@@ -82,12 +89,15 @@ function parsePastedDate(text: string): string | null {
  */
 export function checkDraft(draft: ProfileDraft, today: Date): DraftCheck {
   const errors: DraftErrors = {};
-  const firstName = draft.firstName.trim();
-  const lastName = draft.lastName.trim();
+  const firstName = normalizeName(draft.firstName);
+  const lastName = normalizeName(draft.lastName);
   const email = draft.email.trim();
 
-  const nameError = (name: string): FieldError | undefined =>
-    name === '' ? 'required' : length(name) > maxNameLength ? 'tooLong' : undefined;
+  const nameError = (name: string): FieldError | undefined => {
+    if (name === '') return 'required';
+    if (refusedInName.test(name)) return 'nameCharacters';
+    return length(name) > maxNameLength ? 'tooLong' : undefined;
+  };
   const firstNameError = nameError(firstName);
   if (firstNameError) errors.firstName = firstNameError;
   const lastNameError = nameError(lastName);
@@ -125,7 +135,7 @@ function parseBirthDate(
   // Date.UTC rolls 31.02 over into March, so a round trip tells a real date from a typo.
   const date = new Date(Date.UTC(year, month - 1, day));
   if (
-    year < oldestBirthYear ||
+    year < today.getFullYear() - maxAgeYears ||
     date.getUTCFullYear() !== year ||
     date.getUTCMonth() !== month - 1 ||
     date.getUTCDate() !== day
@@ -149,12 +159,26 @@ function localIsoDate(date: Date): string {
   return `${String(date.getFullYear())}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
+// Control, format, unassigned and private-use characters, and line or paragraph separators:
+// invisible, or would break the name in two on a contract. The API refuses them too.
+const refusedInName = /[\p{C}\p{Zl}\p{Zp}]/u;
+
+// The API's form of a name: NFC, so a letter with a combining mark counts as one character,
+// and every run of spaces of any kind as one plain space.
+function normalizeName(name: string): string {
+  return name
+    .normalize('NFC')
+    .replace(/\p{Zs}+/gu, ' ')
+    .trim();
+}
+
 // Code points, as Python's len() in the API counts them, not UTF-16 units of a JS string.
 function length(text: string): number {
   return Array.from(text).length;
 }
 
-// Deliberately loose: only the server can tell whether a mailbox exists.
+// Deliberately loose: only the server can tell whether a mailbox exists. Printable ASCII only,
+// as the API accepts; the dot in the domain only catches a typo the API would let through.
 function isEmail(text: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(text);
+  return /^[!-?A-~]+@[!-?A-~]+\.[!-?A-~]+$/.test(text);
 }
