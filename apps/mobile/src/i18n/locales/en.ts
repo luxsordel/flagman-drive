@@ -55,6 +55,8 @@ export const en: Translation = {
     saved: 'Changes saved',
     retry: 'Try again',
     home: 'Back to home',
+    identityLocked:
+      'Your last name, first name and date of birth cannot be changed while your documents are under review or approved: the documents are checked against them',
     fieldErrors: {
       required: 'Fill in this field',
       tooLong: 'Too long. Maximum characters: {{max}}',
@@ -70,6 +72,8 @@ export const en: Translation = {
       sessionExpired: 'Your session has ended. Sign out and sign in again',
       invalid: 'The server did not accept the details. Check the fields and save again',
       birthDateInvalid: 'The server did not accept the date of birth. Please check it',
+      locked:
+        'Your documents are already under review, so the last name, first name and date of birth cannot be changed. The rest can be saved',
       unknown: 'Something went wrong. Please try again',
     },
   },

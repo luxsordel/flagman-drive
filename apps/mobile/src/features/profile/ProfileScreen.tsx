@@ -20,6 +20,8 @@ import { TextField } from '../../ui/TextField';
 import { formatBelarusMobile } from '../auth/phone';
 import { useAuthSession } from '../auth/session/AuthProvider';
 import { DocumentsCard } from '../kyc/DocumentsCard';
+import { canEditDocuments } from '../kyc/kycFlow';
+import { useKycApplication, useKycStore } from '../kyc/KycProvider';
 import type { Profile } from './profileApi';
 import type { ProfileError } from './profileErrors';
 import { ProfileErrorMessage } from './ProfileErrorMessage';
@@ -89,6 +91,10 @@ interface SectionProps {
 function ProfileForm({ profile, saving }: SectionProps) {
   const { t } = useTranslation();
   const store = useProfileStore();
+  const kycStore = useKycStore();
+  const { application } = useKycApplication();
+  // Until the status loads the fields stay open: the server refuses a change all the same.
+  const identityLocked = application !== null && !canEditDocuments(application.status);
   const mounted = useMounted();
   const [draft, setDraft] = useState<ProfileDraft>(() => draftFromProfile(profile));
   // Fresh data replaces the form only until the client starts typing, never their input.
@@ -128,7 +134,7 @@ function ProfileForm({ profile, saving }: SectionProps) {
     if (store.getState().saving) return;
     setSaveError(null);
     setSaved(false);
-    const checked = checkDraft(draft, new Date());
+    const checked = checkDraft(draft, new Date(), { identityLocked });
     if (!checked.ok) {
       setErrors(checked.errors);
       return;
@@ -141,6 +147,8 @@ function ProfileForm({ profile, saving }: SectionProps) {
       // Belongs next to the date, like the checks the form makes itself.
       if (result.error.kind === 'birthDateInvalid') setErrors({ birthDate: 'dateRejected' });
       else setSaveError(result.error);
+      // The documents went for review meanwhile: the status locks the fields it names.
+      if (result.error.kind === 'locked') void kycStore.load();
       return;
     }
     // What the API kept, e.g. trimmed, rather than what the client typed.
@@ -156,7 +164,7 @@ function ProfileForm({ profile, saving }: SectionProps) {
         label={t('profile.firstName')}
         value={draft.firstName}
         onChangeText={edit('firstName')}
-        editable={!saving}
+        editable={!saving && !identityLocked}
         error={fieldError('firstName')}
         autoCapitalize="words"
         autoCorrect={false}
@@ -171,7 +179,7 @@ function ProfileForm({ profile, saving }: SectionProps) {
         label={t('profile.lastName')}
         value={draft.lastName}
         onChangeText={edit('lastName')}
-        editable={!saving}
+        editable={!saving && !identityLocked}
         error={fieldError('lastName')}
         autoCapitalize="words"
         autoCorrect={false}
@@ -187,7 +195,7 @@ function ProfileForm({ profile, saving }: SectionProps) {
         hint={t('profile.birthDateHint')}
         placeholder={t('profile.birthDatePlaceholder')}
         value={draft.birthDate}
-        editable={!saving}
+        editable={!saving && !identityLocked}
         onChangeText={(text) => {
           edit('birthDate')(formatDateInput(text, draft.birthDate));
         }}
@@ -198,6 +206,11 @@ function ProfileForm({ profile, saving }: SectionProps) {
         submitBehavior="submit"
         onSubmitEditing={() => emailRef.current?.focus()}
       />
+      {identityLocked && (
+        <AppText variant="caption" tone="muted">
+          {t('profile.identityLocked')}
+        </AppText>
+      )}
       <TextField
         ref={emailRef}
         label={t('profile.email')}
