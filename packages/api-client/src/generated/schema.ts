@@ -2355,7 +2355,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:kyc-incomplete`: documents are missing; `urn:flagman:problem:kyc-locked`: already under review or approved. */
+      /** @description `urn:flagman:problem:kyc-incomplete`: documents are missing; `urn:flagman:problem:kyc-profile-incomplete`: no name or birth date in the profile; `urn:flagman:problem:kyc-locked`: already under review or approved. */
       409: {
         headers: {
           [name: string]: unknown;
