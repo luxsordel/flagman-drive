@@ -21,11 +21,10 @@ from flagman.core.resources import Resources, get_resources
 from flagman.fleet import service
 from flagman.fleet.domain import (
     AvailabilityRules,
-    TelematicsUnavailableError,
     TelemetryTooLargeError,
     TelemetryUnavailableError,
 )
-from flagman.fleet.emulator import EmulatorTelematicsGateway, EmulatorTelemetryReceiver
+from flagman.fleet.emulator import EmulatorTelemetryReceiver
 from flagman.fleet.ports import TelematicsGateway, TelemetryReceiver, TelemetryWebhook
 from flagman.fleet.schemas import (
     MAX_TELEMETRY_BODY_BYTES,
@@ -272,14 +271,8 @@ async def get_staff_car(car_id: UUID, staff: FleetViewer, db: Db) -> StaffCarOut
 def get_telematics_gateway(
     request: Request, resources: Annotated[Resources, Depends(get_resources)]
 ) -> TelematicsGateway:
-    settings = resources.settings
-    if settings.emulator_url is None or settings.emulator_command_secret is None:
-        raise TelematicsUnavailableError("Car commands are not configured.")
-    return EmulatorTelematicsGateway(
-        client=request.app.state.telematics_client,
-        base_url=settings.emulator_url,
-        secret=settings.emulator_command_secret.get_secret_value().encode(),
-        timeout_s=settings.telematics_command_timeout_seconds,
+    return service.create_telematics_gateway(
+        resources.settings, request.app.state.telematics_client
     )
 
 

@@ -11,7 +11,8 @@ import flagman.audit.models
 import flagman.fleet.models
 import flagman.geo.models
 import flagman.identity.models
-import flagman.kyc.models  # noqa: F401
+import flagman.kyc.models
+import flagman.rentals.models  # noqa: F401
 from flagman.core.config import load_settings
 from flagman.core.db import Base
 from flagman.core.logging import configure_logging

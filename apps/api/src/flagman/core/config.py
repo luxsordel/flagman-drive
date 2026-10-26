@@ -132,6 +132,13 @@ class Settings(DatabaseSettings):
     # Clock skew allowed between the API and telematics, for signatures and snapshot times alike.
     telematics_signature_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
 
+    # A reservation is free for the first minutes, then paid until its end, when the timeout
+    # cancels it (docs/01-vision-and-mvp.md). The tariffs (#109) take the free minutes over.
+    rental_free_wait_minutes: int = Field(default=15, ge=0, le=120)
+    rental_max_reservation_minutes: int = Field(default=45, ge=1, le=240)
+    # How close the client must be to open or close the car (docs/03-security.md).
+    rental_command_max_distance_m: float = Field(default=50.0, gt=0, le=1000)
+
     @field_validator("api_cors_origins", "sms_fixed_phones", mode="before")
     @classmethod
     def _split_comma_separated(cls, value: object) -> object:
@@ -246,6 +253,14 @@ class Settings(DatabaseSettings):
         if not all(PILOT_PHONE_RE.fullmatch(phone) for phone in self.sms_fixed_phones):
             raise ValueError(
                 "SMS_FIXED_PHONES must be Belarusian mobile numbers in E.164, e.g. +375291234567"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_reservation(self) -> Self:
+        if self.rental_max_reservation_minutes < self.rental_free_wait_minutes:
+            raise ValueError(
+                "RENTAL_MAX_RESERVATION_MINUTES must not be shorter than RENTAL_FREE_WAIT_MINUTES"
             )
         return self
 

@@ -83,8 +83,10 @@ def _to_car(row: CarRow, model: CarModel, lat: float | None, lon: float | None) 
     )
 
 
-async def get_car(db: AsyncSession, car_id: UUID) -> Car | None:
+async def get_car(db: AsyncSession, car_id: UUID, *, for_update: bool = False) -> Car | None:
     query = _select_cars().where(CarRow.id == car_id)
+    if for_update:
+        query = query.with_for_update(of=CarRow)
     row = (await db.execute(query)).one_or_none()
     return _to_car(*row) if row else None
 
