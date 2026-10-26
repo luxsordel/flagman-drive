@@ -20,6 +20,8 @@ const labelKeys: Record<AuditAction, ActionLabelKey> = {
   'zone.created': 'zoneCreated',
   'zone.updated': 'zoneUpdated',
   'zone.disabled': 'zoneDisabled',
+  'tariff.created': 'tariffCreated',
+  'tariff.updated': 'tariffUpdated',
 };
 
 export const auditActions = Object.keys(labelKeys) as AuditAction[];

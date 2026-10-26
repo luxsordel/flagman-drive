@@ -592,3 +592,39 @@ a {
   display: grid;
   gap: var(--space-sm);
 }
+
+.tariffs-panel,
+.tariffs-form {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.tariffs-panel {
+  margin-top: var(--space-lg);
+}
+
+.tariffs-panel h2,
+.tariffs-panel h3,
+.tariffs-form p {
+  margin: 0;
+}
+
+.tariffs-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+  gap: var(--space-md);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.tariffs-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.tariffs-confirm {
+  display: grid;
+  gap: var(--space-sm);
+}

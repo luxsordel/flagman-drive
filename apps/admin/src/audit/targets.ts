@@ -11,6 +11,7 @@ const labelKeys: Record<AuditTargetType, TargetLabelKey> = {
   staff_member: 'staffMember',
   kyc_application: 'kycApplication',
   zone: 'zone',
+  tariff: 'tariff',
 };
 
 export function isAuditTargetType(value: string): value is AuditTargetType {

@@ -5,6 +5,7 @@ import type ru from './i18n/ru.json';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { KycApplicationPage } from './pages/KycApplicationPage';
 import { KycQueuePage } from './pages/KycQueuePage';
+import { TariffsPage } from './pages/TariffsPage';
 
 // The map library is large: it loads with the zones page, not with the sign-in page.
 const ZonesPage = lazy(() =>
@@ -43,7 +44,8 @@ export const sections: readonly Section[] = [
   { key: 'clients', path: '/clients', roles: support },
   // Everyone sees the zones; only an admin changes them, inside the page and in the API.
   { key: 'zones', path: '/zones', roles: everyone, page: ZonesPage },
-  { key: 'tariffs', path: '/tariffs', roles: adminOnly },
+  // Operators see the tariffs to answer clients; only an admin changes them, here and in the API.
+  { key: 'tariffs', path: '/tariffs', roles: support, page: TariffsPage },
   { key: 'audit', path: '/audit', roles: adminOnly, page: AuditLogPage },
 ];
 

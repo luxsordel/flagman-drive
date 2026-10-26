@@ -119,12 +119,15 @@
       "kycDocumentViewed": "Document photo viewed",
       "zoneCreated": "Zone created",
       "zoneUpdated": "Zone changed",
-      "zoneDisabled": "Zone disabled"
+      "zoneDisabled": "Zone disabled",
+      "tariffCreated": "Tariff created",
+      "tariffUpdated": "Tariff changed"
     },
     "targets": {
       "staffMember": "Staff member",
       "kycApplication": "KYC application",
-      "zone": "Zone"
+      "zone": "Zone",
+      "tariff": "Tariff"
     },
     "noTarget": "none",
     "loading": "Loading the log…",
@@ -291,6 +294,65 @@
       "notFound": "The zone is gone: it may have been disabled. Reload the page.",
       "disabled": "The zone is disabled and cannot be changed. Draw a new one.",
       "forbidden": "Only an administrator may change zones.",
+      "failed": "Could not save. Check the connection and try again."
+    }
+  },
+  "tariffs": {
+    "title": "Tariffs",
+    "loading": "Loading tariffs…",
+    "failed": "Could not load the tariffs. Check the connection and try again.",
+    "retry": "Retry",
+    "empty": "There are no car models yet: add the fleet first.",
+    "hint": "A tariff applies to every car of the model. A change applies at once; rentals already booked keep the prices of their booking.",
+    "none": "No tariff: cars of this model are not rented out.",
+    "noneReadOnly": "This model has no tariff yet. An admin can create it.",
+    "minutes": "{{count}} min",
+    "saved": "The tariff of {{model}} is saved.",
+    "reload": "Load again",
+    "columns": {
+      "model": "Model",
+      "validFrom": "Valid from"
+    },
+    "fields": {
+      "driving_per_minute": "Minute driving",
+      "parked_per_minute": "Minute parked",
+      "waiting_per_minute": "Minute of paid waiting",
+      "free_waiting_minutes": "Free reservation waiting",
+      "hold_amount": "Hold when a trip starts"
+    },
+    "form": {
+      "createTitle": "New tariff",
+      "editTitle": "New tariff version",
+      "inRubles": "in rubles, e.g. 0.39",
+      "inMinutes": "in minutes",
+      "save": "Save",
+      "saving": "Saving…",
+      "problems": {
+        "required": "Fill in the field.",
+        "format": "Enter a number: rubles with at most two decimals.",
+        "tooLarge": "Too much: at most {{max}}."
+      }
+    },
+    "confirm": {
+      "title": "Tariff confirmation",
+      "createText": "Create the tariff? Cars of this model are rented out at these prices as soon as it is saved.",
+      "editText": "Save a new version? It applies at once. Rentals booked before keep their prices.",
+      "confirm": "Yes, save",
+      "back": "Back to editing"
+    },
+    "history": {
+      "title": "Version history",
+      "loading": "Loading the history…",
+      "failed": "Could not load the version history.",
+      "version": "Version"
+    },
+    "errors": {
+      "changed": "Someone else changed the tariff while you were editing. Load it again and check the prices.",
+      "exists": "This model has a tariff already. Load the list again.",
+      "notFound": "The tariff was not found. Load the list again.",
+      "modelNotFound": "The car model was not found. Load the list again.",
+      "invalid": "The API did not accept the prices. Check the values.",
+      "forbidden": "Only an admin changes tariffs.",
       "failed": "Could not save. Check the connection and try again."
     }
   }

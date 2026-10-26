@@ -10,6 +10,7 @@ import { fakeAuditLogApi } from './audit';
 import { fakeStaffAuthApi, fakeStaffSignInApi, testStaff } from './auth';
 import { fakeKycReviewApi } from './kyc';
 import { fakeStaffListApi } from './staff';
+import { fakeTariffsApi } from './tariffs';
 import { fakeZonesApi } from './zones';
 
 /**
@@ -36,6 +37,7 @@ export function renderAt(
           kycReview: fakeKycReviewApi(),
           staffList: fakeStaffListApi(),
           staffSignIn: fakeStaffSignInApi(),
+          tariffs: fakeTariffsApi(),
           zones: fakeZonesApi(),
           ...apis,
         }}
