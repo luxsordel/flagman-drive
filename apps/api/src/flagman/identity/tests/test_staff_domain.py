@@ -11,6 +11,7 @@ from flagman.identity.domain import (
     JWT_ALGORITHM,
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
+    STAFF_ACCESS_TOKEN_TTL,
     STAFF_CHALLENGE_TTL,
     TOTP_INTERVAL_SECONDS,
     AccessClaims,
@@ -32,6 +33,7 @@ from flagman.identity.domain import (
     normalize_email,
     password_needs_rehash,
     read_access_token,
+    read_staff_access,
     read_staff_access_token,
     read_staff_challenge,
     totp_provisioning_uri,
@@ -190,6 +192,17 @@ def test_expired_challenge_is_rejected() -> None:
 
     with pytest.raises(StaffChallengeInvalidError):
         read_staff_challenge(issue_staff_challenge(STAFF_ID, SECRET, issued), SECRET)
+
+
+def test_staff_access_tells_when_the_token_ends() -> None:
+    claims = StaffAccessClaims(uuid.uuid4(), uuid.uuid4(), StaffRole.TECHNICIAN)
+    now = datetime.now(UTC).replace(microsecond=0)
+    token = issue_staff_access_token(claims, SECRET, now)
+
+    access = read_staff_access(token, SECRET)
+
+    assert access.claims == claims
+    assert access.expires_at == now + STAFF_ACCESS_TOKEN_TTL
 
 
 def test_staff_access_token_round_trips() -> None:

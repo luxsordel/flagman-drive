@@ -26,7 +26,14 @@ from flagman.fleet.domain import (
 
 STATUS_LENGTH = 16
 
-_STATE_COLUMNS = ("location", "battery_pct", "doors_locked", "ignition_on", "state_at")
+_STATE_COLUMNS = (
+    "location",
+    "battery_pct",
+    "doors_locked",
+    "ignition_on",
+    "engine_locked",
+    "state_at",
+)
 
 
 class CarModel(Base):
@@ -84,6 +91,7 @@ class Car(Base):
     battery_pct: Mapped[int | None] = mapped_column(SmallInteger)
     doors_locked: Mapped[bool | None]
     ignition_on: Mapped[bool | None]
+    engine_locked: Mapped[bool | None]
     # The car's time of the snapshot, not when it arrived: telemetry can come late or twice.
     state_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

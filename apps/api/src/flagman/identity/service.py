@@ -667,6 +667,17 @@ class StaffSignInService:
         )
 
 
+async def is_staff_session_active(
+    db: AsyncSession, staff_id: UUID, session_id: UUID, now: datetime
+) -> bool:
+    """Whether the staff member is still signed in: for connections that outlive their token.
+
+    False once the session is revoked or over, or the account is disabled.
+    """
+    async with db.begin():
+        return await repository.is_staff_session_active(db, staff_id, session_id, now)
+
+
 async def list_staff(db: AsyncSession) -> StaffMemberList:
     """Who is who in the admin panel's audit log (#56), disabled staff included.
 

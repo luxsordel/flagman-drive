@@ -291,3 +291,28 @@ def test_empty_telemetry_secret_leaves_telemetry_off(
     monkeypatch.setenv("EMULATOR_TELEMETRY_SECRET", "")
 
     assert make_settings().emulator_telemetry_secret is None
+
+
+def test_command_secret_must_be_long(make_settings: SettingsFactory) -> None:
+    with pytest.raises(ValidationError, match="EMULATOR_COMMAND_SECRET"):
+        make_settings(emulator_command_secret="c" * 31)
+
+
+def test_command_and_telemetry_secrets_must_differ(make_settings: SettingsFactory) -> None:
+    # A leaked webhook secret must not move cars.
+    with pytest.raises(ValidationError, match="must differ"):
+        make_settings(emulator_telemetry_secret="s" * 40, emulator_command_secret="s" * 40)
+
+
+@pytest.mark.parametrize(
+    "url", ["car-emulator:8100", "ftp://car-emulator", "http://car-emulator:8100?x=1"]
+)
+def test_emulator_url_must_be_plain_http(make_settings: SettingsFactory, url: str) -> None:
+    with pytest.raises(ValidationError, match="EMULATOR_URL"):
+        make_settings(emulator_url=url)
+
+
+def test_emulator_url_loses_its_trailing_slash(make_settings: SettingsFactory) -> None:
+    settings = make_settings(emulator_url="http://car-emulator:8100/")
+
+    assert settings.emulator_url == "http://car-emulator:8100"

@@ -23,6 +23,7 @@ from flagman.core.middleware import (
 from flagman.core.resources import Resources
 from flagman.fleet.api import map_router as map_cars_router
 from flagman.fleet.api import router as fleet_router
+from flagman.fleet.api import staff_router as fleet_staff_router
 from flagman.geo.api import map_router as map_zones_router
 from flagman.geo.api import router as geo_router
 from flagman.health.api import router as health_router
@@ -112,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(kyc_router)
     app.include_router(kyc_review_router)
     app.include_router(fleet_router)
+    app.include_router(fleet_staff_router)
     app.include_router(map_cars_router)
     app.include_router(geo_router)
     app.include_router(map_zones_router)
