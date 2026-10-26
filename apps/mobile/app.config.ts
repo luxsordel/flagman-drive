@@ -10,6 +10,12 @@ const cameraPermission = {
   ru: 'FLAGMAN Drive использует камеру, чтобы сфотографировать права и паспорт для проверки.',
 } as const;
 
+// Asked only while the map is open: the location centres the map and shows the distance to cars.
+const locationPermission = {
+  en: 'FLAGMAN Drive uses your location to show the cars near you and how far they are.',
+  ru: 'FLAGMAN Drive использует ваше местоположение, чтобы показать ближайшие машины и расстояние до них.',
+} as const;
+
 const config: ExpoConfig = {
   name: 'FLAGMAN Drive',
   slug: 'flagman-drive',
@@ -29,10 +35,30 @@ const config: ExpoConfig = {
     output: 'single',
   },
   locales: {
-    ru: { ios: { NSCameraUsageDescription: cameraPermission.ru } },
+    ru: {
+      ios: {
+        NSCameraUsageDescription: cameraPermission.ru,
+        NSLocationWhenInUseUsageDescription: locationPermission.ru,
+      },
+    },
   },
   plugins: [
     'expo-router',
+    'expo-dev-client',
+    // The native map (ADR-0016); without it the dev build has no MapLibre SDK.
+    '@maplibre/maplibre-react-native',
+    [
+      // Foreground only: the map never tracks the client in the background.
+      'expo-location',
+      {
+        locationWhenInUsePermission: locationPermission.en,
+        locationAlwaysAndWhenInUsePermission: false,
+        locationAlwaysPermission: false,
+        isIosBackgroundLocationEnabled: false,
+        isAndroidBackgroundLocationEnabled: false,
+        isAndroidForegroundServiceEnabled: false,
+      },
+    ],
     'expo-localization',
     'expo-secure-store',
     [

@@ -33,10 +33,39 @@ export const en: Translation = {
     },
     signOut: 'Sign out',
   },
-  home: {
-    title: 'You are signed in',
-    subtitle: 'A map with cars will appear here soon',
+  map: {
+    label: 'Map of free cars and zones where a rental may end',
+    documents: 'Documents: {{status}}',
+    documentsLoading: 'Documents',
     profile: 'Profile',
+    loading: 'Loading cars…',
+    empty: 'No free cars here. Move or zoom out the map',
+    locationDenied:
+      'Without your location the map opens in the centre of Minsk and shows no distance to cars',
+    retry: 'Retry',
+    expoGo: {
+      title: 'The map works in the dev build only',
+      body: 'Expo Go has no map module. Build the app in Android Studio (apps/mobile/README.md) or open the web version',
+    },
+    errors: {
+      network: 'Cannot reach the server. The cars on the map may be out of date',
+      sessionExpired: 'Your session has expired. Please sign in again',
+      rateLimited: 'Too many requests. The map will refresh a bit later',
+      carGone: 'This car is no longer available: it has been booked or needs charging',
+      unknown: 'Could not load the map. Please try again',
+    },
+    card: {
+      photo: 'Photo: {{model}}',
+      battery: 'Charge',
+      batteryValue: '{{percent}}%',
+      range: 'Range',
+      rangeValue: '{{km}} km',
+      distance: 'Distance',
+      distanceMeters: '{{meters}} m',
+      distanceKilometers: '{{km}} km',
+      bookingSoon: 'Booking comes in the next version',
+      close: 'Close',
+    },
   },
   profile: {
     title: 'Profile',

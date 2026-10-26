@@ -106,7 +106,7 @@ npm run check:bundle --workspace @flagman/mobile
 | Путь                | Что там                                                                      |
 | ------------------- | ---------------------------------------------------------------------------- |
 | `src/app/`          | Маршруты Expo Router (файл = экран). Только связывают экраны из `features/`  |
-| `src/features/<x>/` | Экраны и логика по областям: `auth`, `home`, `kyc`, `map`, позже `rental`    |
+| `src/features/<x>/` | Экраны и логика по областям: `auth`, `kyc`, `map`, `profile`, позже `rental` |
 | `src/api/`          | Общее для запросов к API: разбор ошибок Problem Details (ADR-0006)           |
 | `src/ui/`           | Базовые компоненты (`AppText`, `Button`, `Card`…) — только на дизайн-токенах |
 | `src/theme/`        | Тема по системной настройке (`useTheme`), шрифты Oswald и Open Sans          |
