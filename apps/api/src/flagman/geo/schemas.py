@@ -78,3 +78,15 @@ class ZoneList(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     items: list[ZoneOut]
+
+
+class MapZoneOut(BaseModel):
+    """A zone as the client map draws it: no name, no history, no staff fields."""
+
+    id: UUID
+    kind: ZoneKind
+    polygon: PolygonGeometry
+
+
+class MapZoneList(BaseModel):
+    items: list[MapZoneOut]

@@ -1,3 +1,3 @@
-import { HomeScreen } from '../features/home/HomeScreen';
+import { MapScreen } from '../features/map/MapScreen';
 
-export default HomeScreen;
+export default MapScreen;

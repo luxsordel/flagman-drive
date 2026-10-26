@@ -3,8 +3,12 @@
 declare namespace NodeJS {
   interface ProcessEnv {
     readonly EXPO_PUBLIC_API_URL?: string;
+    readonly EXPO_PUBLIC_MAP_STYLE_URL?: string;
   }
   interface Process {
     readonly env: ProcessEnv;
   }
 }
+
+// Metro bundles global CSS on the web only: the web map imports the stylesheet of maplibre-gl.
+declare module '*.css';

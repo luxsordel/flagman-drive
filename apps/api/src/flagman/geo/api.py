@@ -10,10 +10,23 @@ from flagman.audit.dependencies import get_request_origin
 from flagman.audit.domain import RequestOrigin
 from flagman.core.db import get_session
 from flagman.core.errors import Problem
+from flagman.core.ratelimit import Limit, RateLimiter, get_rate_limiter
 from flagman.geo import service
 from flagman.geo.domain import Zone
-from flagman.geo.schemas import PolygonGeometry, ZoneIn, ZoneList, ZoneOut
-from flagman.identity.dependencies import CurrentStaff, require_staff_role
+from flagman.geo.schemas import (
+    MapZoneList,
+    MapZoneOut,
+    PolygonGeometry,
+    ZoneIn,
+    ZoneList,
+    ZoneOut,
+)
+from flagman.identity.dependencies import (
+    CurrentClient,
+    CurrentStaff,
+    get_current_client,
+    require_staff_role,
+)
 from flagman.identity.domain import StaffRole
 
 # Zone ids in the path are fine: every staff member may see every zone, and nobody else gets
@@ -129,3 +142,38 @@ async def update_zone(zone_id: UUID, body: ZoneIn, editor: ZoneEditor) -> ZoneOu
 )
 async def disable_zone(zone_id: UUID, editor: ZoneEditor) -> ZoneOut:
     return _out(await editor.disable(zone_id, datetime.now(UTC)))
+
+
+# The app reloads zones when the map opens and with each refresh of the cars.
+MAP_LIMIT = Limit("map-zones-user", 120, 300)
+
+map_router = APIRouter(
+    prefix="/map/zones",
+    tags=["map"],
+    responses={
+        HTTPStatus.UNAUTHORIZED: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as a client.",
+        },
+        HTTPStatus.TOO_MANY_REQUESTS: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:rate-limited`: wait for `Retry-After` seconds.",
+        },
+    },
+)
+
+
+@map_router.get("", summary="Active zones where a client may and may not end a rental")
+async def list_map_zones(
+    client: Annotated[CurrentClient, Depends(get_current_client)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    db: Db,
+) -> MapZoneList:
+    await limiter.hit(MAP_LIMIT, str(client.user_id))
+    zones = await service.list_zones(db)
+    return MapZoneList(
+        items=[
+            MapZoneOut(id=zone.id, kind=zone.kind, polygon=PolygonGeometry.of(zone.polygon))
+            for zone in zones
+        ]
+    )

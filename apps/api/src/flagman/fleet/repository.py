@@ -4,7 +4,7 @@ from typing import Any
 from uuid import UUID
 
 from geoalchemy2 import Geography, Geometry
-from sqlalchemy import ColumnElement, Select, cast, exists, func, or_, select, update
+from sqlalchemy import ColumnElement, Select, cast, exists, func, null, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,11 +12,13 @@ from sqlalchemy.orm import defer
 
 from flagman.core.geo import SRID_WGS84, GeoPoint
 from flagman.fleet.domain import (
+    AvailabilityRules,
     Car,
     CarIdentityTakenError,
     CarModelSpec,
     CarState,
     CarStatus,
+    MapQuery,
     SnapshotOutcome,
 )
 from flagman.fleet.models import Car as CarRow
@@ -86,6 +88,44 @@ async def get_car(db: AsyncSession, car_id: UUID) -> Car | None:
 async def list_cars(db: AsyncSession) -> list[Car]:
     rows = await db.execute(_select_cars().order_by(CarRow.plate))
     return [_to_car(*row) for row in rows]
+
+
+async def find_rentable_cars(
+    db: AsyncSession,
+    rules: AvailabilityRules,
+    now: datetime,
+    query: MapQuery,
+    car_id: UUID | None = None,
+) -> list[tuple[Car, float | None]]:
+    """Cars that pass the availability rule, nearest first when `query.near` is given.
+
+    The rule is repeated in SQL so that the limit counts only cars a client may see; the service
+    still checks each one with fleet.domain.is_rentable.
+    """
+    near, area = query.near, query.area
+    distance = func.ST_Distance(CarRow.location, _geography(near)) if near else null()
+    select_cars = (
+        _select_cars()
+        .add_columns(distance.label("distance_m"))
+        .where(
+            CarRow.status == CarStatus.AVAILABLE,
+            CarRow.state_at >= now - rules.max_state_age,
+            CarRow.battery_pct >= rules.min_battery_pct,
+        )
+        .order_by(distance if near else CarRow.id)
+        .limit(query.limit)
+    )
+    if area is not None:
+        envelope = func.ST_MakeEnvelope(
+            area.min_lon, area.min_lat, area.max_lon, area.max_lat, SRID_WGS84
+        )
+        select_cars = select_cars.where(
+            func.ST_Intersects(CarRow.location, cast(envelope, Geography))
+        )
+    if car_id is not None:
+        select_cars = select_cars.where(CarRow.id == car_id)
+    rows = await db.execute(select_cars)
+    return [(_to_car(row, model, lat, lon), meters) for row, model, lat, lon, meters in rows]
 
 
 async def get_status_for_update(db: AsyncSession, car_id: UUID) -> CarStatus | None:

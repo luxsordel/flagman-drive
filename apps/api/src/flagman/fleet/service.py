@@ -5,7 +5,7 @@ Reads join the caller's transaction if one is open; changes run only inside it, 
 telemetry intake are the exceptions: each is a command of its own and opens its own transaction.
 """
 
-from collections.abc import Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -14,19 +14,23 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.config import Settings
+from flagman.core.geo import GeoPoint
 from flagman.fleet import domain, repository
 from flagman.fleet.domain import (
     AvailabilityRules,
     Car,
     CarNotFoundError,
+    CarOnMap,
     CarState,
     CarStatus,
     CarTransition,
+    MapQuery,
     SnapshotFromFutureError,
     SnapshotOutcome,
     TelemetryReport,
     TelemetrySnapshot,
     apply_transition,
+    car_on_map,
     check_snapshot_time,
     emulator_car_id,
     normalize_plate,
@@ -51,9 +55,42 @@ def availability_rules(settings: Settings) -> AvailabilityRules:
     )
 
 
+async def _read[T](db: AsyncSession, read: Callable[[], Awaitable[T]]) -> T:
+    if db.in_transaction():
+        return await read()
+    async with db.begin():
+        return await read()
+
+
 def is_rentable(car: Car, rules: AvailabilityRules, now: datetime) -> bool:
     """Whether the car may be offered to a client now; the rule is in fleet.domain."""
     return domain.is_rentable(car.status, car.state, rules, now)
+
+
+async def find_cars_on_map(
+    db: AsyncSession, rules: AvailabilityRules, now: datetime, query: MapQuery
+) -> list[CarOnMap]:
+    """Rentable cars for the client map; `query.near` is used for this query only, never kept."""
+    if query.area is None and query.near is None:
+        raise ValueError("give an area, a point or both: the whole fleet is not a map")
+    rows = await _read(db, lambda: repository.find_rentable_cars(db, rules, now, query))
+    return [
+        car_on_map(car, distance)
+        for car, distance in rows
+        if domain.is_rentable(car.status, car.state, rules, now)
+    ]
+
+
+async def get_car_on_map(
+    db: AsyncSession, car_id: UUID, rules: AvailabilityRules, now: datetime, near: GeoPoint | None
+) -> CarOnMap:
+    """Raises CarNotFoundError for a car that is not rentable now as well as for a missing one."""
+    query = MapQuery(area=None, near=near, limit=1)
+    rows = await _read(db, lambda: repository.find_rentable_cars(db, rules, now, query, car_id))
+    for car, distance in rows:
+        if domain.is_rentable(car.status, car.state, rules, now):
+            return car_on_map(car, distance)
+    raise CarNotFoundError
 
 
 async def get_car(db: AsyncSession, car_id: UUID) -> Car:

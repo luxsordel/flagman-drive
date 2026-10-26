@@ -15,7 +15,8 @@
 | uv | Python и зависимости бэкенда | `winget install astral-sh.uv` |
 | Node.js LTS (24) | Мобилка, админка | `winget install OpenJS.NodeJS.LTS` |
 | Claude Code | AI-ассистент | Десктоп-приложение Claude, вкладка Code |
-| Expo Go / dev build | Запуск приложения на телефоне | Из App Store / Google Play |
+| Expo Go | Быстрый запуск приложения на телефоне (без карты) | Из App Store / Google Play |
+| Android Studio | Dev-сборка с картой: эмулятор или телефон по USB (ADR-0016) | `winget install Google.AndroidStudio`, при первом запуске — мастер установки SDK |
 
 Одной командой (PowerShell):
 
@@ -156,8 +157,16 @@ npm install
 npm run start --workspace @flagman/mobile
 ```
 
-QR-код из терминала открыть в Expo Go на телефоне (телефон и компьютер — в одной сети); клавиша `w`
-открывает веб-версию. Подробности и проверки — [apps/mobile/README.md](../apps/mobile/README.md).
+Клавиша `w` открывает веб-версию — в ней работает и карта. На телефоне есть два способа
+([ADR-0016](adr/0016-maplibre-react-native-dev-build.md)):
+
+- **Expo Go — быстро, но без карты.** `npm run go --workspace @flagman/mobile`, QR-код открыть в Expo Go
+  (телефон и компьютер — в одной сети). Вход, документы и профиль работают, вместо карты — заглушка.
+- **Dev-сборка через Android Studio — с картой.** Нужны Android Studio с Android SDK, переменная `ANDROID_HOME`
+  и `JAVA_HOME` на JDK из Android Studio. Запустите эмулятор (Device Manager) или подключите телефон по USB
+  с отладкой, затем `npm run android --workspace @flagman/mobile`. Первая сборка занимает 10–15 минут.
+
+Подробности, адрес API и проверки — [apps/mobile/README.md](../apps/mobile/README.md).
 
 ### Админ-панель (`apps/admin`)
 

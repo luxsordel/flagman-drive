@@ -702,6 +702,123 @@
         "title": "LogoutRequest",
         "type": "object"
       },
+      "MapCarList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MapCarOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": ["items"],
+        "title": "MapCarList",
+        "type": "object"
+      },
+      "MapCarOut": {
+        "properties": {
+          "battery_pct": {
+            "title": "Battery Pct",
+            "type": "integer"
+          },
+          "brand": {
+            "title": "Brand",
+            "type": "string"
+          },
+          "distance_m": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "From the client's point, if one was given.",
+            "title": "Distance M"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "photo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photo Url"
+          },
+          "range_km": {
+            "description": "Estimated from the charge, rounded down.",
+            "title": "Range Km",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "id",
+          "brand",
+          "model",
+          "photo_url",
+          "lat",
+          "lon",
+          "battery_pct",
+          "range_km",
+          "distance_m"
+        ],
+        "title": "MapCarOut",
+        "type": "object"
+      },
+      "MapZoneList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MapZoneOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": ["items"],
+        "title": "MapZoneList",
+        "type": "object"
+      },
+      "MapZoneOut": {
+        "description": "A zone as the client map draws it: no name, no history, no staff fields.",
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ZoneKind"
+          },
+          "polygon": {
+            "$ref": "#/components/schemas/PolygonGeometry"
+          }
+        },
+        "required": ["id", "kind", "polygon"],
+        "title": "MapZoneOut",
+        "type": "object"
+      },
       "OtpRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3144,6 +3261,395 @@
         ],
         "summary": "A short-lived link to the client's own document photo",
         "tags": ["kyc"]
+      }
+    },
+    "/map/cars": {
+      "get": {
+        "description": "Give the four edges of the area, the client's `lat` and `lon`, or both. With the point the cars come nearest first and carry `distance_m`. KYC is not needed to look.",
+        "operationId": "list_map_cars_map_cars_get",
+        "parameters": [
+          {
+            "description": "With `lon`: the client's latitude.",
+            "in": "query",
+            "name": "lat",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With `lon`: the client's latitude.",
+              "title": "Lat"
+            }
+          },
+          {
+            "description": "With `lat`: the client's longitude.",
+            "in": "query",
+            "name": "lon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With `lat`: the client's longitude.",
+              "title": "Lon"
+            }
+          },
+          {
+            "description": "South edge of the visible map.",
+            "in": "query",
+            "name": "min_lat",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "South edge of the visible map.",
+              "title": "Min Lat"
+            }
+          },
+          {
+            "description": "West edge of the visible map.",
+            "in": "query",
+            "name": "min_lon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "West edge of the visible map.",
+              "title": "Min Lon"
+            }
+          },
+          {
+            "description": "North edge of the visible map.",
+            "in": "query",
+            "name": "max_lat",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "North edge of the visible map.",
+              "title": "Max Lat"
+            }
+          },
+          {
+            "description": "East edge of the visible map.",
+            "in": "query",
+            "name": "max_lon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "East edge of the visible map.",
+              "title": "Max Lon"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapCarList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as a client."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rate-limited`: wait for `Retry-After` seconds."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cars a client may rent in the visible part of the map or near them",
+        "tags": ["map"]
+      }
+    },
+    "/map/cars/{car_id}": {
+      "get": {
+        "operationId": "get_map_car_map_cars__car_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "car_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Car Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "With `lon`: the client's latitude.",
+            "in": "query",
+            "name": "lat",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 90,
+                  "minimum": -90,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With `lon`: the client's latitude.",
+              "title": "Lat"
+            }
+          },
+          {
+            "description": "With `lat`: the client's longitude.",
+            "in": "query",
+            "name": "lon",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maximum": 180,
+                  "minimum": -180,
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With `lat`: the client's longitude.",
+              "title": "Lon"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapCarOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as a client."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:car-not-found`: no such car, or it cannot be rented now; the reason is not told."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rate-limited`: wait for `Retry-After` seconds."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "One car of the map",
+        "tags": ["map"]
+      }
+    },
+    "/map/zones": {
+      "get": {
+        "operationId": "list_map_zones_map_zones_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MapZoneList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as a client."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rate-limited`: wait for `Retry-After` seconds."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Active zones where a client may and may not end a rental",
+        "tags": ["map"]
       }
     },
     "/me": {

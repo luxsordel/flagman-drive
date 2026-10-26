@@ -7,17 +7,22 @@ from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import (
     RENTAL_TRANSITIONS,
     AvailabilityRules,
+    Car,
+    CarModelSpec,
     CarState,
     CarStatus,
     CarTransition,
     CarTransitionNotAllowedError,
+    MapArea,
     SnapshotFromFutureError,
     apply_transition,
+    car_on_map,
     check_snapshot_time,
     emulator_car_id,
     is_rentable,
     normalize_plate,
     normalize_vin,
+    range_left_km,
 )
 
 NOW = datetime(2026, 10, 24, 12, 0, tzinfo=UTC)
@@ -186,3 +191,61 @@ def test_emulator_car_ids_match_the_emulator() -> None:
     # Reference vector shared with services/car-emulator (tests/test_domain.py).
     assert emulator_car_id(42, 0) == uuid.UUID("a0b2fa60-ac1d-5ee4-b7a5-2b037e18bd35")
     assert emulator_car_id(42, 29) == uuid.UUID("c6069517-01a5-59b6-a91c-291f0738f6d3")
+
+
+@pytest.mark.parametrize(
+    ("battery_pct", "range_km"), [(100, 400), (50, 200), (33, 132), (1, 4), (0, 0)]
+)
+def test_range_left_follows_the_charge(battery_pct: int, range_km: int) -> None:
+    assert range_left_km(400, battery_pct) == range_km
+
+
+def test_range_left_is_rounded_down() -> None:
+    assert range_left_km(333, 50) == 166
+
+
+def _car(state: CarState | None) -> Car:
+    return Car(
+        id=uuid.uuid4(),
+        model=CarModelSpec("Geely", "Geometry C", 5, 70_000, 400, "https://cdn.test/c.png"),
+        plate="1234 AB-7",
+        vin="LB37622Z9NX000001",
+        telematics_id=uuid.uuid4(),
+        status=CarStatus.AVAILABLE,
+        state=state,
+    )
+
+
+def test_car_on_map_shows_only_what_the_client_needs() -> None:
+    car = _car(_state(battery_pct=50))
+
+    shown = car_on_map(car, 1234.6)
+
+    assert (shown.id, shown.brand, shown.model) == (car.id, "Geely", "Geometry C")
+    assert shown.photo_url == "https://cdn.test/c.png"
+    assert shown.location == MINSK
+    assert (shown.battery_pct, shown.range_km, shown.distance_m) == (50, 200, 1235)
+    assert not {"vin", "plate", "telematics_id", "doors_locked", "ignition_on"} & set(vars(shown))
+
+
+def test_car_on_map_without_the_clients_point_has_no_distance() -> None:
+    assert car_on_map(_car(_state()), None).distance_m is None
+
+
+def test_a_car_without_telemetry_is_never_on_the_map() -> None:
+    with pytest.raises(ValueError, match="without telemetry"):
+        car_on_map(_car(None), None)
+
+
+def test_map_area_needs_min_below_max() -> None:
+    MapArea(min_lat=53.8, min_lon=27.4, max_lat=54.0, max_lon=27.7)
+
+    with pytest.raises(ValueError, match="min below max"):
+        MapArea(min_lat=54.0, min_lon=27.4, max_lat=53.8, max_lon=27.7)
+    with pytest.raises(ValueError, match="min below max"):
+        MapArea(min_lat=53.8, min_lon=27.7, max_lat=54.0, max_lon=27.7)
+
+
+def test_map_area_corners_are_real_coordinates() -> None:
+    with pytest.raises(ValueError, match="out of range"):
+        MapArea(min_lat=-91, min_lon=27.4, max_lat=54.0, max_lon=27.7)
