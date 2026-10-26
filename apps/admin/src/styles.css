@@ -592,3 +592,149 @@ a {
   display: grid;
   gap: var(--space-sm);
 }
+
+/* The fleet: the map takes the room, the filters, the list and the card sit beside it. */
+.fleet-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 24rem);
+  gap: var(--space-lg);
+  align-items: start;
+}
+
+@media (max-width: 60rem) {
+  .fleet-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.fleet-map {
+  height: 70vh;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+
+.fleet-map-unsupported {
+  margin: 0;
+  padding: var(--space-lg);
+}
+
+.fleet-panel {
+  display: grid;
+  gap: var(--space-md);
+  align-content: start;
+}
+
+.fleet-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.fleet-filters legend {
+  margin-bottom: var(--space-sm);
+}
+
+/* Long enough for a shift's fleet, short enough to keep the card in sight. */
+.fleet-list {
+  display: grid;
+  gap: var(--space-xs);
+  max-height: 40vh;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.fleet-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  column-gap: var(--space-sm);
+  width: 100%;
+  min-height: var(--tap-target);
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-field);
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-item[aria-pressed='true'] {
+  border-color: var(--color-primary);
+}
+
+.fleet-item > .muted:last-child {
+  grid-column: 2 / -1;
+  font-size: var(--font-size-sm);
+}
+
+.fleet-swatch {
+  display: inline-block;
+  align-self: center;
+  width: var(--space-md);
+  height: var(--space-md);
+  border-radius: 50%;
+}
+
+/* The same colors as the markers on the map (fleet/mapStyle.ts). */
+.fleet-swatch-available {
+  background: var(--color-success);
+}
+
+.fleet-swatch-reserved {
+  background: var(--color-warning);
+}
+
+.fleet-swatch-in_rental {
+  background: var(--color-primary);
+}
+
+.fleet-swatch-service {
+  background: var(--color-danger);
+}
+
+.fleet-swatch-offline {
+  background: var(--color-ink-muted);
+}
+
+.fleet-low {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+.fleet-stale,
+.fleet-stale-notice {
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-field);
+}
+
+.fleet-card,
+.fleet-command,
+.fleet-commands {
+  display: grid;
+  gap: var(--space-md);
+}
+
+.fleet-card p,
+.fleet-command p,
+.fleet-commands p {
+  margin: 0;
+}
+
+.fleet-done {
+  color: var(--color-success);
+  font-weight: 600;
+}
+
+.fleet-rental {
+  align-items: start;
+  color: var(--color-warning);
+}
