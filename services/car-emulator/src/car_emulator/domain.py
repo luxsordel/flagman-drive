@@ -15,6 +15,8 @@ MINSK_LON_RANGE = (27.40, 27.70)
 _EARTH_RADIUS_KM = 6371.0088
 _COORDINATE_DIGITS = 6
 _SECONDS_PER_HOUR = 3600
+# A shorter hop would look like a car standing still with its ignition on.
+MIN_TRIP_KM = 1.0
 
 # Car ids are a contract with the API seed (apps/api, flagman.fleet): it derives the same ids from
 # EMULATOR_SEED and EMULATOR_CAR_COUNT, so telemetry lands on the cars the API knows. Changing the
@@ -139,6 +141,14 @@ def random_point_in_minsk(rng: random.Random) -> Destination:
     return Destination(lat=lat, lon=lon)
 
 
+def pick_destination(car: Car, rng: random.Random) -> Destination:
+    # The city is about 14 by 20 km, so a draw this close to the car is rare and the loop is short.
+    while True:
+        destination = random_point_in_minsk(rng)
+        if distance_km(car.lat, car.lon, destination.lat, destination.lon) >= MIN_TRIP_KM:
+            return destination
+
+
 def drive_toward(
     car: Car, destination: Destination, max_km: float, drain_pct_per_km: float
 ) -> bool:
@@ -232,4 +242,4 @@ def step_fleet(
     free_slots = max(0, math.floor(params.trip_share * len(cars)) - driving)
     candidates = [car for car in cars if can_start_trip(car, params)]
     for car in rng.sample(candidates, min(free_slots, len(candidates))):
-        start_trip(car, random_point_in_minsk(rng), now)
+        start_trip(car, pick_destination(car, rng), now)

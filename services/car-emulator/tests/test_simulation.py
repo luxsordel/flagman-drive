@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from car_emulator.domain import (
+    MIN_TRIP_KM,
     MINSK_LAT_RANGE,
     MINSK_LON_RANGE,
     Car,
@@ -13,6 +14,7 @@ from car_emulator.domain import (
     SimulationParams,
     distance_km,
     drive_toward,
+    pick_destination,
     seed_fleet,
     start_trip,
     step_car,
@@ -279,3 +281,13 @@ def test_no_time_no_change() -> None:
     step_fleet(cars, timedelta(seconds=-5), PARAMS, _rng(1), NOW)
 
     assert cars == before
+
+
+def test_trips_lead_somewhere_else() -> None:
+    # The same seed as the fleet's: the first draw is exactly where the seeded car stands.
+    rng = _rng(1)
+    seeded = seed_fleet(1, seed=1, now=NOW)[0]
+
+    destination = pick_destination(seeded, rng)
+
+    assert distance_km(seeded.lat, seeded.lon, destination.lat, destination.lon) >= MIN_TRIP_KM

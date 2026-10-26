@@ -1,13 +1,14 @@
 import asyncio
 import json
+import random
 from datetime import timedelta
 
 import httpx
 import pytest
 from fastapi import FastAPI
 
-from car_emulator.domain import seed_fleet
-from car_emulator.fleet import FleetService
+from car_emulator.domain import SimulationParams, seed_fleet
+from car_emulator.fleet import FleetService, Simulation
 from car_emulator.schemas import TelemetryBatch
 from car_emulator.signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, verify
 from car_emulator.telemetry import HttpWebhookSink, build_batch, run_telemetry_loop
@@ -92,3 +93,52 @@ async def test_loop_survives_delivery_errors(fleet: FleetService, clock: FakeClo
 async def test_app_lifespan_starts_and_stops_telemetry(app: FastAPI) -> None:
     async with app.router.lifespan_context(app):
         await asyncio.sleep(0.01)
+
+
+class _RecordingSink:
+    """Moves the fake clock a minute per batch, as if the loop ran on real time."""
+
+    def __init__(self, clock: FakeClock, wanted: int) -> None:
+        self.clock = clock
+        self.batches: list[TelemetryBatch] = []
+        self.wanted = wanted
+        self.done = asyncio.Event()
+
+    async def send(self, batch: TelemetryBatch) -> None:
+        self.batches.append(batch)
+        self.clock.advance(60)
+        if len(self.batches) == self.wanted:
+            self.done.set()
+
+
+async def test_each_batch_carries_the_simulated_state(clock: FakeClock) -> None:
+    params = SimulationParams(
+        trip_share=1.0,
+        speed_kmh=30.0,
+        idle_drain_pct_per_h=1.0,
+        drive_drain_pct_per_km=0.2,
+        charge_below_pct=10.0,
+        charge_until_pct=90.0,
+        charge_rate_pct_per_h=40.0,
+    )
+    rng = random.Random(1)  # noqa: S311 - not used for security
+    fleet = FleetService(
+        seed_fleet(3, seed=1, now=clock()),
+        timedelta(minutes=10),
+        Simulation(params=params, rng=rng, time_scale=1.0),
+    )
+    sink = _RecordingSink(clock, wanted=3)
+    task = asyncio.create_task(run_telemetry_loop(fleet, sink, 0.001, clock))
+    try:
+        await asyncio.wait_for(sink.done.wait(), timeout=2)
+    finally:
+        task.cancel()
+
+    first, second, third = sink.batches[:3]
+    assert not any(car.ignition_on for car in first.cars)
+    # The second tick sent every car off and the third one already moved them.
+    assert all(car.ignition_on for car in second.cars)
+    assert all(
+        (moved.lat, moved.lon) != (started.lat, started.lon)
+        for started, moved in zip(second.cars, third.cars, strict=True)
+    )

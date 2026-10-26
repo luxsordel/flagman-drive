@@ -46,6 +46,8 @@ async def run_telemetry_loop(
     fleet: FleetService, sink: TelemetrySink, interval_s: float, clock: Clock
 ) -> None:
     while True:
+        # Stepped right before the snapshot, so every batch carries the state as of sending it.
+        fleet.simulate(clock())
         try:
             await sink.send(build_batch(fleet, clock))
         except httpx.HTTPError as exc:

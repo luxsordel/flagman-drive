@@ -34,3 +34,22 @@ def test_secret_is_hidden_in_repr(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("EMULATOR_COMMAND_SECRET", COMMAND_SECRET)
     monkeypatch.setenv("EMULATOR_TELEMETRY_SECRET", TELEMETRY_SECRET)
     assert COMMAND_SECRET not in repr(Settings())
+
+
+def test_simulation_is_on_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMULATOR_COMMAND_SECRET", COMMAND_SECRET)
+    monkeypatch.setenv("EMULATOR_TELEMETRY_SECRET", TELEMETRY_SECRET)
+    monkeypatch.setenv("EMULATOR_TIME_SCALE", "60")
+    settings = Settings()
+    assert settings.simulation_enabled
+    assert settings.time_scale == 60
+    assert settings.charge_below_pct < settings.charge_until_pct
+
+
+def test_charging_must_end_above_its_start(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("EMULATOR_COMMAND_SECRET", COMMAND_SECRET)
+    monkeypatch.setenv("EMULATOR_TELEMETRY_SECRET", TELEMETRY_SECRET)
+    monkeypatch.setenv("EMULATOR_CHARGE_BELOW_PCT", "50")
+    monkeypatch.setenv("EMULATOR_CHARGE_UNTIL_PCT", "50")
+    with pytest.raises(ValidationError):
+        Settings()
