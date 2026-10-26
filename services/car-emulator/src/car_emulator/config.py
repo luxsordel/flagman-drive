@@ -7,7 +7,8 @@ _MIN_SECRET_LENGTH = 32
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="EMULATOR_", extra="ignore")
+    # Empty means the default: Compose passes every variable, set or not.
+    model_config = SettingsConfigDict(env_prefix="EMULATOR_", extra="ignore", env_ignore_empty=True)
 
     host: str = "127.0.0.1"
     port: int = Field(default=8100, ge=1, le=65535)

@@ -53,3 +53,14 @@ def test_charging_must_end_above_its_start(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setenv("EMULATOR_CHARGE_UNTIL_PCT", "50")
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_empty_values_mean_the_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Compose passes every EMULATOR_ variable, empty when .env does not set it.
+    monkeypatch.setenv("EMULATOR_COMMAND_SECRET", COMMAND_SECRET)
+    monkeypatch.setenv("EMULATOR_TELEMETRY_SECRET", TELEMETRY_SECRET)
+    monkeypatch.setenv("EMULATOR_TIME_SCALE", "")
+    monkeypatch.setenv("EMULATOR_SIMULATION_ENABLED", "")
+    settings = Settings()
+    assert settings.time_scale == 1.0
+    assert settings.simulation_enabled
