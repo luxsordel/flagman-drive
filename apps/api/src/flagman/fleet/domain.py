@@ -293,6 +293,9 @@ def is_rentable(
         return False
     if now - state.recorded_at > rules.max_state_age:
         return False
+    # Ignition on means someone drives it: a client would walk to a car that is already gone.
+    if state.ignition_on:
+        return False
     return state.battery_pct >= rules.min_battery_pct
 
 
