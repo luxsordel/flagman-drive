@@ -129,6 +129,62 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/tariffs': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every car model with its current tariff, by brand and name */
+    get: operations['list_tariffs_admin_tariffs_get'];
+    put?: never;
+    /** Create the tariff of a car model */
+    post: operations['create_tariff_admin_tariffs_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/tariffs/{tariff_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One tariff */
+    get: operations['get_tariff_admin_tariffs__tariff_id__get'];
+    /**
+     * Save new prices of a tariff
+     * @description Adds a version that applies from now on. Rentals booked before keep the version they were booked with.
+     */
+    put: operations['update_tariff_admin_tariffs__tariff_id__put'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/tariffs/{tariff_id}/versions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every version of a tariff, newest first */
+    get: operations['list_tariff_versions_admin_tariffs__tariff_id__versions_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/admin/zones': {
     parameters: {
       query?: never;
@@ -419,6 +475,97 @@ export interface paths {
     patch: operations['update_my_profile_me_patch'];
     trace?: never;
   };
+  '/payment-cards': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The client's cards, oldest first */
+    get: operations['list_cards_payment_cards_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/payment-cards/bindings': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Start binding a card: open the provider's page it returns
+     * @description The card number goes to the provider's page only. When the client is done, the page sends them to `return_url` with `binding_id`; the outcome comes from the provider separately, so ask `GET /payment-cards/bindings/{binding_id}` until it is not `pending`. The first card becomes the default one.
+     */
+    post: operations['start_binding_payment_cards_bindings_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/payment-cards/bindings/{binding_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** How a card binding ended, or that it is still pending */
+    get: operations['get_binding_payment_cards_bindings__binding_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/payment-cards/{card_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * Remove a card
+     * @description If it was the default one, the newest other card becomes the default.
+     */
+    delete: operations['remove_card_payment_cards__card_id__delete'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/payment-cards/{card_id}/default': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Make a card the default one */
+    post: operations['set_default_card_payment_cards__card_id__default_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/ready': {
     parameters: {
       query?: never;
@@ -584,7 +731,9 @@ export interface components {
       | 'kyc.document_viewed'
       | 'zone.created'
       | 'zone.updated'
-      | 'zone.disabled';
+      | 'zone.disabled'
+      | 'tariff.created'
+      | 'tariff.updated';
     /** AuditEventOut */
     AuditEventOut: {
       /**
@@ -651,7 +800,71 @@ export interface components {
      *     Values are stored as is, like AuditAction: renaming one leaves older events with the old name.
      * @enum {string}
      */
-    AuditTargetType: 'staff_member' | 'kyc_application' | 'zone';
+    AuditTargetType: 'staff_member' | 'kyc_application' | 'zone' | 'tariff';
+    /** CarModelOut */
+    CarModelOut: {
+      /** Brand */
+      brand: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Name */
+      name: string;
+    };
+    /** CardBindingIn */
+    CardBindingIn: {
+      /**
+       * Return Url
+       * @description Where the provider's page sends the client back, with `binding_id` added to the query: the app's `flagmandrive://` link, Expo Go's `exp://` outside prod, or a page of an origin from `API_CORS_ORIGINS`.
+       * @example flagmandrive://payment-methods
+       */
+      return_url: string;
+    };
+    /** CardBindingOut */
+    CardBindingOut: {
+      /** @description With `succeeded`: the card that was bound. */
+      card: components['schemas']['PaymentCardOut'] | null;
+      /** @description With `declined`. */
+      decline_reason: components['schemas']['DeclineReason'] | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      status: components['schemas']['CardBindingStatus'];
+    };
+    /** CardBindingStarted */
+    CardBindingStarted: {
+      /**
+       * Expires At
+       * Format: date-time
+       */
+      expires_at: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Page Url
+       * @description The provider's page: open it in the browser.
+       */
+      page_url: string;
+    };
+    /**
+     * CardBindingStatus
+     * @description Values are stored as is, except EXPIRED: it is a pending binding past its time.
+     * @enum {string}
+     */
+    CardBindingStatus: 'pending' | 'succeeded' | 'declined' | 'cancelled' | 'expired';
+    /**
+     * CardBrand
+     * @description Values are stored as is: renaming one needs a migration.
+     * @enum {string}
+     */
+    CardBrand: 'visa' | 'mastercard' | 'mir' | 'belcard' | 'other';
     /**
      * CheckStatus
      * @enum {string}
@@ -716,6 +929,11 @@ export interface components {
        */
       last_name?: string;
     };
+    /**
+     * DeclineReason
+     * @enum {string}
+     */
+    DeclineReason: 'declined' | 'insufficient_funds';
     /**
      * DocumentKind
      * @description Values are stored as is and are part of the API path: renaming one breaks both.
@@ -940,6 +1158,21 @@ export interface components {
       kind: components['schemas']['ZoneKind'];
       polygon: components['schemas']['PolygonGeometry'];
     };
+    /** ModelTariffList */
+    ModelTariffList: {
+      /** Items */
+      items: components['schemas']['ModelTariffOut'][];
+    };
+    /** ModelTariffOut */
+    ModelTariffOut: {
+      current: components['schemas']['TariffVersionOut'] | null;
+      model: components['schemas']['CarModelOut'];
+      /**
+       * Tariff Id
+       * @description None until a tariff is created for the model.
+       */
+      tariff_id: string | null;
+    };
     /** OtpRequest */
     OtpRequest: {
       /**
@@ -999,6 +1232,36 @@ export interface components {
        * @enum {string}
        */
       refresh_token_transport: 'body' | 'cookie';
+    };
+    /** PaymentCardList */
+    PaymentCardList: {
+      /** Items */
+      items: components['schemas']['PaymentCardOut'][];
+    };
+    /**
+     * PaymentCardOut
+     * @description What the client sees of a card; the provider's token never leaves the API.
+     */
+    PaymentCardOut: {
+      brand: components['schemas']['CardBrand'];
+      /** Exp Month */
+      exp_month: number;
+      /** Exp Year */
+      exp_year: number;
+      /** Expired */
+      expired: boolean;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Is Default
+       * @description Holds and charges of rentals go to this card.
+       */
+      is_default: boolean;
+      /** Last4 */
+      last4: string;
     };
     /**
      * PolygonGeometry
@@ -1208,6 +1471,100 @@ export interface components {
        * @example 123456
        */
       code: string;
+    };
+    /** TariffCreate */
+    TariffCreate: {
+      /** Driving Per Minute */
+      driving_per_minute: number;
+      /**
+       * Free Waiting Minutes
+       * @default 15
+       */
+      free_waiting_minutes: number;
+      /**
+       * Hold Amount
+       * @description Held on the card when a trip starts.
+       */
+      hold_amount: number;
+      /**
+       * Model Id
+       * Format: uuid
+       */
+      model_id: string;
+      /** Parked Per Minute */
+      parked_per_minute: number;
+      /**
+       * Waiting Per Minute
+       * @description A minute of a reservation after the free ones.
+       */
+      waiting_per_minute: number;
+    };
+    /** TariffPricesOut */
+    TariffPricesOut: {
+      /** Driving Per Minute */
+      driving_per_minute: number;
+      /** Free Waiting Minutes */
+      free_waiting_minutes: number;
+      /** Hold Amount */
+      hold_amount: number;
+      /** Parked Per Minute */
+      parked_per_minute: number;
+      /** Waiting Per Minute */
+      waiting_per_minute: number;
+    };
+    /** TariffUpdate */
+    TariffUpdate: {
+      /**
+       * Based On Version
+       * @description The version number the form was filled from: if someone saved a newer one meanwhile, the change is refused with `tariff-changed` instead of overwriting theirs.
+       */
+      based_on_version: number;
+      /** Driving Per Minute */
+      driving_per_minute: number;
+      /**
+       * Free Waiting Minutes
+       * @default 15
+       */
+      free_waiting_minutes: number;
+      /**
+       * Hold Amount
+       * @description Held on the card when a trip starts.
+       */
+      hold_amount: number;
+      /** Parked Per Minute */
+      parked_per_minute: number;
+      /**
+       * Waiting Per Minute
+       * @description A minute of a reservation after the free ones.
+       */
+      waiting_per_minute: number;
+    };
+    /** TariffVersionList */
+    TariffVersionList: {
+      /** Items */
+      items: components['schemas']['TariffVersionOut'][];
+    };
+    /** TariffVersionOut */
+    TariffVersionOut: {
+      /**
+       * Created By
+       * @description The staff member; none for the demo seed.
+       */
+      created_by: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Number */
+      number: number;
+      prices: components['schemas']['TariffPricesOut'];
+      /**
+       * Valid From
+       * Format: date-time
+       * @description Rentals booked from this moment use the version.
+       */
+      valid_from: string;
     };
     /** TokenPair */
     TokenPair: {
@@ -1760,6 +2117,354 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:forbidden`: only `admin` sees the staff list. */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_tariffs_admin_tariffs_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ModelTariffList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  create_tariff_admin_tariffs_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TariffCreate'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ModelTariffOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:car-model-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:tariff-exists`: change that tariff instead. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_tariff_admin_tariffs__tariff_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tariff_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ModelTariffOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:tariff-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  update_tariff_admin_tariffs__tariff_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tariff_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TariffUpdate'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ModelTariffOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:tariff-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:tariff-changed`: a newer version than `based_on_version` was saved meanwhile; reload the tariff. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_tariff_versions_admin_tariffs__tariff_id__versions_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        tariff_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TariffVersionList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:tariff-not-found`. */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -2958,6 +3663,296 @@ export interface operations {
         };
       };
       /** @description `urn:flagman:problem:validation-error`: see `errors`. `urn:flagman:problem:birth-date-invalid`: in the future or too long ago. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_cards_payment_cards_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaymentCardList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  start_binding_payment_cards_bindings_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CardBindingIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CardBindingStarted'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:return-url-not-allowed`, or `validation-error`. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:payments-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_binding_payment_cards_bindings__binding_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        binding_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CardBindingOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:card-binding-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  remove_card_payment_cards__card_id__delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        card_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:payment-card-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  set_default_card_payment_cards__card_id__default_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        card_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PaymentCardOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:payment-card-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
       422: {
         headers: {
           [name: string]: unknown;
