@@ -21,6 +21,12 @@ from flagman.audit.domain import (
     AuditTargetType,
     RequestOrigin,
 )
+from flagman.core.photos import (
+    OUTPUT_CONTENT_TYPE,
+    PhotoTooLargeError,
+    PhotoTypeUnsupportedError,
+    clean_photo,
+)
 from flagman.core.ratelimit import Limit, RateLimiter
 from flagman.identity import service as identity
 from flagman.kyc import repository
@@ -31,11 +37,12 @@ from flagman.kyc.domain import (
     ApplicationNotFoundError,
     DocumentKind,
     DocumentNotFoundError,
+    DocumentTooLargeError,
+    DocumentTypeUnsupportedError,
     KycApplication,
     KycStatus,
     full_years,
 )
-from flagman.kyc.images import OUTPUT_CONTENT_TYPE, clean_document_photo
 from flagman.kyc.ports import DocumentStorage
 from flagman.kyc.repository import ApplicationRecord, StoredPhoto
 from flagman.kyc.schemas import (
@@ -108,7 +115,12 @@ class KycService:
         data: bytes,
         now: datetime,
     ) -> KycApplicationOut:
-        photo = await asyncio.to_thread(clean_document_photo, data)
+        try:
+            photo = await asyncio.to_thread(clean_photo, data)
+        except PhotoTooLargeError as error:
+            raise DocumentTooLargeError(str(error) or None) from error
+        except PhotoTypeUnsupportedError as error:
+            raise DocumentTypeUnsupportedError from error
 
         async with self.db.begin():
             await repository.ensure_application(self.db, user_id, now)
