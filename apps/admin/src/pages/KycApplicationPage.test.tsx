@@ -45,6 +45,40 @@ describe('KYC application page', () => {
     expect(within(profile).getAllByText(ru.kyc.profile.notGiven)).toHaveLength(4);
   });
 
+  it('suggests rejecting an application sent with an empty profile', async () => {
+    const user = userEvent.setup();
+    const { kycReview, application } = openApplication(
+      kycApplication({ last_name: null, birth_date: null, age_years: null }),
+    );
+
+    const hint = await screen.findByRole('region', { name: ru.kyc.profileMissing.title });
+    expect(hint.textContent).toContain(ru.kyc.profileMissing.text);
+    expect(screen.queryByRole('form', { name: ru.kyc.approve.title })).toBeNull();
+
+    await user.click(
+      within(rejectForm()).getByRole('button', { name: ru.kyc.profileMissing.useReason }),
+    );
+    expect(within(rejectForm()).getByLabelText(ru.kyc.reject.reason)).toHaveProperty(
+      'value',
+      ru.kyc.profileMissing.reason,
+    );
+    await user.click(within(rejectForm()).getByRole('button', { name: ru.kyc.reject.submit }));
+
+    expect(await screen.findByText(ru.kyc.queue.rejected)).toBeDefined();
+    expect(kycReview.reject).toHaveBeenCalledWith(application.id, ru.kyc.profileMissing.reason);
+  });
+
+  it('offers no ready reason when the profile is filled in', async () => {
+    openApplication();
+    await screen.findByRole('heading', { level: 1 });
+
+    expect(approveForm()).toBeDefined();
+    expect(screen.queryByRole('region', { name: ru.kyc.profileMissing.title })).toBeNull();
+    expect(
+      within(rejectForm()).queryByRole('button', { name: ru.kyc.profileMissing.useReason }),
+    ).toBeNull();
+  });
+
   it('shows every uploaded photo by its own link, without a referrer', async () => {
     const { kycReview, application } = openApplication(
       kycApplication({

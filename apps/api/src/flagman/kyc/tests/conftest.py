@@ -72,6 +72,18 @@ def _wait_until_healthy(url: str) -> None:
             time.sleep(0.5)
 
 
+def _published_port(container: DockerContainer, port: int) -> int:
+    """Docker Desktop reports the container running a moment before it publishes the port."""
+    deadline = time.monotonic() + _STARTUP_TIMEOUT_SECONDS
+    while True:
+        try:
+            return container.get_exposed_port(port)
+        except ConnectionError:
+            if time.monotonic() > deadline:
+                raise
+            time.sleep(0.2)
+
+
 @pytest.fixture(scope="session")
 def seaweedfs() -> Iterator[S3Endpoint]:
     access_key, secret_key = secrets.token_hex(10), secrets.token_hex(20)
@@ -87,7 +99,7 @@ def seaweedfs() -> Iterator[S3Endpoint]:
     )
     with container:
         host = container.get_container_host_ip()
-        url = f"http://{host}:{container.get_exposed_port(S3_PORT)}"
+        url = f"http://{host}:{_published_port(container, S3_PORT)}"
         _wait_until_healthy(url)
         endpoint = S3Endpoint(url, access_key, secret_key, BUCKET)
         endpoint.call(lambda s3: s3.create_bucket(Bucket=BUCKET))
@@ -194,6 +206,13 @@ class Person:
 
     def update_profile(self, **fields: str | None) -> Any:
         return self.client.patch("/me", json=fields, headers=self.headers)
+
+    def fill_profile(self, birth_date: str = "1990-05-17") -> None:
+        """The name and birth date a submission needs."""
+        response = self.update_profile(
+            first_name="Анна", last_name="Ковалёва", birth_date=birth_date
+        )
+        assert response.status_code == HTTPStatus.OK, response.text
 
 
 @pytest.fixture

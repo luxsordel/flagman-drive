@@ -11,12 +11,21 @@ import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { ProgressBar } from '../../ui/ProgressBar';
 import { Screen } from '../../ui/Screen';
+import { useProfile, useProfileStore } from '../profile/ProfileProvider';
 import type { DocumentKind, KycApplication, UploadHandle } from './kycApi';
 import { isRetryable, type KycError } from './kycErrors';
 import { KycErrorMessage } from './KycErrorMessage';
-import { canEditDocuments, documentSteps, firstStep, isUploaded, stepAfter } from './kycFlow';
+import {
+  canEditDocuments,
+  documentSteps,
+  firstStep,
+  hasProfileForKyc,
+  isUploaded,
+  stepAfter,
+} from './kycFlow';
 import { useKycApplication, useKycStore } from './KycProvider';
 import { discardPhoto, pickPhoto, type PhotoSource, usesInAppCamera } from './photos';
+import { ProfileRequiredCard } from './ProfileRequiredCard';
 import { allowSelfieCamera, SelfieCamera } from './SelfieCamera';
 
 /** Step-by-step document upload, then the overview to send the application for review. */
@@ -262,8 +271,13 @@ function DocumentsReview({
   const { t } = useTranslation();
   const router = useRouter();
   const store = useKycStore();
+  const profileStore = useProfileStore();
+  const { profile } = useProfile();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<KycError | null>(null);
+  const profileRefused = error?.kind === 'profileIncomplete';
+  // The loaded profile decides; the server's refusal stands in until it loads.
+  const needsProfile = profile === null ? profileRefused : !hasProfileForKyc(profile);
 
   // On success the application is under review and the screen redirects to the status by itself.
   async function submit() {
@@ -272,6 +286,8 @@ function DocumentsReview({
     const failure = await store.submit();
     setBusy(false);
     setError(failure);
+    // The profile shown here was stale: another device may have changed it.
+    if (failure?.kind === 'profileIncomplete') void profileStore.load();
   }
 
   return (
@@ -301,10 +317,12 @@ function DocumentsReview({
           </Card>
         );
       })}
-      <KycErrorMessage error={error} />
+      {needsProfile && <ProfileRequiredCard />}
+      {/* The card above explains this refusal and leads to the profile. */}
+      <KycErrorMessage error={profileRefused ? null : error} />
       <Button
         title={t('kyc.review.submit')}
-        disabled={busy || application.missing_documents.length > 0}
+        disabled={busy || needsProfile || application.missing_documents.length > 0}
         onPress={() => void submit()}
       />
       <Button

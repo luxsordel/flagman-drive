@@ -8,6 +8,7 @@ import { testSession } from '../auth/session/testing';
 import { KycProvider } from '../kyc/KycProvider';
 import { KycStore } from '../kyc/kycStore';
 import { fakeKycApi, kycApplication, ok as kycOk } from '../kyc/testing';
+import type { KycStatus } from '../kyc/kycApi';
 import type { ProfileResult } from './profileApi';
 import { ProfileProvider } from './ProfileProvider';
 import { ProfileScreen } from './ProfileScreen';
@@ -21,10 +22,11 @@ jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 
 async function renderProfile(
   firstLoad: ProfileResult = ok(profile({ email: 'ivan@example.com' })),
+  kycStatus: KycStatus = 'not_submitted',
 ) {
   const auth = testSession({ refreshToken: 'refresh-0' });
   const kyc = fakeKycApi();
-  kyc.api.getApplication.mockResolvedValue(kycOk(kycApplication([], { status: 'pending' })));
+  kyc.api.getApplication.mockResolvedValue(kycOk(kycApplication([], { status: kycStatus })));
   const api = fakeProfileApi();
   api.getProfile.mockResolvedValue(firstLoad);
   const store = new ProfileStore(api);
@@ -39,7 +41,7 @@ async function renderProfile(
   );
   // The form appears once the profile is loaded.
   if (firstLoad.ok) await screen.findByLabelText('Имя');
-  return { auth, api, store };
+  return { auth, api, store, kycApi: kyc.api };
 }
 
 const field = (label: string) => screen.getByLabelText(label);
@@ -64,7 +66,50 @@ describe('ProfileScreen', () => {
     expect(screen.getByText('+375 29 123-45-67')).toBeOnTheScreen();
     expect(screen.queryByDisplayValue('+375 29 123-45-67')).toBeNull();
     expect(screen.getByRole('radio', { name: 'Русский' })).toBeChecked();
-    expect(await screen.findByText('На проверке')).toBeOnTheScreen();
+    expect(await screen.findByText('Не отправлены')).toBeOnTheScreen();
+  });
+
+  it.each(['pending', 'approved'] as const)(
+    'keeps the name and birth date read-only while the documents are %s',
+    async (status) => {
+      const { api } = await renderProfile(
+        ok(profile({ first_name: null, last_name: null, birth_date: null })),
+        status,
+      );
+      api.updateProfile.mockResolvedValue(ok(profile({ email: 'anna@example.com' })));
+
+      expect(
+        await screen.findByText(/^Фамилию, имя и дату рождения нельзя изменить/),
+      ).toBeOnTheScreen();
+      expect(field('Имя')).toHaveProp('editable', false);
+      expect(field('Фамилия')).toHaveProp('editable', false);
+      expect(field('Дата рождения')).toHaveProp('editable', false);
+      expect(field('Email')).toHaveProp('editable', true);
+
+      await fireEvent.changeText(field('Email'), 'anna@example.com');
+      await fireEvent.press(saveButton());
+
+      expect(await screen.findByText('Изменения сохранены')).toBeOnTheScreen();
+      expect(api.updateProfile).toHaveBeenCalledWith({ email: 'anna@example.com' });
+    },
+  );
+
+  it('explains a name change refused because the documents went for review', async () => {
+    const { api, kycApi } = await renderProfile();
+    api.updateProfile.mockResolvedValue({ ok: false, error: { kind: 'locked' } });
+    kycApi.getApplication.mockResolvedValue(kycOk(kycApplication([], { status: 'pending' })));
+
+    await fireEvent.changeText(field('Имя'), 'Anna');
+    await fireEvent.press(saveButton());
+
+    expect(
+      await screen.findByText(/^Документы уже на проверке, поэтому фамилию/),
+    ).toBeOnTheScreen();
+    expect(screen.queryByText('Что-то пошло не так. Попробуйте ещё раз')).toBeNull();
+    // The status reloaded, so the fields it locks are read-only now.
+    await waitFor(() => {
+      expect(field('Имя')).toHaveProp('editable', false);
+    });
   });
 
   it('shows blanks for names the client has not filled in yet', async () => {

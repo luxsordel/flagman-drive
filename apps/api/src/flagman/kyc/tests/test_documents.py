@@ -287,10 +287,25 @@ def test_submission_needs_every_document(person: Callable[[], Person]) -> None:
     )
 
 
+def test_submission_needs_the_name_and_birth_date(person: Callable[[], Person]) -> None:
+    client = person()
+    client.upload_all()
+
+    response = client.submit()
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert problem_type(response) == "kyc-profile-incomplete"
+    assert client.application().json()["status"] == "not_submitted"
+    # The profile stays open, so the client fills it in and submits again.
+    client.fill_profile()
+    assert client.submit().status_code == HTTPStatus.OK
+
+
 def test_a_submitted_application_is_pending_and_locked(
     person: Callable[[], Person], kyc_settings: Settings, seaweedfs: S3Endpoint
 ) -> None:
     client = person()
+    client.fill_profile()
     client.upload_all()
 
     response = client.submit()
@@ -315,6 +330,7 @@ def test_after_a_rejection_the_client_fixes_one_photo_and_submits_again(
     person: Callable[[], Person], kyc_settings: Settings
 ) -> None:
     client = person()
+    client.fill_profile()
     client.upload_all()
     client.submit()
     # Operator decisions come with #35; until then the test makes one in the database.
@@ -341,6 +357,7 @@ def test_the_admission_status_is_public_for_other_modules(
     person: Callable[[], Person], kyc_settings: Settings
 ) -> None:
     client = person()
+    client.fill_profile()
     client.upload_all()
     client.submit()
     user_id = query(kyc_settings, "SELECT id FROM users WHERE phone = :p", p=client.phone)[0].id
@@ -452,6 +469,7 @@ def test_keys_and_links_stay_out_of_the_logs(
     person: Callable[[], Person], kyc_settings: Settings, caplog: pytest.LogCaptureFixture
 ) -> None:
     client = person()
+    client.fill_profile()
     client.upload_all()
     url = client.url(DocumentKind.PASSPORT).json()["url"]
     client.submit()

@@ -81,6 +81,25 @@ describe('checkDraft', () => {
     });
   });
 
+  it('neither checks nor sends the name and birth date once they are locked', () => {
+    const locked = { identityLocked: true };
+    const empty = draft({
+      firstName: '',
+      lastName: '',
+      birthDate: '',
+      email: ' anna@example.com ',
+    });
+
+    expect(checkDraft(empty, today, locked)).toEqual({
+      ok: true,
+      update: { email: 'anna@example.com' },
+    });
+    expect(checkDraft(draft({ email: 'anna@' }), today, locked)).toEqual({
+      ok: false,
+      errors: { email: 'email' },
+    });
+  });
+
   it('shows names with null from the API as blanks', () => {
     expect(draftFromProfile(profile({ first_name: null, last_name: null }))).toMatchObject({
       firstName: '',

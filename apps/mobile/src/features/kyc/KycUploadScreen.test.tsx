@@ -1,6 +1,9 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { initI18n } from '../../i18n';
+import type { Profile } from '../profile/profileApi';
+import { ProfileProvider } from '../profile/ProfileProvider';
+import { ok as profileOk, profile, profileStoreWith } from '../profile/testing';
 import type { DocumentKind, KycApplication } from './kycApi';
 import { KycProvider } from './KycProvider';
 import { KycStore } from './kycStore';
@@ -11,7 +14,7 @@ import { fakeKycApi, kycApplication, ok } from './testing';
 
 initI18n('ru');
 
-const mockRouter = { back: jest.fn(), dismissTo: jest.fn() };
+const mockRouter = { back: jest.fn(), dismissTo: jest.fn(), push: jest.fn() };
 jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
 jest.mock('./photos', () => ({
   pickPhoto: jest.fn(),
@@ -53,15 +56,18 @@ const allDocuments: DocumentKind[] = [
   'selfie_with_license',
 ];
 
-async function renderUpload(application: KycApplication) {
+async function renderUpload(application: KycApplication, client: Profile = profile()) {
   const { api, uploads } = fakeKycApi();
   api.getApplication.mockResolvedValue(ok(application));
+  const profiles = profileStoreWith(client);
   const view = await render(
     <KycProvider store={new KycStore(api)}>
-      <KycUploadScreen />
+      <ProfileProvider store={profiles.store}>
+        <KycUploadScreen />
+      </ProfileProvider>
     </KycProvider>,
   );
-  return { api, uploads, view };
+  return { api, uploads, view, profileApi: profiles.api };
 }
 
 function last<T>(items: readonly T[]): T {
@@ -272,6 +278,32 @@ describe('KycUploadScreen', () => {
     await waitFor(() => {
       expect(mockRouter.dismissTo).toHaveBeenCalledWith('/kyc');
     });
+  });
+
+  it('leads to the profile instead of sending without the name and birth date', async () => {
+    const { api } = await renderUpload(
+      kycApplication(allDocuments),
+      profile({ first_name: null, last_name: null, birth_date: null }),
+    );
+
+    expect(await screen.findByText('Сначала заполните профиль')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Отправить на проверку' })).toBeDisabled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Заполнить профиль' }));
+
+    expect(mockRouter.push).toHaveBeenCalledWith('/profile');
+    expect(api.submit).not.toHaveBeenCalled();
+  });
+
+  it('explains the refusal of a profile emptied elsewhere and reloads it', async () => {
+    const { api, profileApi } = await renderUpload(kycApplication(allDocuments));
+    api.submit.mockResolvedValue({ ok: false, error: { kind: 'profileIncomplete' } });
+    profileApi.getProfile.mockResolvedValue(profileOk(profile({ last_name: null })));
+
+    await fireEvent.press(await screen.findByRole('button', { name: 'Отправить на проверку' }));
+
+    expect(await screen.findByText('Сначала заполните профиль')).toBeOnTheScreen();
+    expect(profileApi.getProfile).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: 'Отправить на проверку' })).toBeDisabled();
   });
 
   it('lets a rejected client replace a single photo', async () => {
