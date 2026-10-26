@@ -49,12 +49,14 @@ ALLOWED = {
 }
 
 
-def _state(battery_pct: int = 80, age: timedelta = timedelta(seconds=10)) -> CarState:
+def _state(
+    battery_pct: int = 80, age: timedelta = timedelta(seconds=10), *, ignition_on: bool = False
+) -> CarState:
     return CarState(
         location=MINSK,
         battery_pct=battery_pct,
         doors_locked=True,
-        ignition_on=False,
+        ignition_on=ignition_on,
         engine_locked=False,
         recorded_at=NOW - age,
     )
@@ -97,6 +99,10 @@ def test_only_available_cars_are_rentable(status: CarStatus) -> None:
 
 def test_a_car_without_telemetry_is_not_rentable() -> None:
     assert not is_rentable(CarStatus.AVAILABLE, None, RULES, NOW)
+
+
+def test_a_car_with_its_ignition_on_is_not_rentable() -> None:
+    assert not is_rentable(CarStatus.AVAILABLE, _state(ignition_on=True), RULES, NOW)
 
 
 @pytest.mark.parametrize(("battery_pct", "rentable"), [(19, False), (20, True), (100, True)])
