@@ -246,6 +246,7 @@ class StoredCarModel:
 @dataclass(frozen=True)
 class Car:
     id: uuid.UUID
+    model_id: uuid.UUID
     model: CarModelSpec
     plate: str
     vin: str
@@ -333,6 +334,8 @@ class CarOnMap:
     """What a client sees of a rentable car: nothing that helps to find or spoof it otherwise."""
 
     id: uuid.UUID
+    # The tariff is the model's (pricing): the map shows its prices next to the car.
+    model_id: uuid.UUID
     brand: str
     model: str
     photo_url: str | None
@@ -373,6 +376,7 @@ def car_on_map(car: Car, distance_m: float | None) -> CarOnMap:
         raise ValueError("a car without telemetry is never on the map")
     return CarOnMap(
         id=car.id,
+        model_id=car.model_id,
         brand=car.model.brand,
         model=car.model.name,
         photo_url=car.model.photo_url,

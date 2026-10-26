@@ -147,12 +147,28 @@ describe('MapScreen', () => {
     expect(screen.getByText('80 %')).toBeOnTheScreen();
     expect(screen.getByText('320 км')).toBeOnTheScreen();
     expect(screen.getByText('1,5 км')).toBeOnTheScreen();
+    // Intl puts a no-break space between the amount and the currency.
+    expect(screen.getByText(/^0,39\sBYN\/мин$/)).toBeOnTheScreen();
+    expect(screen.getByText(/^0,12\sBYN\/мин$/)).toBeOnTheScreen();
     expect(mapProps().selectedId).toBe('car-1');
 
     await fireEvent.press(screen.getByRole('button', { name: 'Закрыть' }));
 
     expect(screen.queryByText('Geely Geometry C')).toBeNull();
     expect(mapProps().selectedId).toBeNull();
+  });
+
+  it('says when the car has no tariff yet', async () => {
+    const api = await renderMap();
+    api.getCar.mockResolvedValue(ok(mapCar({ tariff: null })));
+    await showArea();
+
+    await act(async () => {
+      mapProps().onCarPress('car-1');
+      await jest.advanceTimersByTimeAsync(0);
+    });
+
+    expect(screen.getByText('Тариф для этой машины ещё не задан')).toBeOnTheScreen();
   });
 
   it('says when a pressed car is no longer available', async () => {

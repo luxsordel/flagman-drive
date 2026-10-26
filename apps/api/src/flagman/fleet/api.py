@@ -21,6 +21,7 @@ from flagman.core.resources import Resources, get_resources
 from flagman.fleet import service
 from flagman.fleet.domain import (
     AvailabilityRules,
+    CarOnMap,
     TelematicsUnavailableError,
     TelemetryTooLargeError,
     TelemetryUnavailableError,
@@ -35,6 +36,7 @@ from flagman.fleet.schemas import (
     MapCarList,
     MapCarOut,
     MapCarsQuery,
+    MapTariffOut,
     StaffCarList,
     StaffCarOut,
     StaffCarsQuery,
@@ -49,6 +51,7 @@ from flagman.identity.dependencies import (
     require_staff_role,
 )
 from flagman.identity.domain import StaffRole
+from flagman.pricing import service as pricing
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
@@ -176,7 +179,8 @@ async def list_map_cars(
     client: MapClient, db: Db, rules: Rules, query: Annotated[MapCarsQuery, Query()]
 ) -> MapCarList:
     cars = await service.find_cars_on_map(db, rules, datetime.now(UTC), query.query())
-    return MapCarList(items=[MapCarOut.of(car) for car in cars])
+    tariffs = await _map_tariffs(db, cars)
+    return MapCarList(items=[MapCarOut.of(car, tariffs.get(car.model_id)) for car in cars])
 
 
 @map_router.get(
@@ -192,7 +196,21 @@ async def get_map_car(
     point: Annotated[ClientPoint, Query()],
 ) -> MapCarOut:
     car = await service.get_car_on_map(db, car_id, rules, datetime.now(UTC), point.point())
-    return MapCarOut.of(car)
+    tariffs = await _map_tariffs(db, [car])
+    return MapCarOut.of(car, tariffs.get(car.model_id))
+
+
+async def _map_tariffs(db: AsyncSession, cars: list[CarOnMap]) -> dict[UUID, MapTariffOut]:
+    # The tariffs belong to pricing, which reads models from the fleet: asking it from here keeps
+    # the dependency one way.
+    versions = await pricing.current_versions(db, {car.model_id for car in cars})
+    return {
+        model_id: MapTariffOut(
+            driving_per_minute=version.prices.driving_per_minute,
+            parked_per_minute=version.prices.parked_per_minute,
+        )
+        for model_id, version in versions.items()
+    }
 
 
 @contextlib.asynccontextmanager

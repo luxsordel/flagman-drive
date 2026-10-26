@@ -1,3 +1,4 @@
+import asyncio
 import itertools
 import json
 import uuid
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from flagman.core.app import create_app
 from flagman.core.config import Settings
+from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.core.ratelimit import Limit
 from flagman.fleet import api
@@ -24,6 +26,8 @@ from flagman.identity.domain import (
     issue_access_token,
     issue_staff_access_token,
 )
+from flagman.pricing import service as pricing
+from flagman.pricing.seed import DEMO_PRICES
 
 pytestmark = pytest.mark.integration
 
@@ -40,6 +44,7 @@ MAP_FIELDS = {
     "battery_pct",
     "range_km",
     "distance_m",
+    "tariff",
 }
 
 
@@ -204,6 +209,31 @@ def test_the_card_shows_the_same_fields_and_the_distance(
     assert card.status_code == HTTPStatus.OK
     assert card.json() == listed.json()["items"][0]
     assert client.get(f"{URL}/{car_id}", headers=headers).json()["distance_m"] is None
+
+
+def test_cars_come_with_the_prices_of_their_model(
+    client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
+) -> None:
+    car_id = add_car(integration_settings, spot)
+
+    async def seed() -> None:
+        engine = create_engine(integration_settings)
+        try:
+            async with create_session_factory(engine)() as db:
+                await pricing.seed_demo_tariffs(db, datetime.now(UTC))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed())
+    listed = client.get(URL, params=_area(spot), headers=headers).json()["items"]
+    card = client.get(f"{URL}/{car_id}", headers=headers).json()
+
+    expected = {
+        "driving_per_minute": DEMO_PRICES.driving_per_minute,
+        "parked_per_minute": DEMO_PRICES.parked_per_minute,
+    }
+    assert listed[0]["tariff"] == expected
+    assert card["tariff"] == expected
 
 
 def test_an_unknown_car_is_404(client: TestClient, headers: dict[str, str]) -> None:

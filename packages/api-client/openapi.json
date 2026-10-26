@@ -954,6 +954,17 @@
             "description": "Estimated from the charge, rounded down.",
             "title": "Range Km",
             "type": "integer"
+          },
+          "tariff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MapTariffOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The current tariff of the car's model; none until an admin sets one."
           }
         },
         "required": [
@@ -965,9 +976,26 @@
           "lon",
           "battery_pct",
           "range_km",
-          "distance_m"
+          "distance_m",
+          "tariff"
         ],
         "title": "MapCarOut",
+        "type": "object"
+      },
+      "MapTariffOut": {
+        "description": "Kopecks of BYN; the server counts the price of a rental, the app only shows these.",
+        "properties": {
+          "driving_per_minute": {
+            "title": "Driving Per Minute",
+            "type": "integer"
+          },
+          "parked_per_minute": {
+            "title": "Parked Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": ["driving_per_minute", "parked_per_minute"],
+        "title": "MapTariffOut",
         "type": "object"
       },
       "MapZoneList": {

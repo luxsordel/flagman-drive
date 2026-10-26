@@ -213,6 +213,7 @@ def test_range_left_is_rounded_down() -> None:
 def _car(state: CarState | None) -> Car:
     return Car(
         id=uuid.uuid4(),
+        model_id=uuid.uuid4(),
         model=CarModelSpec("Geely", "Geometry C", 5, 70_000, 400, "https://cdn.test/c.png"),
         plate="1234 AB-7",
         vin="LB37622Z9NX000001",

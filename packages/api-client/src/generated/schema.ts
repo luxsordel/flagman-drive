@@ -1250,6 +1250,18 @@ export interface components {
        * @description Estimated from the charge, rounded down.
        */
       range_km: number;
+      /** @description The current tariff of the car's model; none until an admin sets one. */
+      tariff: components['schemas']['MapTariffOut'] | null;
+    };
+    /**
+     * MapTariffOut
+     * @description Kopecks of BYN; the server counts the price of a rental, the app only shows these.
+     */
+    MapTariffOut: {
+      /** Driving Per Minute */
+      driving_per_minute: number;
+      /** Parked Per Minute */
+      parked_per_minute: number;
     };
     /** MapZoneList */
     MapZoneList: {

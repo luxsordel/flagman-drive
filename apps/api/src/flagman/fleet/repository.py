@@ -68,6 +68,7 @@ def _to_car(row: CarRow, model: CarModel, lat: float | None, lon: float | None) 
         )
     return Car(
         id=row.id,
+        model_id=row.model_id,
         model=CarModelSpec(
             brand=model.brand,
             name=model.name,
