@@ -70,9 +70,15 @@ export function FleetMap({
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [unsupported] = useState(() => !canDrawMaps());
   const palette = themes[useThemeName()];
-  const latest = useRef({ onSelect });
+  // A car picked in the list comes into view; its later moves do not drag the map along, so
+  // the effect below reads where the car is from here instead of depending on it.
+  const selected = cars.find((car) => car.id === selectedId);
+  const selectedPosition: Position | null = selected?.state
+    ? [selected.state.lon, selected.state.lat]
+    : null;
+  const latest = useRef({ onSelect, selectedPosition });
   useEffect(() => {
-    latest.current = { onSelect };
+    latest.current = { onSelect, selectedPosition };
   });
 
   useEffect(() => {
@@ -161,16 +167,11 @@ export function FleetMap({
     map.fitBounds(bounds, { padding: fitPadding, maxZoom: fitMaxZoom, animate: false });
   }, [map, cars]);
 
-  // A car picked in the list comes into view; its later moves do not drag the map along.
-  const selected = cars.find((car) => car.id === selectedId);
-  const selectedPosition: Position | null = selected?.state
-    ? [selected.state.lon, selected.state.lat]
-    : null;
   useEffect(() => {
-    if (map && selectedPosition) {
-      map.easeTo({ center: selectedPosition, zoom: Math.max(map.getZoom(), selectedZoom) });
+    const position = latest.current.selectedPosition;
+    if (map && selectedId && position) {
+      map.easeTo({ center: position, zoom: Math.max(map.getZoom(), selectedZoom) });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [map, selectedId]);
 
   return (
