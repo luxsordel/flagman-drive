@@ -215,6 +215,68 @@ def is_rentable(
     return state.battery_pct >= rules.min_battery_pct
 
 
+@dataclass(frozen=True)
+class MapArea:
+    """The part of the map a client looks at; edges are inclusive."""
+
+    min_lat: float
+    min_lon: float
+    max_lat: float
+    max_lon: float
+
+    def __post_init__(self) -> None:
+        # Through the corners: a reversed box is a mistake of the caller, not an empty map.
+        GeoPoint(self.min_lat, self.min_lon)
+        GeoPoint(self.max_lat, self.max_lon)
+        if self.min_lat >= self.max_lat or self.min_lon >= self.max_lon:
+            raise ValueError("the area must have min below max on both axes")
+
+
+@dataclass(frozen=True)
+class MapQuery:
+    """Which rentable cars to show: those in `area`, nearest to `near` first, at most `limit`."""
+
+    area: MapArea | None
+    near: GeoPoint | None
+    limit: int
+
+
+@dataclass(frozen=True)
+class CarOnMap:
+    """What a client sees of a rentable car: nothing that helps to find or spoof it otherwise."""
+
+    id: uuid.UUID
+    brand: str
+    model: str
+    photo_url: str | None
+    location: GeoPoint
+    battery_pct: int
+    range_km: int
+    # Only when the client shared where they are; the point itself is never kept.
+    distance_m: int | None
+
+
+def range_left_km(full_range_km: int, battery_pct: int) -> int:
+    # Proportional to the charge and rounded down: promising more than the car can do strands
+    # the client, promising a little less costs nothing.
+    return full_range_km * battery_pct // 100
+
+
+def car_on_map(car: Car, distance_m: float | None) -> CarOnMap:
+    if car.state is None:
+        raise ValueError("a car without telemetry is never on the map")
+    return CarOnMap(
+        id=car.id,
+        brand=car.model.brand,
+        model=car.model.name,
+        photo_url=car.model.photo_url,
+        location=car.state.location,
+        battery_pct=car.state.battery_pct,
+        range_km=range_left_km(car.model.range_km, car.state.battery_pct),
+        distance_m=round(distance_m) if distance_m is not None else None,
+    )
+
+
 def normalize_plate(value: str) -> str:
     plate = value.strip().upper()
     if not PLATE_PATTERN.fullmatch(plate):

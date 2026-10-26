@@ -13,6 +13,8 @@ from flagman.audit.models import AuditEvent
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.ratelimit import Limit
+from flagman.geo import api
 from flagman.identity.domain import (
     AccessClaims,
     StaffAccessClaims,
@@ -270,3 +272,45 @@ def test_clients_and_strangers_get_nothing(
         ):
             assert response.status_code == HTTPStatus.UNAUTHORIZED
             assert response.json()["type"] == "urn:flagman:problem:access-token-invalid"
+
+
+MAP_URL = "/map/zones"
+
+
+def test_clients_see_active_zones_without_staff_fields(
+    client: TestClient, admin: Caller, integration_settings: Settings
+) -> None:
+    allowed = _create(client, admin)
+    forbidden = _create(client, admin, ring=OTHER, kind="forbidden")
+    disabled = _create(client, admin)
+    client.post(f"{URL}/{disabled['id']}/disable", headers=admin.headers)
+    rider = Caller(integration_settings, None)
+
+    response = client.get(MAP_URL, headers=rider.headers)
+
+    assert response.status_code == HTTPStatus.OK
+    zones = {zone["id"]: zone for zone in response.json()["items"]}
+    assert zones[allowed["id"]] == {
+        "id": allowed["id"],
+        "kind": "allowed",
+        "polygon": {"type": "Polygon", "coordinates": [SQUARE]},
+    }
+    assert zones[forbidden["id"]]["kind"] == "forbidden"
+    assert disabled["id"] not in zones
+
+
+def test_map_zones_are_only_for_signed_in_clients(client: TestClient, admin: Caller) -> None:
+    assert client.get(MAP_URL).status_code == HTTPStatus.UNAUTHORIZED
+    assert client.get(MAP_URL, headers=admin.headers).status_code == HTTPStatus.UNAUTHORIZED
+
+
+def test_map_zones_are_rate_limited(
+    client: TestClient, integration_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(api, "MAP_LIMIT", Limit(f"map-zones-test-{uuid.uuid4()}", 1, 300))
+    rider = Caller(integration_settings, None)
+
+    assert client.get(MAP_URL, headers=rider.headers).status_code == HTTPStatus.OK
+    limited = client.get(MAP_URL, headers=rider.headers)
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS

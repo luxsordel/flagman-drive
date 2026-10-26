@@ -1,18 +1,34 @@
 from datetime import UTC, datetime
-from typing import Annotated
+from http import HTTPStatus
+from typing import Annotated, Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.exceptions import RequestValidationError
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.db import get_session
+from flagman.core.errors import Problem
+from flagman.core.ratelimit import Limit, RateLimiter, get_rate_limiter
 from flagman.core.resources import Resources, get_resources
 from flagman.fleet import service
-from flagman.fleet.domain import TelemetryTooLargeError, TelemetryUnavailableError
+from flagman.fleet.domain import (
+    AvailabilityRules,
+    TelemetryTooLargeError,
+    TelemetryUnavailableError,
+)
 from flagman.fleet.emulator import EmulatorTelemetryReceiver
 from flagman.fleet.ports import TelemetryReceiver, TelemetryWebhook
-from flagman.fleet.schemas import MAX_TELEMETRY_BODY_BYTES, TelemetryReceived
+from flagman.fleet.schemas import (
+    MAX_TELEMETRY_BODY_BYTES,
+    ClientPoint,
+    MapCarList,
+    MapCarOut,
+    MapCarsQuery,
+    TelemetryReceived,
+)
+from flagman.identity.dependencies import CurrentClient, get_current_client
 
 router = APIRouter(prefix="/fleet", tags=["fleet"])
 
@@ -79,3 +95,81 @@ async def receive_telemetry(
         unknown_car=report.unknown_car,
         from_future=report.from_future,
     )
+
+
+# A client pans the map and the app refreshes it every 30 s: about one request per second at most.
+MAP_LIMIT = Limit("map-cars-user", 300, 300)
+
+_NOT_ON_MAP: dict[str, Any] = {
+    "model": Problem,
+    "description": (
+        "`urn:flagman:problem:car-not-found`: no such car, or it cannot be rented now; "
+        "the reason is not told."
+    ),
+}
+
+# Car ids in the path are fine: the endpoint shows only what the map shows to any client.
+map_router = APIRouter(
+    prefix="/map/cars",
+    tags=["map"],
+    responses={
+        HTTPStatus.UNAUTHORIZED: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as a client.",
+        },
+        HTTPStatus.TOO_MANY_REQUESTS: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:rate-limited`: wait for `Retry-After` seconds.",
+        },
+    },
+)
+
+
+async def limit_map_requests(
+    client: Annotated[CurrentClient, Depends(get_current_client)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+) -> CurrentClient:
+    await limiter.hit(MAP_LIMIT, str(client.user_id))
+    return client
+
+
+def get_availability_rules(
+    resources: Annotated[Resources, Depends(get_resources)],
+) -> AvailabilityRules:
+    return service.availability_rules(resources.settings)
+
+
+MapClient = Annotated[CurrentClient, Depends(limit_map_requests)]
+Db = Annotated[AsyncSession, Depends(get_session)]
+Rules = Annotated[AvailabilityRules, Depends(get_availability_rules)]
+
+
+@map_router.get(
+    "",
+    summary="Cars a client may rent in the visible part of the map or near them",
+    description=(
+        "Give the four edges of the area, the client's `lat` and `lon`, or both. With the point "
+        "the cars come nearest first and carry `distance_m`. KYC is not needed to look."
+    ),
+)
+async def list_map_cars(
+    client: MapClient, db: Db, rules: Rules, query: Annotated[MapCarsQuery, Query()]
+) -> MapCarList:
+    cars = await service.find_cars_on_map(db, rules, datetime.now(UTC), query.query())
+    return MapCarList(items=[MapCarOut.of(car) for car in cars])
+
+
+@map_router.get(
+    "/{car_id}",
+    summary="One car of the map",
+    responses={HTTPStatus.NOT_FOUND: _NOT_ON_MAP},
+)
+async def get_map_car(
+    car_id: UUID,
+    client: MapClient,
+    db: Db,
+    rules: Rules,
+    point: Annotated[ClientPoint, Query()],
+) -> MapCarOut:
+    car = await service.get_car_on_map(db, car_id, rules, datetime.now(UTC), point.point())
+    return MapCarOut.of(car)
