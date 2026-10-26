@@ -22,6 +22,7 @@ import { useAuthSession } from '../auth/session/AuthProvider';
 import { DocumentsCard } from '../kyc/DocumentsCard';
 import { canEditDocuments } from '../kyc/kycFlow';
 import { useKycApplication, useKycStore } from '../kyc/KycProvider';
+import { PaymentMethodsCard } from '../payments/PaymentMethodsCard';
 import type { Profile } from './profileApi';
 import type { ProfileError } from './profileErrors';
 import { ProfileErrorMessage } from './ProfileErrorMessage';
@@ -70,6 +71,7 @@ export function ProfileScreen() {
         />
       )}
       <DocumentsCard />
+      <PaymentMethodsCard />
       <SignOutButton />
       <Button
         variant="secondary"
