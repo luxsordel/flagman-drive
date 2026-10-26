@@ -49,6 +49,8 @@ class AuditAction(StrEnum):
     ZONE_CREATED = "zone.created"
     ZONE_UPDATED = "zone.updated"
     ZONE_DISABLED = "zone.disabled"
+    TARIFF_CREATED = "tariff.created"
+    TARIFF_UPDATED = "tariff.updated"
 
 
 class AuditTargetType(StrEnum):
@@ -60,6 +62,7 @@ class AuditTargetType(StrEnum):
     STAFF_MEMBER = "staff_member"
     KYC_APPLICATION = "kyc_application"
     ZONE = "zone"
+    TARIFF = "tariff"
 
 
 @dataclass(frozen=True)

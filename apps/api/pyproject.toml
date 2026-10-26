@@ -27,6 +27,7 @@ dependencies = [
 flagman-staff = "flagman.identity.cli:main"
 flagman-fleet = "flagman.fleet.cli:main"
 flagman-geo = "flagman.geo.cli:main"
+flagman-pricing = "flagman.pricing.cli:main"
 flagman-worker = "flagman.worker:main"
 
 [build-system]

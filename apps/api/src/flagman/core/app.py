@@ -30,6 +30,7 @@ from flagman.identity.api import profile_router, staff_admin_router, staff_route
 from flagman.identity.api import router as identity_router
 from flagman.kyc.api import review_router as kyc_review_router
 from flagman.kyc.api import router as kyc_router
+from flagman.pricing.api import router as pricing_router
 
 logger = structlog.get_logger(__name__)
 
@@ -115,4 +116,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(map_cars_router)
     app.include_router(geo_router)
     app.include_router(map_zones_router)
+    app.include_router(pricing_router)
     return app

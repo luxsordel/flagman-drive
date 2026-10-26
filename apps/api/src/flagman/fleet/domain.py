@@ -157,6 +157,12 @@ class CarModelSpec:
 
 
 @dataclass(frozen=True)
+class StoredCarModel:
+    id: uuid.UUID
+    spec: CarModelSpec
+
+
+@dataclass(frozen=True)
 class Car:
     id: uuid.UUID
     model: CarModelSpec

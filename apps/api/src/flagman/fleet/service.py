@@ -27,6 +27,7 @@ from flagman.fleet.domain import (
     MapQuery,
     SnapshotFromFutureError,
     SnapshotOutcome,
+    StoredCarModel,
     TelemetryReport,
     TelemetrySnapshot,
     apply_transition,
@@ -109,6 +110,15 @@ async def list_cars(db: AsyncSession) -> list[Car]:
         return await repository.list_cars(db)
     async with db.begin():
         return await repository.list_cars(db)
+
+
+async def list_models(db: AsyncSession) -> list[StoredCarModel]:
+    """Car models by brand and name; the pricing module lists a tariff for each."""
+    return await _read(db, lambda: repository.list_models(db))
+
+
+async def get_model(db: AsyncSession, model_id: UUID) -> StoredCarModel | None:
+    return await _read(db, lambda: repository.get_model(db, model_id))
 
 
 async def change_status(
