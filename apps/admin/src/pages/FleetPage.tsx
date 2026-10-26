@@ -261,7 +261,6 @@ function CarCard({
   const { t, i18n } = useTranslation();
   const { role } = useStaff();
   const { state } = car;
-  const locked = (value: boolean): string => t(value ? 'fleet.card.locked' : 'fleet.card.unlocked');
 
   return (
     <section className="card fleet-card" aria-labelledby="fleet-card-title">
@@ -283,11 +282,13 @@ function CarCard({
               {t('fleet.card.batteryValue', { pct: state.battery_pct, km: state.range_km })}
             </dd>
             <dt>{t('fleet.card.doors')}</dt>
-            <dd>{locked(state.doors_locked)}</dd>
+            <dd>{t(state.doors_locked ? 'fleet.card.locked' : 'fleet.card.unlocked')}</dd>
             <dt>{t('fleet.card.ignition')}</dt>
             <dd>{t(state.ignition_on ? 'fleet.card.on' : 'fleet.card.off')}</dd>
             <dt>{t('fleet.card.engine')}</dt>
-            <dd>{locked(state.engine_locked)}</dd>
+            <dd>
+              {t(state.engine_locked ? 'fleet.card.engineLocked' : 'fleet.card.engineUnlocked')}
+            </dd>
             <dt>{t('fleet.card.telemetryAt')}</dt>
             <dd>
               <time dateTime={state.recorded_at}>

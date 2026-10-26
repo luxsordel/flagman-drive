@@ -121,6 +121,8 @@ describe('fleet page', () => {
     const card = screen.getByRole('region', { name: '1111 AB-7' });
     expect(within(card).getByText('Geely Geometry C')).toBeDefined();
     expect(within(card).getByText(/64 %/)).toBeDefined();
+    expect(within(card).getByText(ru.fleet.card.engineUnlocked)).toBeDefined();
+    expect(within(card).getByText(ru.fleet.card.locked)).toBeDefined();
     expect(listed('1111 AB-7').getAttribute('aria-pressed')).toBe('true');
   });
 

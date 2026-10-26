@@ -332,6 +332,8 @@
       "vin": "VIN",
       "locked": "locked",
       "unlocked": "unlocked",
+      "engineLocked": "locked",
+      "engineUnlocked": "unlocked",
       "on": "on",
       "off": "off",
       "staleTelemetry": "No fresh data from the car: it may be elsewhere by now.",
