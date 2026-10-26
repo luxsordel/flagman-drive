@@ -41,6 +41,7 @@ from flagman.identity.domain import (
     OtpOutcome,
     RefreshDecision,
     RefreshTokenInvalidError,
+    StaffAccess,
     StaffAccessClaims,
     StaffAlreadyDisabledError,
     StaffChallengeInvalidError,
@@ -49,6 +50,7 @@ from flagman.identity.domain import (
     StaffNextStep,
     StaffNotFoundError,
     StaffRole,
+    StaffRoleForbiddenError,
     TotpAlreadyEnrolledError,
     TotpEnrollmentNotStartedError,
     TotpInvalidError,
@@ -70,6 +72,7 @@ from flagman.identity.domain import (
     match_totp,
     normalize_email,
     password_needs_rehash,
+    read_staff_access,
     read_staff_challenge,
     totp_provisioning_uri,
     verify_password,
@@ -665,6 +668,34 @@ class StaffSignInService:
             refresh_token=refresh_token,
             session_expires_at=session_expires_at,
         )
+
+
+async def is_staff_session_active(
+    db: AsyncSession, staff_id: UUID, session_id: UUID, now: datetime
+) -> bool:
+    """Whether the staff member is still signed in: for connections that outlive their token.
+
+    False once the session is revoked or over, or the account is disabled.
+    """
+    async with db.begin():
+        return await repository.is_staff_session_active(db, staff_id, session_id, now)
+
+
+async def authenticate_staff(
+    db: AsyncSession, token: str, secret: str, roles: Collection[StaffRole], now: datetime
+) -> StaffAccess:
+    """The staff member behind an access token, checked in the database too.
+
+    For what outlives a request or must not wait out the token: a revoked session or a disabled
+    account is refused at once. Raises AccessTokenInvalidError for a bad or expired token and for
+    a session that is over, StaffRoleForbiddenError for a role not in `roles`.
+    """
+    access = read_staff_access(token, secret)
+    if access.claims.role not in roles:
+        raise StaffRoleForbiddenError
+    if not await is_staff_session_active(db, access.claims.staff_id, access.claims.session_id, now):
+        raise AccessTokenInvalidError
+    return access
 
 
 async def list_staff(db: AsyncSession) -> StaffMemberList:

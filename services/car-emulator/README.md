@@ -38,7 +38,7 @@ id машины — `uuid5(CAR_ID_NAMESPACE, "<seed>:<номер>")`, где н�
 | `GET` | `/health` | не нужна |
 | `GET` | `/cars` | нужна |
 | `GET` | `/cars/{car_id}` | нужна |
-| `POST` | `/cars/{car_id}/commands` — `{"command_id": "<uuid>", "type": "open" \| "close" \| "lock_engine"}` | нужна |
+| `POST` | `/cars/{car_id}/commands` — `{"command_id": "<uuid>", "type": "open" \| "close" \| "lock_engine" \| "unlock_engine"}` | нужна |
 
 Ответы на ошибки: `401 invalid_signature`, `404 car_not_found`, `409 duplicate_command`,
 `409 command_rejected:<причина>` (например, `close` при включённом зажигании), `413 body_too_large`.

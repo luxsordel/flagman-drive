@@ -120,6 +120,7 @@
       "zoneCreated": "Zone created",
       "zoneUpdated": "Zone changed",
       "zoneDisabled": "Zone disabled",
+      "carCommandSent": "Car command",
       "tariffCreated": "Tariff created",
       "tariffUpdated": "Tariff changed"
     },
@@ -127,6 +128,7 @@
       "staffMember": "Staff member",
       "kycApplication": "KYC application",
       "zone": "Zone",
+      "car": "Car",
       "tariff": "Tariff"
     },
     "noTarget": "none",
@@ -295,6 +297,98 @@
       "disabled": "The zone is disabled and cannot be changed. Draw a new one.",
       "forbidden": "Only an administrator may change zones.",
       "failed": "Could not save. Check the connection and try again."
+    }
+  },
+  "fleet": {
+    "map": "Fleet map",
+    "mapUnsupported": "This browser cannot show the map (WebGL2 is needed). The list and the cards still work.",
+    "list": "Cars",
+    "empty": "No cars match these filters.",
+    "battery": "{{pct}}%",
+    "stale": "no fresh data",
+    "commands": "Manual commands",
+    "connection": {
+      "connecting": "Connecting to the fleet…",
+      "reconnecting": "Lost the connection to the server, reconnecting. The data on screen may be out of date.",
+      "failed": "Could not get the fleet data. Reload the page; if that does not help, tell an administrator."
+    },
+    "filters": {
+      "title": "Filters",
+      "lowBattery": "Low battery"
+    },
+    "status": {
+      "available": "Available",
+      "reserved": "Reserved",
+      "in_rental": "In rental",
+      "service": "In service",
+      "offline": "Offline"
+    },
+    "card": {
+      "model": "Model",
+      "status": "Status",
+      "battery": "Charge",
+      "batteryValue": "{{pct}}%, range {{km}} km",
+      "doors": "Doors",
+      "ignition": "Ignition",
+      "engine": "Engine",
+      "telemetryAt": "Data from the car",
+      "vin": "VIN",
+      "locked": "locked",
+      "unlocked": "unlocked",
+      "engineLocked": "locked",
+      "engineUnlocked": "unlocked",
+      "on": "on",
+      "off": "off",
+      "staleTelemetry": "No fresh data from the car: it may be elsewhere by now.",
+      "noTelemetry": "The car has not sent any data yet.",
+      "lastCommand": "Last command: “{{command}}” — {{outcome}}, {{at}}"
+    },
+    "command": {
+      "open": "Open",
+      "close": "Close",
+      "lock_engine": "Lock the engine",
+      "unlock_engine": "Unlock the engine"
+    },
+    "outcome": {
+      "done": "done",
+      "rejected": "refused by the car",
+      "duplicate": "a repeat",
+      "unavailable": "car unreachable",
+      "timed_out": "no answer"
+    },
+    "confirm": {
+      "title": "Confirm the command",
+      "text": "Send “{{command}}” to car {{plate}}?",
+      "comment": "Comment (why the command)",
+      "commentHint": "Goes to the audit log. No phone numbers or emails: give the rental or ticket number.",
+      "rental": "A client is using the car now. I understand the command may lock them in or out.",
+      "send": "Send",
+      "cancel": "Cancel",
+      "sending": "The command is running…",
+      "problems": {
+        "short": "The comment needs at least {{min}} characters.",
+        "long": "The comment may have at most {{max}} characters.",
+        "rental": "Confirm that you understand a client is using the car."
+      }
+    },
+    "result": {
+      "done": "“{{command}}” done."
+    },
+    "reasons": {
+      "ignition_on": "the ignition is on",
+      "unknown": "code {{code}}"
+    },
+    "commandErrors": {
+      "activeRental": "The car has just been reserved or rented. Open the command again and confirm that a client is using it.",
+      "rejected": "The car refused “{{command}}”: {{reason}}.",
+      "duplicate": "This command was already sent. Check the state of the car.",
+      "unavailable": "The car cannot be reached now; the command was not sent. Try again later.",
+      "timeout": "The car did not answer in time: the command may have run. Check the state of the car before sending it again.",
+      "rateLimited": "Too many commands in a row. Wait {{seconds}} s.",
+      "invalid": "The server did not accept the command. Check the comment: it must not hold phone numbers or emails.",
+      "notFound": "The car is no longer in the fleet.",
+      "forbidden": "Your role may not send manual commands.",
+      "failed": "Could not send the command. Check the connection and try again."
     }
   },
   "tariffs": {

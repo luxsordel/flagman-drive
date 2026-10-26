@@ -12,6 +12,7 @@ dependencies = [
     "cryptography>=50.0.2",
     "fastapi>=0.159.1",
     "geoalchemy2>=0.20.0",
+    "httpx2>=2.16.0",
     "pillow>=13.0.0",
     "pydantic-settings>=2.16.1",
     "pyjwt>=2.15.1",
@@ -39,7 +40,7 @@ packages = ["src/flagman"]
 
 [dependency-groups]
 dev = [
-    "httpx2>=2.16.0",
+    "asyncpg-stubs>=0.32.0",
     "import-linter>=2.15",
     "mypy>=2.4.0",
     "pytest>=9.1.1",

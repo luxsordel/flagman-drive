@@ -82,3 +82,10 @@ def test_lock_engine_does_not_stop_a_running_car(car: Car) -> None:
     apply_command(car, CommandType.LOCK_ENGINE, LATER)
     assert car.engine_locked
     assert car.ignition_on
+
+
+def test_unlock_engine_lets_the_car_start_again(car: Car) -> None:
+    apply_command(car, CommandType.LOCK_ENGINE, NOW)
+    apply_command(car, CommandType.UNLOCK_ENGINE, LATER)
+    assert not car.engine_locked
+    assert car.updated_at == LATER

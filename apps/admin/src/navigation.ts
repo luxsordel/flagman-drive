@@ -7,9 +7,12 @@ import { KycApplicationPage } from './pages/KycApplicationPage';
 import { KycQueuePage } from './pages/KycQueuePage';
 import { TariffsPage } from './pages/TariffsPage';
 
-// The map library is large: it loads with the zones page, not with the sign-in page.
+// The map library is large: it loads with the map pages, not with the sign-in page.
 const ZonesPage = lazy(() =>
   import('./pages/ZonesPage').then(({ ZonesPage }) => ({ default: ZonesPage })),
+);
+const FleetPage = lazy(() =>
+  import('./pages/FleetPage').then(({ FleetPage }) => ({ default: FleetPage })),
 );
 
 export type SectionKey = keyof typeof ru.nav;
@@ -39,7 +42,7 @@ export const sections: readonly Section[] = [
     page: KycQueuePage,
     subpages: [{ path: ':applicationId', page: KycApplicationPage }],
   },
-  { key: 'fleet', path: '/fleet', roles: everyone },
+  { key: 'fleet', path: '/fleet', roles: everyone, page: FleetPage },
   { key: 'rentals', path: '/rentals', roles: support },
   { key: 'clients', path: '/clients', roles: support },
   // Everyone sees the zones; only an admin changes them, inside the page and in the API.

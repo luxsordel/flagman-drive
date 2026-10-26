@@ -1,4 +1,5 @@
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -15,11 +16,14 @@ from flagman.fleet.domain import (
     CarTransitionNotAllowedError,
     MapArea,
     SnapshotFromFutureError,
+    StaffCarFilter,
     apply_transition,
     car_on_map,
     check_snapshot_time,
     emulator_car_id,
+    is_low_battery,
     is_rentable,
+    matches_staff_filter,
     normalize_plate,
     normalize_vin,
     range_left_km,
@@ -51,6 +55,7 @@ def _state(battery_pct: int = 80, age: timedelta = timedelta(seconds=10)) -> Car
         battery_pct=battery_pct,
         doors_locked=True,
         ignition_on=False,
+        engine_locked=False,
         recorded_at=NOW - age,
     )
 
@@ -143,6 +148,7 @@ def test_naive_snapshot_time_is_refused() -> None:
             battery_pct=50,
             doors_locked=True,
             ignition_on=False,
+            engine_locked=False,
             recorded_at=datetime(2026, 10, 24, 12, 0),  # noqa: DTZ001 - the case under test
         )
 
@@ -249,3 +255,43 @@ def test_map_area_needs_min_below_max() -> None:
 def test_map_area_corners_are_real_coordinates() -> None:
     with pytest.raises(ValueError, match="out of range"):
         MapArea(min_lat=-91, min_lon=27.4, max_lat=54.0, max_lon=27.7)
+
+
+@pytest.mark.parametrize(("battery_pct", "low"), [(19, True), (20, False), (0, True), (100, False)])
+def test_low_battery_is_below_the_rentable_charge(battery_pct: int, low: bool) -> None:
+    assert is_low_battery(_state(battery_pct=battery_pct), RULES) is low
+
+
+def test_a_car_without_telemetry_is_not_low_on_battery() -> None:
+    assert not is_low_battery(None, RULES)
+
+
+def _with(status: CarStatus, battery_pct: int) -> Car:
+    return replace(_car(_state(battery_pct=battery_pct)), status=status)
+
+
+def test_an_empty_staff_filter_lets_every_car_through() -> None:
+    assert matches_staff_filter(_with(CarStatus.IN_RENTAL, 5), StaffCarFilter(), RULES)
+    assert matches_staff_filter(_car(None), StaffCarFilter(), RULES)
+
+
+@pytest.mark.parametrize(
+    ("car_filter", "status", "battery_pct", "matches"),
+    [
+        (StaffCarFilter(statuses=frozenset({CarStatus.SERVICE})), CarStatus.SERVICE, 80, True),
+        (StaffCarFilter(statuses=frozenset({CarStatus.SERVICE})), CarStatus.AVAILABLE, 80, False),
+        (StaffCarFilter(low_battery=True), CarStatus.AVAILABLE, 10, True),
+        (StaffCarFilter(low_battery=True), CarStatus.AVAILABLE, 80, False),
+        (
+            StaffCarFilter(statuses=frozenset({CarStatus.OFFLINE}), low_battery=True),
+            CarStatus.OFFLINE,
+            80,
+            False,
+        ),
+    ],
+    ids=["status-in", "status-out", "low", "not-low", "both-must-match"],
+)
+def test_staff_filter(
+    car_filter: StaffCarFilter, status: CarStatus, battery_pct: int, matches: bool
+) -> None:
+    assert matches_staff_filter(_with(status, battery_pct), car_filter, RULES) is matches

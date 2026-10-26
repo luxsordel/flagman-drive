@@ -25,7 +25,8 @@
           "zone.updated",
           "zone.disabled",
           "tariff.created",
-          "tariff.updated"
+          "tariff.updated",
+          "car.command_sent"
         ],
         "title": "AuditAction",
         "type": "string"
@@ -187,9 +188,55 @@
       },
       "AuditTargetType": {
         "description": "Every kind of object an event names, so the admin panel can label each one.\n\nValues are stored as is, like AuditAction: renaming one leaves older events with the old name.",
-        "enum": ["staff_member", "kyc_application", "zone", "tariff"],
+        "enum": ["staff_member", "kyc_application", "zone", "tariff", "car"],
         "title": "AuditTargetType",
         "type": "string"
+      },
+      "CarCommand": {
+        "description": "What staff may ask a car to do; values are stored in the audit log as is.",
+        "enum": ["open", "close", "lock_engine", "unlock_engine"],
+        "title": "CarCommand",
+        "type": "string"
+      },
+      "CarCommandIn": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "$ref": "#/components/schemas/CarCommand"
+          },
+          "comment": {
+            "description": "Why the command is sent; goes to the audit log. No phone numbers or emails: name the rental or the ticket instead.",
+            "maxLength": 300,
+            "minLength": 3,
+            "title": "Comment",
+            "type": "string"
+          },
+          "confirm_active_rental": {
+            "default": false,
+            "description": "Needed for a reserved or rented car: a client holds it, and the command may lock them out or in. Without it such a command answers `car-in-active-rental`.",
+            "title": "Confirm Active Rental",
+            "type": "boolean"
+          }
+        },
+        "required": ["command", "comment"],
+        "title": "CarCommandIn",
+        "type": "object"
+      },
+      "CarCommandOut": {
+        "properties": {
+          "car": {
+            "$ref": "#/components/schemas/StaffCarOut",
+            "description": "The car after the command."
+          },
+          "command_id": {
+            "format": "uuid",
+            "title": "Command Id",
+            "type": "string"
+          }
+        },
+        "required": ["command_id", "car"],
+        "title": "CarCommandOut",
+        "type": "object"
       },
       "CarModelOut": {
         "properties": {
@@ -210,6 +257,12 @@
         "required": ["id", "brand", "name"],
         "title": "CarModelOut",
         "type": "object"
+      },
+      "CarStatus": {
+        "description": "Values are stored as is: renaming one needs a migration.",
+        "enum": ["available", "reserved", "in_rental", "service", "offline"],
+        "title": "CarStatus",
+        "type": "string"
       },
       "CardBindingIn": {
         "additionalProperties": false,
@@ -473,6 +526,24 @@
         },
         "required": ["loc", "message", "type"],
         "title": "FieldError",
+        "type": "object"
+      },
+      "FleetRulesOut": {
+        "description": "The thresholds the panel marks cars by, so it can mark them as time passes too.",
+        "properties": {
+          "low_battery_pct": {
+            "description": "A lower charge is low: the car is not rented out.",
+            "title": "Low Battery Pct",
+            "type": "integer"
+          },
+          "telemetry_max_age_seconds": {
+            "description": "Older telemetry is not fresh: the car may be elsewhere by now.",
+            "title": "Telemetry Max Age Seconds",
+            "type": "integer"
+          }
+        },
+        "required": ["telemetry_max_age_seconds", "low_battery_pct"],
+        "title": "FleetRulesOut",
         "type": "object"
       },
       "KycApplicationOut": {
@@ -1281,6 +1352,123 @@
         "title": "StaffAccessToken",
         "type": "object"
       },
+      "StaffCarList": {
+        "properties": {
+          "as_of": {
+            "description": "The server's time: telemetry age is counted from it, not the browser's clock.",
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "items": {
+            "description": "By plate.",
+            "items": {
+              "$ref": "#/components/schemas/StaffCarOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "rules": {
+            "$ref": "#/components/schemas/FleetRulesOut"
+          }
+        },
+        "required": ["items", "rules", "as_of"],
+        "title": "StaffCarList",
+        "type": "object"
+      },
+      "StaffCarOut": {
+        "properties": {
+          "brand": {
+            "title": "Brand",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "plate": {
+            "title": "Plate",
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StaffCarStateOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "None until the first telemetry arrives."
+          },
+          "status": {
+            "$ref": "#/components/schemas/CarStatus"
+          },
+          "vin": {
+            "title": "Vin",
+            "type": "string"
+          }
+        },
+        "required": ["id", "plate", "vin", "brand", "model", "status", "state"],
+        "title": "StaffCarOut",
+        "type": "object"
+      },
+      "StaffCarStateOut": {
+        "properties": {
+          "battery_pct": {
+            "title": "Battery Pct",
+            "type": "integer"
+          },
+          "doors_locked": {
+            "title": "Doors Locked",
+            "type": "boolean"
+          },
+          "engine_locked": {
+            "title": "Engine Locked",
+            "type": "boolean"
+          },
+          "ignition_on": {
+            "title": "Ignition On",
+            "type": "boolean"
+          },
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          },
+          "range_km": {
+            "description": "Estimated from the charge, rounded down.",
+            "title": "Range Km",
+            "type": "integer"
+          },
+          "recorded_at": {
+            "description": "The car's time of the last telemetry.",
+            "format": "date-time",
+            "title": "Recorded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lat",
+          "lon",
+          "battery_pct",
+          "range_km",
+          "doors_locked",
+          "ignition_on",
+          "engine_locked",
+          "recorded_at"
+        ],
+        "title": "StaffCarStateOut",
+        "type": "object"
+      },
       "StaffChallengeIssued": {
         "additionalProperties": false,
         "properties": {
@@ -1954,6 +2142,331 @@
         ],
         "summary": "List audit events, newest first",
         "tags": ["audit"]
+      }
+    },
+    "/admin/fleet/cars": {
+      "get": {
+        "description": "Changes after this answer come over `/admin/fleet/stream` (docs/adr/0017). Freshness of telemetry is not a field: it changes with time, so the panel counts it from `as_of` and `rules`.",
+        "operationId": "list_staff_cars_admin_fleet_cars_get",
+        "parameters": [
+          {
+            "description": "Only cars in these statuses; repeat for several.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "description": "Only cars in these statuses; repeat for several.",
+              "items": {
+                "$ref": "#/components/schemas/CarStatus"
+              },
+              "title": "Status",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only cars charged below `rules.low_battery_pct`.",
+            "in": "query",
+            "name": "low_battery",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Only cars charged below `rules.low_battery_pct`.",
+              "title": "Low Battery",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffCarList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: not a staff role that sees the fleet."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The fleet with the last known state of every car",
+        "tags": ["fleet"]
+      }
+    },
+    "/admin/fleet/cars/{car_id}": {
+      "get": {
+        "operationId": "get_staff_car_admin_fleet_cars__car_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "car_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Car Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffCarOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: not a staff role that sees the fleet."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:car-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "One car of the fleet",
+        "tags": ["fleet"]
+      }
+    },
+    "/admin/fleet/cars/{car_id}/commands": {
+      "post": {
+        "description": "Waits for the car. Every command that reached telematics goes to the audit log and to everyone on `/admin/fleet/stream`, whatever its outcome.",
+        "operationId": "send_car_command_admin_fleet_cars__car_id__commands_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "car_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Car Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarCommandIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarCommandOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: not a staff role that sees the fleet."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:car-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:car-in-active-rental`: nothing was sent, repeat with `confirm_active_rental`. `car-command-rejected`: the car refused, `detail` is its reason code, e.g. `ignition_on`. `car-command-duplicate`: telematics had seen the command."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:telematics-unavailable`: nothing was done."
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:telematics-timeout`: the car may or may not have done it; check its state before sending again."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Send a command to a car",
+        "tags": ["fleet"]
       }
     },
     "/admin/kyc/applications": {

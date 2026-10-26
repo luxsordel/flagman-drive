@@ -21,6 +21,63 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/fleet/cars': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The fleet with the last known state of every car
+     * @description Changes after this answer come over `/admin/fleet/stream` (docs/adr/0017). Freshness of telemetry is not a field: it changes with time, so the panel counts it from `as_of` and `rules`.
+     */
+    get: operations['list_staff_cars_admin_fleet_cars_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/fleet/cars/{car_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One car of the fleet */
+    get: operations['get_staff_car_admin_fleet_cars__car_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/fleet/cars/{car_id}/commands': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Send a command to a car
+     * @description Waits for the car. Every command that reached telematics goes to the audit log and to everyone on `/admin/fleet/stream`, whatever its outcome.
+     */
+    post: operations['send_car_command_admin_fleet_cars__car_id__commands_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/admin/kyc/applications': {
     parameters: {
       query?: never;
@@ -733,7 +790,8 @@ export interface components {
       | 'zone.updated'
       | 'zone.disabled'
       | 'tariff.created'
-      | 'tariff.updated';
+      | 'tariff.updated'
+      | 'car.command_sent';
     /** AuditEventOut */
     AuditEventOut: {
       /**
@@ -800,7 +858,38 @@ export interface components {
      *     Values are stored as is, like AuditAction: renaming one leaves older events with the old name.
      * @enum {string}
      */
-    AuditTargetType: 'staff_member' | 'kyc_application' | 'zone' | 'tariff';
+    AuditTargetType: 'staff_member' | 'kyc_application' | 'zone' | 'tariff' | 'car';
+    /**
+     * CarCommand
+     * @description What staff may ask a car to do; values are stored in the audit log as is.
+     * @enum {string}
+     */
+    CarCommand: 'open' | 'close' | 'lock_engine' | 'unlock_engine';
+    /** CarCommandIn */
+    CarCommandIn: {
+      command: components['schemas']['CarCommand'];
+      /**
+       * Comment
+       * @description Why the command is sent; goes to the audit log. No phone numbers or emails: name the rental or the ticket instead.
+       */
+      comment: string;
+      /**
+       * Confirm Active Rental
+       * @description Needed for a reserved or rented car: a client holds it, and the command may lock them out or in. Without it such a command answers `car-in-active-rental`.
+       * @default false
+       */
+      confirm_active_rental: boolean;
+    };
+    /** CarCommandOut */
+    CarCommandOut: {
+      /** @description The car after the command. */
+      car: components['schemas']['StaffCarOut'];
+      /**
+       * Command Id
+       * Format: uuid
+       */
+      command_id: string;
+    };
     /** CarModelOut */
     CarModelOut: {
       /** Brand */
@@ -813,6 +902,12 @@ export interface components {
       /** Name */
       name: string;
     };
+    /**
+     * CarStatus
+     * @description Values are stored as is: renaming one needs a migration.
+     * @enum {string}
+     */
+    CarStatus: 'available' | 'reserved' | 'in_rental' | 'service' | 'offline';
     /** CardBindingIn */
     CardBindingIn: {
       /**
@@ -962,6 +1057,22 @@ export interface components {
       message: string;
       /** Type */
       type: string;
+    };
+    /**
+     * FleetRulesOut
+     * @description The thresholds the panel marks cars by, so it can mark them as time passes too.
+     */
+    FleetRulesOut: {
+      /**
+       * Low Battery Pct
+       * @description A lower charge is low: the car is not rented out.
+       */
+      low_battery_pct: number;
+      /**
+       * Telemetry Max Age Seconds
+       * @description Older telemetry is not fresh: the car may be elsewhere by now.
+       */
+      telemetry_max_age_seconds: number;
     };
     /**
      * KycApplicationOut
@@ -1360,6 +1471,66 @@ export interface components {
        */
       token_type: 'Bearer';
     };
+    /** StaffCarList */
+    StaffCarList: {
+      /**
+       * As Of
+       * Format: date-time
+       * @description The server's time: telemetry age is counted from it, not the browser's clock.
+       */
+      as_of: string;
+      /**
+       * Items
+       * @description By plate.
+       */
+      items: components['schemas']['StaffCarOut'][];
+      rules: components['schemas']['FleetRulesOut'];
+    };
+    /** StaffCarOut */
+    StaffCarOut: {
+      /** Brand */
+      brand: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Model */
+      model: string;
+      /** Plate */
+      plate: string;
+      /** @description None until the first telemetry arrives. */
+      state: components['schemas']['StaffCarStateOut'] | null;
+      status: components['schemas']['CarStatus'];
+      /** Vin */
+      vin: string;
+    };
+    /** StaffCarStateOut */
+    StaffCarStateOut: {
+      /** Battery Pct */
+      battery_pct: number;
+      /** Doors Locked */
+      doors_locked: boolean;
+      /** Engine Locked */
+      engine_locked: boolean;
+      /** Ignition On */
+      ignition_on: boolean;
+      /** Lat */
+      lat: number;
+      /** Lon */
+      lon: number;
+      /**
+       * Range Km
+       * @description Estimated from the charge, rounded down.
+       */
+      range_km: number;
+      /**
+       * Recorded At
+       * Format: date-time
+       * @description The car's time of the last telemetry.
+       */
+      recorded_at: string;
+    };
     /** StaffChallengeIssued */
     StaffChallengeIssued: {
       /**
@@ -1706,6 +1877,243 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_staff_cars_admin_fleet_cars_get: {
+    parameters: {
+      query?: {
+        /** @description Only cars in these statuses; repeat for several. */
+        status?: components['schemas']['CarStatus'][];
+        /** @description Only cars charged below `rules.low_battery_pct`. */
+        low_battery?: boolean;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffCarList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a staff role that sees the fleet. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_staff_car_admin_fleet_cars__car_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        car_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffCarOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a staff role that sees the fleet. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:car-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  send_car_command_admin_fleet_cars__car_id__commands_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        car_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CarCommandIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CarCommandOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a staff role that sees the fleet. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:car-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:car-in-active-rental`: nothing was sent, repeat with `confirm_active_rental`. `car-command-rejected`: the car refused, `detail` is its reason code, e.g. `ignition_on`. `car-command-duplicate`: telematics had seen the command. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:telematics-unavailable`: nothing was done. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:telematics-timeout`: the car may or may not have done it; check its state before sending again. */
+      504: {
         headers: {
           [name: string]: unknown;
         };

@@ -1,7 +1,5 @@
-import asyncio
 import itertools
 import json
-import random
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
@@ -10,17 +8,15 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
 
 from flagman.core.app import create_app
 from flagman.core.config import Settings
-from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.core.ratelimit import Limit
-from flagman.fleet import api, repository
-from flagman.fleet.domain import CarState, CarStatus
-from flagman.fleet.models import Car as CarRow
+from flagman.fleet import api
+from flagman.fleet.domain import CarStatus
 from flagman.fleet.seed import DEMO_MODELS
+from flagman.fleet.tests.conftest import add_car
 from flagman.identity.domain import (
     AccessClaims,
     StaffAccessClaims,
@@ -34,8 +30,6 @@ pytestmark = pytest.mark.integration
 URL = "/map/cars"
 # About 111 m per 0.001 degree of latitude.
 STEP = 0.001
-_PLATE_LETTERS = "ABEIKMHOPCTX"
-_VIN_CHARS = "ABCDEFGHJKLMNPRSTUVWXYZ0123456789"
 MAP_FIELDS = {
     "id",
     "brand",
@@ -88,46 +82,6 @@ def _area(center: GeoPoint, half: float = 5 * STEP) -> dict[str, float]:
     }
 
 
-def _add_car(  # noqa: PLR0913
-    settings: Settings,
-    point: GeoPoint | None,
-    *,
-    status: CarStatus = CarStatus.AVAILABLE,
-    battery_pct: int = 80,
-    age: timedelta = timedelta(seconds=5),
-    model_index: int = 0,
-) -> str:
-    async def add() -> uuid.UUID:
-        rng = random.SystemRandom()
-        engine = create_engine(settings)
-        now = datetime.now(UTC)
-        try:
-            async with create_session_factory(engine)() as db, db.begin():
-                model_id, _ = await repository.ensure_model(db, DEMO_MODELS[model_index].spec, now)
-                telematics_id = uuid.uuid4()
-                car = repository.NewCar(
-                    model_id=model_id,
-                    plate=f"{rng.randrange(10_000):04d} {''.join(rng.choices(_PLATE_LETTERS, k=2))}"
-                    f"-{rng.randint(1, 6)}",
-                    vin="".join(rng.choices(_VIN_CHARS, k=17)),
-                    telematics_id=telematics_id,
-                    status=status,
-                )
-                assert await repository.add_car_if_absent(db, car, now)
-                if point is not None:
-                    state = CarState(point, battery_pct, True, False, now - age)
-                    await repository.apply_state(db, telematics_id, state, now)
-                car_id = await db.scalar(
-                    select(CarRow.id).where(CarRow.telematics_id == telematics_id)
-                )
-                assert car_id is not None
-                return car_id
-        finally:
-            await engine.dispose()
-
-    return str(asyncio.run(add()))
-
-
 def _ids(response: Any) -> list[str]:
     assert response.status_code == HTTPStatus.OK, response.text
     return [car["id"] for car in response.json()["items"]]
@@ -136,7 +90,7 @@ def _ids(response: Any) -> list[str]:
 def test_cars_in_the_area_come_with_only_the_map_fields(
     client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
 ) -> None:
-    car_id = _add_car(integration_settings, spot, battery_pct=50)
+    car_id = add_car(integration_settings, spot, battery_pct=50)
 
     response = client.get(URL, params=_area(spot), headers=headers)
 
@@ -154,8 +108,8 @@ def test_cars_in_the_area_come_with_only_the_map_fields(
 def test_cars_outside_the_area_are_not_shown(
     client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
 ) -> None:
-    inside = _add_car(integration_settings, spot)
-    _add_car(integration_settings, GeoPoint(spot.lat + 10 * STEP, spot.lon))
+    inside = add_car(integration_settings, spot)
+    add_car(integration_settings, GeoPoint(spot.lat + 10 * STEP, spot.lon))
 
     assert _ids(client.get(URL, params=_area(spot), headers=headers)) == [inside]
 
@@ -177,8 +131,8 @@ def test_only_rentable_cars_are_shown(
     spot: GeoPoint,
     unavailable: dict[str, Any],
 ) -> None:
-    rentable = _add_car(integration_settings, spot)
-    hidden = _add_car(integration_settings, spot, **unavailable)
+    rentable = add_car(integration_settings, spot)
+    hidden = add_car(integration_settings, spot, **unavailable)
 
     assert _ids(client.get(URL, params=_area(spot), headers=headers)) == [rentable]
     assert client.get(f"{URL}/{hidden}", headers=headers).status_code == HTTPStatus.NOT_FOUND
@@ -187,7 +141,7 @@ def test_only_rentable_cars_are_shown(
 def test_a_car_without_telemetry_is_not_shown(
     client: TestClient, headers: dict[str, str], integration_settings: Settings
 ) -> None:
-    car_id = _add_car(integration_settings, None)
+    car_id = add_car(integration_settings, None)
 
     response = client.get(f"{URL}/{car_id}", headers=headers)
 
@@ -199,8 +153,8 @@ def test_the_limit_counts_only_rentable_cars(
     client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
 ) -> None:
     for _ in range(3):
-        _add_car(integration_settings, spot, status=CarStatus.SERVICE)
-    rentable = {_add_car(integration_settings, spot) for _ in range(3)}
+        add_car(integration_settings, spot, status=CarStatus.SERVICE)
+    rentable = {add_car(integration_settings, spot) for _ in range(3)}
 
     shown = _ids(client.get(URL, params={**_area(spot), "limit": 2}, headers=headers))
 
@@ -211,8 +165,8 @@ def test_the_limit_counts_only_rentable_cars(
 def test_with_the_clients_point_cars_come_nearest_first(
     client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
 ) -> None:
-    far = _add_car(integration_settings, GeoPoint(spot.lat + 3 * STEP, spot.lon))
-    near = _add_car(integration_settings, GeoPoint(spot.lat + STEP, spot.lon))
+    far = add_car(integration_settings, GeoPoint(spot.lat + 3 * STEP, spot.lon))
+    near = add_car(integration_settings, GeoPoint(spot.lat + STEP, spot.lon))
 
     response = client.get(
         URL, params={**_area(spot), "lat": spot.lat, "lon": spot.lon}, headers=headers
@@ -226,8 +180,8 @@ def test_with_the_clients_point_cars_come_nearest_first(
 def test_the_clients_point_alone_finds_the_nearest_cars(
     client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
 ) -> None:
-    near = _add_car(integration_settings, GeoPoint(spot.lat, spot.lon + STEP))
-    nearest = _add_car(integration_settings, spot)
+    near = add_car(integration_settings, GeoPoint(spot.lat, spot.lon + STEP))
+    nearest = add_car(integration_settings, spot)
 
     response = client.get(
         URL, params={"lat": spot.lat, "lon": spot.lon, "limit": 2}, headers=headers
@@ -240,7 +194,7 @@ def test_the_clients_point_alone_finds_the_nearest_cars(
 def test_the_card_shows_the_same_fields_and_the_distance(
     client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
 ) -> None:
-    car_id = _add_car(integration_settings, GeoPoint(spot.lat + 2 * STEP, spot.lon))
+    car_id = add_car(integration_settings, GeoPoint(spot.lat + 2 * STEP, spot.lon))
     listed = client.get(
         URL, params={**_area(spot), "lat": spot.lat, "lon": spot.lon}, headers=headers
     )
@@ -329,7 +283,7 @@ def test_map_requests_are_rate_limited(
 def test_the_clients_point_is_not_logged(
     integration_settings: Settings, spot: GeoPoint, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    _add_car(integration_settings, spot)
+    add_car(integration_settings, spot)
     # The app is created inside the test so the log handler writes to the captured stdout.
     with TestClient(create_app(integration_settings), base_url="https://testserver") as client:
         headers = _client_headers(integration_settings)

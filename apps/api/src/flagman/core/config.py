@@ -4,7 +4,7 @@ import re
 from typing import Annotated, Literal, Self
 from urllib.parse import urlsplit
 
-from pydantic import Field, SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 from sqlalchemy import URL
 
@@ -129,9 +129,14 @@ class Settings(DatabaseSettings):
     emulator_seed: int = 42
     emulator_car_count: int = Field(default=30, ge=1, le=1000)
     # Checks the emulator's telemetry webhooks (docs/adr/0007), the same name as the emulator's.
-    # The API never gets the command secret: a leaked webhook secret must not move cars.
     # Unset: the API runs, but telemetry answers 503 and no car becomes rentable.
     emulator_telemetry_secret: SecretStr | None = None
+    # Car commands go to the emulator at this URL, signed with its own secret: a leaked webhook
+    # secret must not move cars. Unset: the API runs, but commands answer 503.
+    emulator_url: str | None = None
+    emulator_command_secret: SecretStr | None = None
+    # A command waits this long for the car; then the staff member is told the outcome is unknown.
+    telematics_command_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
     # Clock skew allowed between the API and telematics, for signatures and snapshot times alike.
     telematics_signature_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
 
@@ -181,13 +186,14 @@ class Settings(DatabaseSettings):
             )
         return key
 
-    @field_validator("emulator_telemetry_secret")
+    @field_validator("emulator_telemetry_secret", "emulator_command_secret")
     @classmethod
-    def _validate_telemetry_secret(cls, secret: SecretStr | None) -> SecretStr | None:
+    def _validate_emulator_secret(
+        cls, secret: SecretStr | None, info: ValidationInfo
+    ) -> SecretStr | None:
         if secret is not None and len(secret.get_secret_value()) < MIN_SECRET_LENGTH:
-            raise ValueError(
-                f"EMULATOR_TELEMETRY_SECRET must be at least {MIN_SECRET_LENGTH} chars"
-            )
+            name = (info.field_name or "").upper()
+            raise ValueError(f"{name} must be at least {MIN_SECRET_LENGTH} chars")
         return secret
 
     @field_validator("payments_webhook_secret")
@@ -221,6 +227,25 @@ class Settings(DatabaseSettings):
             raise ValueError(
                 "PAYMENTS_TOKEN_ENCRYPTION_KEY and API_TOTP_ENCRYPTION_KEY must be different"
             )
+        return self
+
+    @field_validator("emulator_url")
+    @classmethod
+    def _validate_emulator_url(cls, url: str | None) -> str | None:
+        if url is None:
+            return url
+        parts = urlsplit(url)
+        if parts.scheme not in ("http", "https") or not parts.netloc:
+            raise ValueError(f"EMULATOR_URL must be scheme://host[:port], got {url!r}")
+        if parts.query or parts.fragment:
+            raise ValueError(f"EMULATOR_URL must not have a query, got {url!r}")
+        return url.rstrip("/")
+
+    @model_validator(mode="after")
+    def _validate_secrets_differ(self) -> Self:
+        telemetry, command = self.emulator_telemetry_secret, self.emulator_command_secret
+        if telemetry and command and telemetry.get_secret_value() == command.get_secret_value():
+            raise ValueError("EMULATOR_TELEMETRY_SECRET and EMULATOR_COMMAND_SECRET must differ")
         return self
 
     @field_validator("s3_endpoint_url", "s3_public_url")

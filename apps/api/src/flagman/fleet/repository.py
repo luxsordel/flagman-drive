@@ -1,3 +1,4 @@
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
 
 from flagman.core.geo import SRID_WGS84, GeoPoint
+from flagman.fleet.changes import CHANNEL
 from flagman.fleet.domain import (
     AvailabilityRules,
     Car,
@@ -54,12 +56,14 @@ def _to_car(row: CarRow, model: CarModel, lat: float | None, lon: float | None) 
         and row.battery_pct is not None
         and row.doors_locked is not None
         and row.ignition_on is not None
+        and row.engine_locked is not None
     ):
         state = CarState(
             location=GeoPoint(lat=lat, lon=lon),
             battery_pct=row.battery_pct,
             doors_locked=row.doors_locked,
             ignition_on=row.ignition_on,
+            engine_locked=row.engine_locked,
             recorded_at=row.state_at,
         )
     return Car(
@@ -153,6 +157,17 @@ async def find_rentable_cars(
     return [(_to_car(row, model, lat, lon), meters) for row, model, lat, lon, meters in rows]
 
 
+async def get_cars(db: AsyncSession, car_ids: Collection[UUID]) -> list[Car]:
+    rows = await db.execute(_select_cars().where(CarRow.id.in_(car_ids)).order_by(CarRow.plate))
+    return [_to_car(*row) for row in rows]
+
+
+async def notify(db: AsyncSession, payloads: Sequence[str]) -> None:
+    """Queues notifications on fleet.changes.CHANNEL; Postgres sends them on commit only."""
+    for payload in payloads:
+        await db.execute(select(func.pg_notify(CHANNEL, payload)))
+
+
 async def get_status_for_update(db: AsyncSession, car_id: UUID) -> CarStatus | None:
     status = await db.scalar(select(CarRow.status).where(CarRow.id == car_id).with_for_update())
     return CarStatus(status) if status is not None else None
@@ -166,7 +181,8 @@ async def set_status(db: AsyncSession, car_id: UUID, status: CarStatus, now: dat
 
 async def apply_state(
     db: AsyncSession, telematics_id: UUID, state: CarState, now: datetime
-) -> SnapshotOutcome:
+) -> tuple[SnapshotOutcome, UUID | None]:
+    """The outcome and, for an applied snapshot, the id of the car it changed."""
     # One conditional update instead of read-then-write: two webhooks for the same car cannot
     # both pass the freshness check and leave the older snapshot stored.
     applied = await db.scalar(
@@ -180,15 +196,16 @@ async def apply_state(
             battery_pct=state.battery_pct,
             doors_locked=state.doors_locked,
             ignition_on=state.ignition_on,
+            engine_locked=state.engine_locked,
             state_at=state.recorded_at,
             updated_at=now,
         )
         .returning(CarRow.id)
     )
     if applied is not None:
-        return SnapshotOutcome.APPLIED
+        return SnapshotOutcome.APPLIED, applied
     known = await db.scalar(select(exists().where(CarRow.telematics_id == telematics_id)))
-    return SnapshotOutcome.STALE if known else SnapshotOutcome.UNKNOWN_CAR
+    return (SnapshotOutcome.STALE if known else SnapshotOutcome.UNKNOWN_CAR), None
 
 
 async def ensure_model(db: AsyncSession, spec: CarModelSpec, now: datetime) -> tuple[UUID, bool]:

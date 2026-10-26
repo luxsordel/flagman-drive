@@ -62,6 +62,7 @@ def test_batch_becomes_snapshots() -> None:
                 battery_pct=80,
                 doors_locked=True,
                 ignition_on=False,
+                engine_locked=False,
                 recorded_at=NOW - timedelta(seconds=2),
             ),
         )

@@ -152,6 +152,7 @@ def test_signed_batch_updates_the_car(client: TestClient, settings: Settings) ->
         battery_pct=80,
         doors_locked=True,
         ignition_on=False,
+        engine_locked=False,
         recorded_at=at,
     )
 

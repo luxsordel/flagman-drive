@@ -75,6 +75,7 @@ def _state(at: datetime = NOW, battery_pct: int = 80, point: GeoPoint = POINT) -
         battery_pct=battery_pct,
         doors_locked=True,
         ignition_on=False,
+        engine_locked=False,
         recorded_at=at,
     )
 

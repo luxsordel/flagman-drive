@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import cast
 
-from fastapi import Request
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from starlette.requests import HTTPConnection
 
 from flagman.core.config import Settings
 
@@ -18,5 +18,6 @@ class Resources:
     redis: Redis
 
 
-def get_resources(request: Request) -> Resources:
-    return cast(Resources, request.app.state.resources)
+def get_resources(connection: HTTPConnection) -> Resources:
+    """For HTTP requests and WebSockets alike."""
+    return cast(Resources, connection.app.state.resources)

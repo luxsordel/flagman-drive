@@ -1,7 +1,7 @@
 import 'maplibre-gl/dist/maplibre-gl.css';
 import '../map/worker';
 
-import { themes, type ThemeName } from '@flagman/design-tokens';
+import { themes } from '@flagman/design-tokens';
 import {
   Map as MapLibreMap,
   NavigationControl,
@@ -18,7 +18,7 @@ import {
 import { TerraDrawMapLibreGLAdapter } from 'terra-draw-maplibre-gl-adapter';
 
 import { cityZoom, mapStyleUrl, minskCenter } from '../map/config';
-import { currentTheme } from '../theme';
+import { useThemeName } from '../map/useThemeName';
 import type { Zone, ZoneKind } from './api';
 import { openRing, ringsBounds, zoneFeatures, zoneRing, type Ring } from './geometry';
 import {
@@ -53,20 +53,6 @@ export interface ZoneMapProps {
 
 const fitPadding = 48;
 const fitMaxZoom = 15;
-
-function useThemeName(): ThemeName {
-  const [theme, setTheme] = useState(currentTheme);
-  useEffect(() => {
-    const observer = new MutationObserver(() => {
-      setTheme(currentTheme());
-    });
-    observer.observe(document.documentElement, { attributeFilter: ['data-theme'] });
-    return () => {
-      observer.disconnect();
-    };
-  }, []);
-  return theme;
-}
 
 /**
  * The zones on MapLibre with OpenStreetMap tiles; Terra Draw draws and changes one zone at a time.

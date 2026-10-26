@@ -20,6 +20,7 @@ class CommandType(StrEnum):
     OPEN = "open"
     CLOSE = "close"
     LOCK_ENGINE = "lock_engine"
+    UNLOCK_ENGINE = "unlock_engine"
 
 
 class CommandRejectedError(Exception):
@@ -52,6 +53,8 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
         case CommandType.LOCK_ENGINE:
             # Like real immobilizers, this blocks the next start instead of stopping a moving car.
             car.engine_locked = True
+        case CommandType.UNLOCK_ENGINE:
+            car.engine_locked = False
     car.updated_at = now
 
 

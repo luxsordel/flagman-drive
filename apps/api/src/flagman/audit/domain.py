@@ -51,6 +51,7 @@ class AuditAction(StrEnum):
     ZONE_DISABLED = "zone.disabled"
     TARIFF_CREATED = "tariff.created"
     TARIFF_UPDATED = "tariff.updated"
+    CAR_COMMAND_SENT = "car.command_sent"
 
 
 class AuditTargetType(StrEnum):
@@ -63,6 +64,7 @@ class AuditTargetType(StrEnum):
     KYC_APPLICATION = "kyc_application"
     ZONE = "zone"
     TARIFF = "tariff"
+    CAR = "car"
 
 
 @dataclass(frozen=True)

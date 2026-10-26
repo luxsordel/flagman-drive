@@ -15,6 +15,7 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     strictPort: true,
-    proxy: { '^/(staff|admin)/': api },
+    // ws: the live fleet comes over a WebSocket at /admin/fleet/stream (docs/adr/0017).
+    proxy: { '^/(staff|admin)/': { target: api, ws: true } },
   },
 });

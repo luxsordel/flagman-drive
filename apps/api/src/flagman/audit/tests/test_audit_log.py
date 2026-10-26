@@ -69,7 +69,7 @@ async def _count(db: AsyncSession, staff_id: uuid.UUID) -> int:
 def _make_client(settings: Settings, role: StaffRole | None) -> TestClient:
     app = create_app(settings)
     if role is not None:
-        signed_in = CurrentStaff(staff_id=uuid.uuid4(), role=role)
+        signed_in = CurrentStaff(staff_id=uuid.uuid4(), session_id=uuid.uuid4(), role=role)
         app.dependency_overrides[get_current_staff] = lambda: signed_in
     _add_recording_route(app)
     return TestClient(app, base_url="https://testserver")

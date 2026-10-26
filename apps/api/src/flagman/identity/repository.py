@@ -337,6 +337,23 @@ async def create_staff_session(
     return session.id
 
 
+async def is_staff_session_active(
+    db: AsyncSession, staff_id: UUID, session_id: UUID, now: datetime
+) -> bool:
+    active = await db.scalar(
+        select(StaffSession.id)
+        .join(StaffMember, StaffSession.staff_id == StaffMember.id)
+        .where(
+            StaffSession.id == session_id,
+            StaffSession.staff_id == staff_id,
+            StaffSession.revoked_at.is_(None),
+            StaffSession.expires_at > now,
+            StaffMember.disabled_at.is_(None),
+        )
+    )
+    return active is not None
+
+
 async def revoke_staff_session(db: AsyncSession, session_id: UUID, now: datetime) -> None:
     await db.execute(
         update(StaffSession)

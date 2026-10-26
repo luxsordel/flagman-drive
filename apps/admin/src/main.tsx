@@ -21,6 +21,8 @@ import { createAuditLogApi } from './audit/api';
 import { AuthProvider } from './auth/AuthProvider';
 import { createStaffSession } from './auth/session';
 import { createStaffAuthApi } from './auth/staffApi';
+import { createFleetApi } from './fleet/api';
+import { createFleetStream, fleetStreamUrl } from './fleet/stream';
 import { createKycReviewApi } from './kyc/api';
 import { routes } from './routes';
 import { createStaffListApi } from './staff/api';
@@ -39,6 +41,11 @@ const session = createStaffSession(staffAuth);
 const client = createAdminApiClient(session);
 const apis: AdminApis = {
   auditLog: createAuditLogApi(client),
+  fleet: createFleetApi(client),
+  fleetStream: createFleetStream({
+    url: fleetStreamUrl(window.location),
+    accessToken: () => session.accessToken(),
+  }),
   kycReview: createKycReviewApi(client),
   staffList: createStaffListApi(client),
   staffSignIn: staffAuth,

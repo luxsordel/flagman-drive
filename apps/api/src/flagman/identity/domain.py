@@ -9,7 +9,7 @@ import secrets
 import unicodedata
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from enum import StrEnum
 from functools import cache
 from http import HTTPStatus
@@ -468,16 +468,29 @@ def issue_staff_access_token(claims: StaffAccessClaims, secret: str, now: dateti
     )
 
 
-def read_staff_access_token(token: str, secret: str) -> StaffAccessClaims:
+@dataclass(frozen=True)
+class StaffAccess:
+    claims: StaffAccessClaims
+    expires_at: datetime
+
+
+def read_staff_access(token: str, secret: str) -> StaffAccess:
+    """The claims and the end of the token, for a connection that outlives one request."""
     payload = _decode_jwt(token, secret, STAFF_AUDIENCE, ["sid", "role"], AccessTokenInvalidError)
     try:
-        return StaffAccessClaims(
+        claims = StaffAccessClaims(
             staff_id=UUID(payload["sub"]),
             session_id=UUID(payload["sid"]),
             role=StaffRole(payload["role"]),
         )
-    except (ValueError, TypeError) as exc:
+        expires_at = datetime.fromtimestamp(int(payload["exp"]), UTC)
+    except (ValueError, TypeError, OverflowError) as exc:
         raise AccessTokenInvalidError from exc
+    return StaffAccess(claims=claims, expires_at=expires_at)
+
+
+def read_staff_access_token(token: str, secret: str) -> StaffAccessClaims:
+    return read_staff_access(token, secret).claims
 
 
 # Client profile (#33). Only plausibility checks here: the age and driving experience needed to

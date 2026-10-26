@@ -74,8 +74,9 @@ Docker Desktop должен быть запущен. Все команды — �
    `EMULATOR_COMMAND_SECRET`, `EMULATOR_TELEMETRY_SECRET`, `PAYMENTS_WEBHOOK_SECRET`,
    `PAYMENTS_TOKEN_ENCRYPTION_KEY`.
    Для локальной разработки придумайте их сами, например `openssl rand -hex 24` в Git Bash.
-   Секреты эмулятора — не короче 32 символов и разные. `EMULATOR_TELEMETRY_SECRET` читают и эмулятор,
-   и API: им подписывается и проверяется телеметрия.
+   Секреты эмулятора — не короче 32 символов и разные. Оба читают и эмулятор, и API:
+   `EMULATOR_TELEMETRY_SECRET` подписывает телеметрию, `EMULATOR_COMMAND_SECRET` — ручные команды машинам
+   из раздела «Парк» админки.
    `API_JWT_SECRET` и `API_OTP_PEPPER` — не короче 32 символов и разные (`openssl rand -hex 32` даёт 64),
    иначе API не стартует. `API_TOTP_ENCRYPTION_KEY` — ровно 32 байта в base64: `openssl rand -base64 32`.
    `PAYMENTS_WEBHOOK_SECRET` — не короче 32 символов, `PAYMENTS_TOKEN_ENCRYPTION_KEY` — тоже 32 байта в
@@ -86,11 +87,14 @@ Docker Desktop должен быть запущен. Все команды — �
    `API_JWT_SECRET`, `API_OTP_PEPPER`, `SMS_BACKEND`, `SMS_FIXED_CODE`, `SMS_FIXED_PHONES`,
    `API_TOTP_ENCRYPTION_KEY`, `S3_ENDPOINT_URL`, `S3_REGION`, `S3_PUBLIC_URL`, `FLEET_MIN_BATTERY_PCT`,
    `FLEET_TELEMETRY_MAX_AGE_SECONDS`, `TELEMATICS_SIGNATURE_TOLERANCE_SECONDS`, `EMULATOR_SEED`,
-   `PAYMENTS_PROVIDER`, `PAYMENTS_WEBHOOK_SECRET`, `PAYMENTS_TOKEN_ENCRYPTION_KEY` и
-   `PAYMENTS_WEBHOOK_TOLERANCE_SECONDS`.
+   `EMULATOR_URL`, `TELEMATICS_COMMAND_TIMEOUT_SECONDS`, `PAYMENTS_PROVIDER`, `PAYMENTS_WEBHOOK_SECRET`,
+   `PAYMENTS_TOKEN_ENCRYPTION_KEY` и `PAYMENTS_WEBHOOK_TOLERANCE_SECONDS`.
    Локально можно оставить пустыми `S3_ENDPOINT_URL`, `S3_REGION`, `S3_PUBLIC_URL`, `FLEET_MIN_BATTERY_PCT`,
-   `FLEET_TELEMETRY_MAX_AGE_SECONDS` и `TELEMATICS_SIGNATURE_TOLERANCE_SECONDS`; `EMULATOR_SEED`
-   возьмите как в шаблоне. Если в старом `.env` у `EMULATOR_TELEMETRY_URL` стоит адрес, очистите его:
+   `FLEET_TELEMETRY_MAX_AGE_SECONDS`, `TELEMATICS_SIGNATURE_TOLERANCE_SECONDS`, `EMULATOR_URL`
+   (в Compose это сервис `car-emulator`) и `TELEMATICS_COMMAND_TIMEOUT_SECONDS`; `EMULATOR_SEED`
+   возьмите как в шаблоне. Для раздела «Парк» админки впишите её адрес в `API_CORS_ORIGINS`
+   (`http://127.0.0.1:5173`): живой поток парка принимает только эти адреса
+   ([ADR-0017](adr/0017-fleet-stream-websocket.md)). Если в старом `.env` у `EMULATOR_TELEMETRY_URL` стоит адрес, очистите его:
    пустое значение в Compose — это API из того же Compose.
    На сервере пилота `API_ENV=prod`, а `S3_PUBLIC_URL` — `https`-адрес хранилища, по которому клиенты
    открывают фото документов ([ADR-0012](adr/0012-kyc-document-storage.md)).

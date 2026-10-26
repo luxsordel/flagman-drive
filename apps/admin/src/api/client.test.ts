@@ -23,6 +23,18 @@ describe('API errors', () => {
     expect(toApiError(response(400), undefined).problem).toBeUndefined();
   });
 
+  it('keeps the detail of our own Problems only', () => {
+    const refused = toApiError(response(409), {
+      type: 'urn:flagman:problem:car-command-rejected',
+      title: 'The car refused the command',
+      status: 409,
+      detail: 'ignition_on',
+    });
+
+    expect(refused.detail).toBe('ignition_on');
+    expect(toApiError(response(409), { type: 'about:blank', detail: 'x' }).detail).toBeUndefined();
+  });
+
   it('reads Retry-After in seconds and ignores a date or garbage', () => {
     expect(toApiError(response(429, { 'Retry-After': '90' }), null).retryAfterSeconds).toBe(90);
     for (const garbage of ['1e2', '0x10', '-5', '0']) {

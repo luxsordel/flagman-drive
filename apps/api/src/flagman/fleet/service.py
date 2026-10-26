@@ -1,33 +1,54 @@
 """Public interface of the fleet for other modules.
 
 Reads join the caller's transaction if one is open; changes run only inside it, so a rental
-(stage 3) changes the car status and its own rows in one transaction. The demo seed and the
-telemetry intake are the exceptions: each is a command of its own and opens its own transaction.
+(stage 3) changes the car status and its own rows in one transaction. The demo seed, the
+telemetry intake and manual car commands are the exceptions: each is a command of its own and
+opens its own transaction.
 """
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.audit import service as audit
+from flagman.audit.domain import (
+    Actor,
+    ActorType,
+    AuditAction,
+    AuditEntry,
+    AuditTarget,
+    AuditTargetType,
+    RequestOrigin,
+)
 from flagman.core.config import Settings
+from flagman.core.errors import AppError
 from flagman.core.geo import GeoPoint
 from flagman.fleet import domain, repository
+from flagman.fleet.changes import CommandNotice, encode_car_changes, encode_command
 from flagman.fleet.domain import (
     AvailabilityRules,
     Car,
+    CarCommand,
+    CarCommandDuplicateError,
+    CarCommandRejectedError,
+    CarInActiveRentalError,
     CarNotFoundError,
     CarOnMap,
     CarState,
     CarStatus,
     CarTransition,
+    CommandOutcome,
     MapQuery,
     SnapshotFromFutureError,
     SnapshotOutcome,
+    StaffCarFilter,
     StoredCarModel,
+    TelematicsTimeoutError,
+    TelematicsUnavailableError,
     TelemetryReport,
     TelemetrySnapshot,
     apply_transition,
@@ -37,6 +58,7 @@ from flagman.fleet.domain import (
     normalize_plate,
     normalize_vin,
 )
+from flagman.fleet.ports import TelematicsGateway
 from flagman.fleet.seed import DEMO_MODELS, MAX_DEMO_CARS, demo_plate, demo_vin
 
 logger = structlog.get_logger(__name__)
@@ -112,6 +134,19 @@ async def list_cars(db: AsyncSession) -> list[Car]:
         return await repository.list_cars(db)
 
 
+async def get_cars(db: AsyncSession, car_ids: Collection[UUID]) -> list[Car]:
+    """The cars of these ids that exist, by plate."""
+    return await _read(db, lambda: repository.get_cars(db, car_ids))
+
+
+async def list_cars_for_staff(
+    db: AsyncSession, rules: AvailabilityRules, car_filter: StaffCarFilter
+) -> list[Car]:
+    """The whole fleet by plate, filtered in Python: the pilot has at most a thousand cars."""
+    cars = await list_cars(db)
+    return [car for car in cars if domain.matches_staff_filter(car, car_filter, rules)]
+
+
 async def list_models(db: AsyncSession) -> list[StoredCarModel]:
     """Car models by brand and name; the pricing module lists a tariff for each."""
     return await _read(db, lambda: repository.list_models(db))
@@ -131,6 +166,7 @@ async def change_status(
         raise CarNotFoundError
     new_status = apply_transition(status, transition)
     await repository.set_status(db, car_id, new_status, now)
+    await repository.notify(db, encode_car_changes([car_id]))
     return new_status
 
 
@@ -142,6 +178,15 @@ async def apply_state_snapshot(
     Raises SnapshotFromFutureError for a snapshot more than `max_skew` ahead of `now`.
     """
     _require_transaction(db, "apply_state_snapshot")
+    outcome, car_id = await _apply_snapshot(db, telematics_id, state, now, max_skew)
+    if car_id is not None:
+        await repository.notify(db, encode_car_changes([car_id]))
+    return outcome
+
+
+async def _apply_snapshot(
+    db: AsyncSession, telematics_id: UUID, state: CarState, now: datetime, max_skew: timedelta
+) -> tuple[SnapshotOutcome, UUID | None]:
     check_snapshot_time(state.recorded_at, now, max_skew)
     return await repository.apply_state(db, telematics_id, state, now)
 
@@ -157,18 +202,23 @@ async def receive_telemetry(
     counts = dict.fromkeys(SnapshotOutcome, 0)
     unknown: list[UUID] = []
     from_future = 0
+    changed: list[UUID] = []
     async with db.begin():
         for snapshot in snapshots:
             try:
-                outcome = await apply_state_snapshot(
+                outcome, car_id = await _apply_snapshot(
                     db, snapshot.telematics_id, snapshot.state, now, max_skew
                 )
             except SnapshotFromFutureError:
                 from_future += 1
                 continue
             counts[outcome] += 1
+            if car_id is not None:
+                changed.append(car_id)
             if outcome is SnapshotOutcome.UNKNOWN_CAR:
                 unknown.append(snapshot.telematics_id)
+        # A few notices for the whole batch rather than one per car.
+        await repository.notify(db, encode_car_changes(changed))
     report = TelemetryReport(
         applied=counts[SnapshotOutcome.APPLIED],
         stale=counts[SnapshotOutcome.STALE],
@@ -184,6 +234,116 @@ async def receive_telemetry(
             from_future=from_future,
         )
     return report
+
+
+@dataclass(frozen=True)
+class CarCommandRequest:
+    car_id: UUID
+    command: CarCommand
+    # Why the staff member sends it: kept in the audit log, checked for personal data before.
+    comment: str
+    confirm_active_rental: bool
+
+
+@dataclass(frozen=True)
+class CarCommandResult:
+    command_id: UUID
+    car: Car
+
+
+@dataclass(frozen=True)
+class CarCommander:
+    """Manual commands of one staff member (docs/02-architecture.md, the fleet section).
+
+    Every command that went to telematics is audited and announced to staff, whatever its
+    outcome. The car is not waited for inside a transaction: nothing holds a row or a connection
+    while telematics thinks.
+    """
+
+    db: AsyncSession
+    gateway: TelematicsGateway
+    staff_id: UUID
+    origin: RequestOrigin
+    max_skew: timedelta
+
+    async def send(self, request: CarCommandRequest, now: datetime) -> CarCommandResult:
+        """Raises CarNotFoundError, CarInActiveRentalError without sending anything; after
+        sending, the errors of TelematicsGateway.send, once the outcome is recorded.
+        """
+        car = await get_car(self.db, request.car_id)
+        during_rental = domain.needs_rental_confirmation(car.status)
+        if during_rental and not request.confirm_active_rental:
+            raise CarInActiveRentalError
+        command_id = uuid4()
+        state: CarState | None = None
+        failure: AppError | None = None
+        reason: str | None = None
+        try:
+            state = await self.gateway.send(car.telematics_id, command_id, request.command)
+            outcome = CommandOutcome.DONE
+        except CarCommandRejectedError as error:
+            outcome, failure, reason = CommandOutcome.REJECTED, error, error.reason
+        except CarCommandDuplicateError as error:
+            outcome, failure = CommandOutcome.DUPLICATE, error
+        except TelematicsUnavailableError as error:
+            outcome, failure = CommandOutcome.UNAVAILABLE, error
+        except TelematicsTimeoutError as error:
+            outcome, failure = CommandOutcome.TIMED_OUT, error
+        notice = CommandNotice(
+            command_id=command_id,
+            car_id=car.id,
+            command=request.command,
+            outcome=outcome,
+            reason=reason,
+            staff_id=self.staff_id,
+            at=now,
+        )
+        async with self.db.begin():
+            if state is not None:
+                await self._apply(car, state, now)
+            await audit.record(self.db, self._entry(car, request, notice, during_rental))
+            await repository.notify(self.db, [encode_command(notice)])
+        logger.info(
+            "car_command_sent",
+            car_id=str(car.id),
+            command=request.command,
+            outcome=outcome,
+            reason=reason,
+        )
+        if failure is not None:
+            raise failure
+        return CarCommandResult(command_id=command_id, car=await get_car(self.db, car.id))
+
+    async def _apply(self, car: Car, state: CarState, now: datetime) -> None:
+        try:
+            _, changed = await _apply_snapshot(
+                self.db, car.telematics_id, state, now, self.max_skew
+            )
+        except SnapshotFromFutureError:
+            # The command itself went through; the next telemetry brings the state.
+            logger.warning("car_command_state_from_future", car_id=str(car.id))
+            return
+        if changed is not None:
+            await repository.notify(self.db, encode_car_changes([changed]))
+
+    def _entry(
+        self, car: Car, request: CarCommandRequest, notice: CommandNotice, during_rental: bool
+    ) -> AuditEntry:
+        return AuditEntry(
+            Actor(ActorType.STAFF, self.staff_id),
+            AuditAction.CAR_COMMAND_SENT,
+            self.origin,
+            AuditTarget(AuditTargetType.CAR, car.id),
+            details={
+                "command": request.command.value,
+                "outcome": notice.outcome.value,
+                "reason": notice.reason,
+                "command_id": notice.command_id,
+                "car_status": car.status.value,
+                "during_active_rental": during_rental,
+                "comment": request.comment,
+            },
+        )
 
 
 @dataclass(frozen=True)
