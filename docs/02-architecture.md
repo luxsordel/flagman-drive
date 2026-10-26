@@ -172,6 +172,22 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
   `quote(version_id, intervals)`.
 - Демо-тарифы создаёт `flagman-pricing seed` (после `flagman-fleet seed`).
 
+## Платежи (`payments`)
+
+- Провайдер — за портом `PaymentProvider` (`payments/ports.py`). В пилоте — `FakeProvider` внутри API:
+  своя страница ввода карты, тестовые номера карт, деньги не двигаются
+  ([ADR-0019](adr/0019-payment-port-and-fake-provider.md)). Без `PAYMENTS_PROVIDER` привязка карт и платежи
+  отвечают `503 payments-unavailable`.
+- Привязка: `POST /payment-cards/bindings` возвращает страницу провайдера. Номер карты вводится там и
+  к нам не попадает. Итог приходит подписанным вебхуком (`POST /payments/webhooks/fake`, вне OpenAPI),
+  клиент узнаёт его из `GET /payment-cards/bindings/{id}`. Адрес возврата — только наше приложение или
+  наш веб-клиент.
+- Храним маску, платёжную систему, срок и токен провайдера, зашифрованный `PAYMENTS_TOKEN_ENCRYPTION_KEY`.
+  Токен не отдаётся клиенту и не логируется. Клиент видит и меняет только свои карты: чужая — `404`.
+- Для `rentals`: `has_usable_card`, `hold`, `capture`, `charge`, `void`, `refund`. Операции идемпотентны по
+  ключу вызывающего, у каждой статус (`pending`, `succeeded`, `declined`, `failed`) и журнал попыток.
+  Функции открывают свои транзакции: сетевой вызов провайдера идёт вне транзакции.
+
 ## Карта клиента
 
 - `GET /map/cars` (`fleet`) — машины, которые можно арендовать, в видимой области (четыре края) и/или

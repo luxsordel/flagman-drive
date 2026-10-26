@@ -291,3 +291,57 @@ def test_empty_telemetry_secret_leaves_telemetry_off(
     monkeypatch.setenv("EMULATOR_TELEMETRY_SECRET", "")
 
     assert make_settings().emulator_telemetry_secret is None
+
+
+_PAYMENTS = {
+    "payments_provider": "fake",
+    "payments_webhook_secret": "w" * 32,
+    "payments_token_encryption_key": base64.b64encode(b"p" * 32).decode(),
+}
+
+
+def test_payments_are_off_by_default(make_settings: SettingsFactory) -> None:
+    settings = make_settings()
+
+    assert settings.payments_provider is None
+    assert settings.payments_token_key is None
+
+
+def test_payments_token_key_is_decoded_from_base64(make_settings: SettingsFactory) -> None:
+    settings = make_settings(**_PAYMENTS)
+
+    assert settings.payments_token_key == b"p" * 32
+    assert _PAYMENTS["payments_token_encryption_key"] not in repr(settings)
+
+
+@pytest.mark.parametrize("missing", ["payments_webhook_secret", "payments_token_encryption_key"])
+def test_payments_provider_needs_its_secrets(make_settings: SettingsFactory, missing: str) -> None:
+    values = {name: value for name, value in _PAYMENTS.items() if name != missing}
+
+    with pytest.raises(ValidationError, match="PAYMENTS_PROVIDER needs"):
+        make_settings(**values)
+
+
+def test_payments_webhook_secret_must_be_long(make_settings: SettingsFactory) -> None:
+    with pytest.raises(ValidationError, match="PAYMENTS_WEBHOOK_SECRET"):
+        make_settings(**{**_PAYMENTS, "payments_webhook_secret": "w" * 31})
+
+
+@pytest.mark.parametrize("value", [base64.b64encode(b"p" * 31).decode(), "not base64!", "p" * 32])
+def test_payments_token_key_must_be_32_bytes_of_base64(
+    make_settings: SettingsFactory, value: str
+) -> None:
+    with pytest.raises(ValidationError, match="PAYMENTS_TOKEN_ENCRYPTION_KEY") as error:
+        make_settings(**{**_PAYMENTS, "payments_token_encryption_key": value})
+
+    assert value not in str(error.value)
+
+
+def test_payments_token_key_differs_from_the_totp_key(make_settings: SettingsFactory) -> None:
+    totp_key = base64.b64encode(b"t" * 32).decode()
+
+    with pytest.raises(ValidationError, match="must be different"):
+        make_settings(
+            **{**_PAYMENTS, "payments_token_encryption_key": totp_key},
+            api_totp_encryption_key=totp_key,
+        )

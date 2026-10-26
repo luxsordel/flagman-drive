@@ -11,6 +11,7 @@ from sqlalchemy import URL
 Environment = Literal["dev", "test", "prod"]
 
 TOTP_KEY_BYTES = 32  # AES-256-GCM
+PAYMENTS_TOKEN_KEY_BYTES = 32  # AES-256-GCM
 MIN_SECRET_LENGTH = 32
 
 # Same rules as the API accepts (flagman.identity.schemas), so every listed phone can sign in.
@@ -18,6 +19,13 @@ MIN_SECRET_LENGTH = 32
 PILOT_PHONE_RE = re.compile(r"\+375(25|29|33|44)[0-9]{7}")
 OTP_CODE_RE = re.compile(r"[0-9]{6}")
 _DIGIT_RUNS = "0123456789"
+
+
+def _decode_key(key: SecretStr) -> bytes:
+    try:
+        return base64.b64decode(key.get_secret_value(), validate=True)
+    except binascii.Error:
+        return b""
 
 
 class DatabaseSettings(BaseSettings):
@@ -127,6 +135,17 @@ class Settings(DatabaseSettings):
     # Clock skew allowed between the API and telematics, for signatures and snapshot times alike.
     telematics_signature_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
 
+    # Card payments, see docs/adr/0019. "fake" is the test provider inside the API: its own card
+    # page and test card numbers, no money moves. Unset: the API runs, but cards cannot be bound
+    # and payments answer 503.
+    payments_provider: Literal["fake"] | None = None
+    # Checks the provider's webhooks (HMAC + timestamp); the fake provider signs with it too.
+    payments_webhook_secret: SecretStr | None = None
+    payments_webhook_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
+    # Encrypts the provider's card tokens in the database, so a dump alone cannot charge a card.
+    # 32 bytes in standard base64, like API_TOTP_ENCRYPTION_KEY but a different one.
+    payments_token_encryption_key: SecretStr | None = None
+
     @field_validator("api_cors_origins", "sms_fixed_phones", mode="before")
     @classmethod
     def _split_comma_separated(cls, value: object) -> object:
@@ -170,6 +189,39 @@ class Settings(DatabaseSettings):
                 f"EMULATOR_TELEMETRY_SECRET must be at least {MIN_SECRET_LENGTH} chars"
             )
         return secret
+
+    @field_validator("payments_webhook_secret")
+    @classmethod
+    def _validate_payments_webhook_secret(cls, secret: SecretStr | None) -> SecretStr | None:
+        if secret is not None and len(secret.get_secret_value()) < MIN_SECRET_LENGTH:
+            raise ValueError(f"PAYMENTS_WEBHOOK_SECRET must be at least {MIN_SECRET_LENGTH} chars")
+        return secret
+
+    @field_validator("payments_token_encryption_key")
+    @classmethod
+    def _validate_payments_token_key(cls, key: SecretStr | None) -> SecretStr | None:
+        if key is not None and len(_decode_key(key)) != PAYMENTS_TOKEN_KEY_BYTES:
+            raise ValueError(
+                f"PAYMENTS_TOKEN_ENCRYPTION_KEY must be {PAYMENTS_TOKEN_KEY_BYTES} bytes in base64 "
+                "(openssl rand -base64 32)"
+            )
+        return key
+
+    @model_validator(mode="after")
+    def _validate_payments(self) -> Self:
+        if self.payments_provider is None:
+            return self
+        if self.payments_webhook_secret is None or self.payments_token_encryption_key is None:
+            raise ValueError(
+                "PAYMENTS_PROVIDER needs PAYMENTS_WEBHOOK_SECRET and PAYMENTS_TOKEN_ENCRYPTION_KEY"
+            )
+        if self.payments_token_encryption_key.get_secret_value() == (
+            self.api_totp_encryption_key.get_secret_value()
+        ):
+            raise ValueError(
+                "PAYMENTS_TOKEN_ENCRYPTION_KEY and API_TOTP_ENCRYPTION_KEY must be different"
+            )
+        return self
 
     @field_validator("s3_endpoint_url", "s3_public_url")
     @classmethod
@@ -227,6 +279,11 @@ class Settings(DatabaseSettings):
     @property
     def totp_encryption_key(self) -> bytes:
         return base64.b64decode(self.api_totp_encryption_key.get_secret_value())
+
+    @property
+    def payments_token_key(self) -> bytes | None:
+        key = self.payments_token_encryption_key
+        return _decode_key(key) if key is not None else None
 
     @property
     def storage_configured(self) -> bool:
