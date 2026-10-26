@@ -1,4 +1,4 @@
-import type { Palette } from '@flagman/design-tokens';
+import { fontSize, type Palette } from '@flagman/design-tokens';
 import type {
   CircleLayerSpecification,
   FillLayerSpecification,
@@ -134,7 +134,7 @@ export function mapLayers(palette: Palette): MapLayers {
       layout: {
         'text-field': ['get', 'point_count_abbreviated'],
         'text-font': clusterFont,
-        'text-size': 13,
+        'text-size': fontSize.xs,
         'text-allow-overlap': true,
       },
       paint: { 'text-color': palette.onPrimary },

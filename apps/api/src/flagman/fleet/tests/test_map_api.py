@@ -1,4 +1,5 @@
 import asyncio
+import itertools
 import json
 import random
 import uuid
@@ -65,13 +66,17 @@ def headers(integration_settings: Settings) -> dict[str, str]:
     return _client_headers(integration_settings)
 
 
+# Rows stay in the shared database between tests and their cars stay rentable for minutes, so each
+# test gets a cell of its own: 0.1 degree apart, far wider than any area or distance a test checks,
+# and far from Minsk, where the other modules' tests put their cars.
+_cells = itertools.count()
+CELL_ORIGIN = GeoPoint(lat=-40.0, lon=170.0)
+CELL_SIZE = 0.1
+
+
 @pytest.fixture
 def spot() -> GeoPoint:
-    """A random place in Minsk per test: rows stay in the shared database between tests."""
-    rng = random.SystemRandom()
-    return GeoPoint(
-        lat=round(rng.uniform(53.80, 54.00), 4), lon=round(rng.uniform(27.40, 27.70), 4)
-    )
+    return GeoPoint(lat=CELL_ORIGIN.lat + next(_cells) * CELL_SIZE, lon=CELL_ORIGIN.lon)
 
 
 def _area(center: GeoPoint, half: float = 5 * STEP) -> dict[str, float]:
