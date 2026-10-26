@@ -13,6 +13,14 @@ export const tariffErrors = [
 
 export type TariffError = (typeof tariffErrors)[number];
 
+/** The list on the page is out of date: these errors offer to load it again. */
+export const staleErrors: ReadonlySet<TariffError> = new Set([
+  'changed',
+  'exists',
+  'notFound',
+  'modelNotFound',
+]);
+
 const problems: Readonly<Record<string, TariffError>> = {
   'tariff-changed': 'changed',
   'tariff-exists': 'exists',

@@ -87,9 +87,11 @@ class TariffPrices:
         }
         for name, limit in limits.items():
             value = getattr(self, name)
+            # A payment provider holds a positive amount only; every other price may be free.
+            least = 1 if name == "hold_amount" else 0
             # bool is an int too, and True would pass as one kopeck.
-            if type(value) is not int or not 0 <= value <= limit:
-                raise TariffPricesInvalidError(f"{name} must be within 0..{limit}")
+            if type(value) is not int or not least <= value <= limit:
+                raise TariffPricesInvalidError(f"{name} must be within {least}..{limit}")
 
     def per_minute(self, kind: IntervalKind) -> int:
         match kind:

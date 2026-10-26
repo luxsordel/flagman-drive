@@ -7,7 +7,7 @@ opens its own transaction.
 """
 
 from collections.abc import Awaitable, Callable, Collection, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
@@ -26,7 +26,6 @@ from flagman.audit.domain import (
 )
 from flagman.core.config import Settings
 from flagman.core.errors import AppError
-from flagman.core.geo import GeoPoint
 from flagman.fleet import domain, repository
 from flagman.fleet.changes import CommandNotice, encode_car_changes, encode_command
 from flagman.fleet.domain import (
@@ -100,18 +99,25 @@ async def find_cars_on_map(
     return [
         car_on_map(car, distance)
         for car, distance in rows
-        if domain.is_rentable(car.status, car.state, rules, now)
+        if domain.is_rentable(car.status, car.state, rules, now) and _of_models(car, query)
     ]
 
 
+def _of_models(car: Car, query: MapQuery) -> bool:
+    return query.models is None or car.model_id in query.models
+
+
 async def get_car_on_map(
-    db: AsyncSession, car_id: UUID, rules: AvailabilityRules, now: datetime, near: GeoPoint | None
+    db: AsyncSession, car_id: UUID, rules: AvailabilityRules, now: datetime, query: MapQuery
 ) -> CarOnMap:
-    """Raises CarNotFoundError for a car that is not rentable now as well as for a missing one."""
-    query = MapQuery(area=None, near=near, limit=1)
+    """Raises CarNotFoundError for a car that is not rentable now as well as for a missing one.
+
+    Only `query.near` and `query.models` matter: the car is looked up by its id.
+    """
+    query = replace(query, area=None, limit=1)
     rows = await _read(db, lambda: repository.find_rentable_cars(db, rules, now, query, car_id))
     for car, distance in rows:
-        if domain.is_rentable(car.status, car.state, rules, now):
+        if domain.is_rentable(car.status, car.state, rules, now) and _of_models(car, query):
             return car_on_map(car, distance)
     raise CarNotFoundError
 

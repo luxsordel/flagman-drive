@@ -158,19 +158,6 @@ describe('MapScreen', () => {
     expect(mapProps().selectedId).toBeNull();
   });
 
-  it('says when the car has no tariff yet', async () => {
-    const api = await renderMap();
-    api.getCar.mockResolvedValue(ok(mapCar({ tariff: null })));
-    await showArea();
-
-    await act(async () => {
-      mapProps().onCarPress('car-1');
-      await jest.advanceTimersByTimeAsync(0);
-    });
-
-    expect(screen.getByText('Тариф для этой машины ещё не задан')).toBeOnTheScreen();
-  });
-
   it('says when a pressed car is no longer available', async () => {
     const api = await renderMap();
     api.getCar.mockResolvedValue({ ok: false, error: { kind: 'carGone' } });

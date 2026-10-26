@@ -1,6 +1,6 @@
 import { spacing } from '@flagman/design-tokens';
 import { useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 
@@ -26,6 +26,8 @@ export function PaymentMethodsScreen() {
   const [loadError, setLoadError] = useState<PaymentsError | null>(null);
   const [binding, setBinding] = useState(false);
   const [outcome, setOutcome] = useState<BindingOutcome | null>(null);
+  // A second tap can come before the button re-renders disabled: it must not open a second page.
+  const bindingRef = useRef(false);
 
   const show = (result: Result<PaymentCard[]>) => {
     if (result.ok) setCards(result.value);
@@ -51,9 +53,12 @@ export function PaymentMethodsScreen() {
   }
 
   async function bind() {
+    if (bindingRef.current) return;
+    bindingRef.current = true;
     setBinding(true);
     setOutcome(null);
     const result = await bindCard(deps);
+    bindingRef.current = false;
     if (!mounted.current) return;
     setBinding(false);
     setOutcome(result);
@@ -103,6 +108,7 @@ function CardItem({ card, onChanged }: { card: PaymentCard; onChanged: () => voi
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<PaymentsError | null>(null);
+  const busyRef = useRef(false);
   const name = t('payments.card.name', {
     brand: t(`payments.brands.${card.brand}`),
     last4: card.last4,
@@ -110,9 +116,13 @@ function CardItem({ card, onChanged }: { card: PaymentCard; onChanged: () => voi
   const expiry = `${String(card.exp_month).padStart(2, '0')}/${String(card.exp_year % 100).padStart(2, '0')}`;
 
   async function run(action: () => Promise<{ ok: boolean; error?: PaymentsError }>) {
+    // The ref, not the state: a second tap can come before the buttons re-render disabled.
+    if (busyRef.current) return;
+    busyRef.current = true;
     setBusy(true);
     setError(null);
     const result = await action();
+    busyRef.current = false;
     if (!mounted.current) return;
     setBusy(false);
     setConfirming(false);
@@ -152,7 +162,8 @@ function CardItem({ card, onChanged }: { card: PaymentCard; onChanged: () => voi
         </View>
       ) : (
         <View style={styles.actions}>
-          {!card.is_default && (
+          {/* An expired card cannot take the payments: the server refuses it as well. */}
+          {!card.is_default && !card.expired && (
             <Button
               variant="secondary"
               title={t('payments.card.makeDefault')}

@@ -217,6 +217,9 @@ class Settings(DatabaseSettings):
     def _validate_payments(self) -> Self:
         if self.payments_provider is None:
             return self
+        if self.is_prod and self.payments_provider == "fake":
+            # Any test card would bind and every hold would pass without money.
+            raise ValueError("PAYMENTS_PROVIDER=fake is not allowed when API_ENV=prod")
         if self.payments_webhook_secret is None or self.payments_token_encryption_key is None:
             raise ValueError(
                 "PAYMENTS_PROVIDER needs PAYMENTS_WEBHOOK_SECRET and PAYMENTS_TOKEN_ENCRYPTION_KEY"

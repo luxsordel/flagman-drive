@@ -9,7 +9,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from conftest import SettingsFactory
 from flagman.core.app import create_app
@@ -47,6 +47,18 @@ async def db(payments_settings: Settings) -> AsyncIterator[AsyncSession]:
     try:
         async with create_session_factory(engine)() as session:
             yield session
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
+async def sessions(
+    payments_settings: Settings,
+) -> AsyncIterator[async_sessionmaker[AsyncSession]]:
+    """For calls that run at once: each needs a connection of its own."""
+    engine = create_engine(payments_settings)
+    try:
+        yield create_session_factory(engine)
     finally:
         await engine.dispose()
 

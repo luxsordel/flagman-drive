@@ -1,10 +1,11 @@
 import json
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from flagman.fleet import signing
+from flagman.core import signing
 from flagman.payments.domain import (
     CardBrand,
     DeclineReason,
@@ -64,11 +65,11 @@ def test_page_session_expires(provider: FakeProvider) -> None:
         lambda session: "",
     ],
 )
-def test_forged_session_is_refused(provider: FakeProvider, damage: object) -> None:
+def test_forged_session_is_refused(provider: FakeProvider, damage: Callable[[str], str]) -> None:
     session, _ = _session(provider)
 
     with pytest.raises(FakeSessionInvalidError):
-        provider.read_session(damage(session), NOW)  # type: ignore[operator]
+        provider.read_session(damage(session), NOW)
 
 
 def test_session_of_another_secret_is_refused(provider: FakeProvider) -> None:

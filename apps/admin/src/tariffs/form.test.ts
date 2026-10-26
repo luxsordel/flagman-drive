@@ -47,6 +47,12 @@ describe('tariff form', () => {
     });
   });
 
+  it('refuses a zero hold but not free minutes', () => {
+    const draft = { ...draftOf(demoPrices), driving_per_minute: '0', hold_amount: '0,00' };
+
+    expect(readDraft(draft)).toEqual({ problems: { hold_amount: 'tooSmall' } });
+  });
+
   it('shows the limits in the units of the field', () => {
     expect(fieldLimit('driving_per_minute')).toBe('1000');
     expect(fieldLimit('hold_amount')).toBe('10000');

@@ -138,12 +138,12 @@ class MapCarOut(BaseModel):
     battery_pct: int
     range_km: int = Field(description="Estimated from the charge, rounded down.")
     distance_m: int | None = Field(description="From the client's point, if one was given.")
-    tariff: MapTariffOut | None = Field(
-        description="The current tariff of the car's model; none until an admin sets one."
+    tariff: MapTariffOut = Field(
+        description="The current tariff of the car's model; cars of a model without one are hidden."
     )
 
     @classmethod
-    def of(cls, car: CarOnMap, tariff: MapTariffOut | None) -> "MapCarOut":
+    def of(cls, car: CarOnMap, tariff: MapTariffOut) -> "MapCarOut":
         return cls(
             id=car.id,
             brand=car.brand,

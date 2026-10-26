@@ -50,7 +50,9 @@ def upgrade() -> None:
                 f"{column} >= 0", name=op.f(f"ck_tariff_versions_{column}_not_negative")
             )
             for column in _PRICE_COLUMNS
+            if column != "hold_amount"
         ),
+        sa.CheckConstraint("hold_amount > 0", name=op.f("ck_tariff_versions_hold_amount_positive")),
         sa.ForeignKeyConstraint(
             ["tariff_id"], ["tariffs.id"], name=op.f("fk_tariff_versions_tariff_id_tariffs")
         ),

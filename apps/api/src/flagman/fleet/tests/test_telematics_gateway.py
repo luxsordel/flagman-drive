@@ -10,6 +10,7 @@ import httpx2
 import pytest
 
 from flagman.core.geo import GeoPoint
+from flagman.core.signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, SignedRequest, verify
 from flagman.fleet.domain import (
     CarCommand,
     CarCommandDuplicateError,
@@ -19,7 +20,6 @@ from flagman.fleet.domain import (
     TelematicsUnavailableError,
 )
 from flagman.fleet.emulator import EmulatorTelematicsGateway
-from flagman.fleet.signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, SignedRequest, verify
 
 SECRET = b"c" * 40
 NOW = datetime(2026, 10, 26, 12, 0, tzinfo=UTC)

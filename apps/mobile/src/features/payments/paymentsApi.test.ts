@@ -49,6 +49,7 @@ describe('createPaymentsApi', () => {
     ['payment-card-not-found', 404, { kind: 'notFound' }],
     ['payments-unavailable', 503, { kind: 'unavailable' }],
     ['access-token-invalid', 401, { kind: 'sessionExpired' }],
+    ['payment-card-expired', 409, { kind: 'expired' }],
   ])('explains %s', async (name, status, error) => {
     const { http, payments } = setup();
     http.on('/payment-cards/card-1', problem(name, status));

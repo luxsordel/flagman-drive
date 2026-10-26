@@ -9,10 +9,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.core import signing
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.ratelimit import Limit
-from flagman.fleet import signing
 from flagman.payments import api, service
 from flagman.payments.domain import CardBrand, CardDetails
 from flagman.payments.fake_provider import FakeProvider

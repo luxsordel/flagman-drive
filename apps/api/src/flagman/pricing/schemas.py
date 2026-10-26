@@ -31,7 +31,7 @@ class TariffPricesIn(BaseModel):
         default=DEFAULT_FREE_WAITING_MINUTES, ge=0, le=MAX_FREE_WAITING_MINUTES, strict=True
     )
     hold_amount: int = Field(
-        ge=0, le=MAX_HOLD_AMOUNT, strict=True, description="Held on the card when a trip starts."
+        ge=1, le=MAX_HOLD_AMOUNT, strict=True, description="Held on the card when a trip starts."
     )
 
     def prices(self) -> TariffPrices:

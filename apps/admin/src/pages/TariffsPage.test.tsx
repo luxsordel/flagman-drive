@@ -143,6 +143,25 @@ describe('tariffs page', () => {
     expect(tariffs.list).toHaveBeenCalledTimes(2);
   });
 
+  it.each([
+    ['tariff-exists', 409, ru.tariffs.errors.exists],
+    ['tariff-not-found', 404, ru.tariffs.errors.notFound],
+    ['car-model-not-found', 404, ru.tariffs.errors.modelNotFound],
+  ] as const)('offers to reload the list after %s', async (problem, status, text) => {
+    const tariffs = fakeTariffsApi([modelTariff('Dolphin')]);
+    tariffs.update.mockRejectedValueOnce(new ApiError(status, problem));
+    renderAt('/tariffs', testStaff('admin'), { tariffs });
+
+    const panel = await openModel('Dolphin');
+    await userEvent.click(within(panel).getByRole('button', { name: ru.tariffs.form.save }));
+    await userEvent.click(within(panel).getByRole('button', { name: ru.tariffs.confirm.confirm }));
+
+    const alert = await within(panel).findByRole('alert');
+    expect(alert.textContent).toContain(text);
+    await userEvent.click(within(alert).getByRole('button', { name: ru.tariffs.reload }));
+    expect(tariffs.list).toHaveBeenCalledTimes(2);
+  });
+
   it('explains a refused save', async () => {
     const tariffs = fakeTariffsApi([modelTariff('Dolphin')]);
     tariffs.update.mockRejectedValueOnce(new ApiError(403, 'forbidden'));
@@ -152,9 +171,10 @@ describe('tariffs page', () => {
     await userEvent.click(within(panel).getByRole('button', { name: ru.tariffs.form.save }));
     await userEvent.click(within(panel).getByRole('button', { name: ru.tariffs.confirm.confirm }));
 
-    expect((await within(panel).findByRole('alert')).textContent).toContain(
-      ru.tariffs.errors.forbidden,
-    );
+    const alert = await within(panel).findByRole('alert');
+    expect(alert.textContent).toContain(ru.tariffs.errors.forbidden);
+    // Reloading would not help: the role, not the list, is the problem.
+    expect(within(alert).queryByRole('button', { name: ru.tariffs.reload })).toBeNull();
   });
 
   it('shows the versions of a tariff, newest first', async () => {

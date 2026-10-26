@@ -1,6 +1,7 @@
 import asyncio
 import contextlib
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Annotated, Any
@@ -21,7 +22,7 @@ from flagman.core.resources import Resources, get_resources
 from flagman.fleet import service
 from flagman.fleet.domain import (
     AvailabilityRules,
-    CarOnMap,
+    MapQuery,
     TelematicsUnavailableError,
     TelemetryTooLargeError,
     TelemetryUnavailableError,
@@ -178,9 +179,10 @@ Rules = Annotated[AvailabilityRules, Depends(get_availability_rules)]
 async def list_map_cars(
     client: MapClient, db: Db, rules: Rules, query: Annotated[MapCarsQuery, Query()]
 ) -> MapCarList:
-    cars = await service.find_cars_on_map(db, rules, datetime.now(UTC), query.query())
-    tariffs = await _map_tariffs(db, cars)
-    return MapCarList(items=[MapCarOut.of(car, tariffs.get(car.model_id)) for car in cars])
+    tariffs = await _map_tariffs(db)
+    map_query = replace(query.query(), models=frozenset(tariffs))
+    cars = await service.find_cars_on_map(db, rules, datetime.now(UTC), map_query)
+    return MapCarList(items=[MapCarOut.of(car, tariffs[car.model_id]) for car in cars])
 
 
 @map_router.get(
@@ -195,15 +197,17 @@ async def get_map_car(
     rules: Rules,
     point: Annotated[ClientPoint, Query()],
 ) -> MapCarOut:
-    car = await service.get_car_on_map(db, car_id, rules, datetime.now(UTC), point.point())
-    tariffs = await _map_tariffs(db, [car])
-    return MapCarOut.of(car, tariffs.get(car.model_id))
+    tariffs = await _map_tariffs(db)
+    map_query = MapQuery(area=None, near=point.point(), limit=1, models=frozenset(tariffs))
+    car = await service.get_car_on_map(db, car_id, rules, datetime.now(UTC), map_query)
+    return MapCarOut.of(car, tariffs[car.model_id])
 
 
-async def _map_tariffs(db: AsyncSession, cars: list[CarOnMap]) -> dict[UUID, MapTariffOut]:
-    # The tariffs belong to pricing, which reads models from the fleet: asking it from here keeps
-    # the dependency one way.
-    versions = await pricing.current_versions(db, {car.model_id for car in cars})
+async def _map_tariffs(db: AsyncSession) -> dict[UUID, MapTariffOut]:
+    """The prices the map shows, by car model; a model left out has no tariff and no cars on it."""
+    # pricing reads the car models from fleet.service; asking pricing here, in the router, keeps
+    # fleet.service free of pricing.
+    versions = await pricing.current_versions(db)
     return {
         model_id: MapTariffOut(
             driving_per_minute=version.prices.driving_per_minute,

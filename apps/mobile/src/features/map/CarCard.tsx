@@ -57,24 +57,20 @@ export function CarCard({ selected, onClose }: { selected: SelectedCar; onClose:
               />
             ) : null}
           </View>
-          {car.tariff ? (
-            <View style={styles.facts}>
-              <Fact
-                label={t('map.card.driving')}
-                value={t('map.card.perMinute', {
-                  price: formatKopecks(car.tariff.driving_per_minute, i18n.language),
-                })}
-              />
-              <Fact
-                label={t('map.card.parked')}
-                value={t('map.card.perMinute', {
-                  price: formatKopecks(car.tariff.parked_per_minute, i18n.language),
-                })}
-              />
-            </View>
-          ) : (
-            <AppText tone="muted">{t('map.card.noTariff')}</AppText>
-          )}
+          <View style={styles.facts}>
+            <Fact
+              label={t('map.card.driving')}
+              value={t('map.card.perMinute', {
+                price: formatKopecks(car.tariff.driving_per_minute, i18n.language),
+              })}
+            />
+            <Fact
+              label={t('map.card.parked')}
+              value={t('map.card.perMinute', {
+                price: formatKopecks(car.tariff.parked_per_minute, i18n.language),
+              })}
+            />
+          </View>
           <AppText tone="muted">{t('map.card.bookingSoon')}</AppText>
         </>
       )}

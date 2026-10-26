@@ -100,12 +100,12 @@ async def current_version(db: AsyncSession, model_id: UUID) -> TariffVersion:
 
 
 async def current_versions(
-    db: AsyncSession, model_ids: Iterable[UUID]
+    db: AsyncSession, model_ids: Iterable[UUID] | None = None
 ) -> dict[UUID, TariffVersion]:
-    """Current versions of the given models, by model id; models without a tariff are left out."""
-    wanted = set(model_ids)
-    versions = await _read(db, lambda: repository.current_versions(db))
-    return {model_id: version for model_id, version in versions.items() if model_id in wanted}
+    """Current versions by model id, of the given models or of all; a model without a tariff is
+    left out."""
+    wanted = None if model_ids is None else frozenset(model_ids)
+    return await _read(db, lambda: repository.current_versions(db, wanted))
 
 
 async def get_version(db: AsyncSession, version_id: UUID) -> TariffVersion:

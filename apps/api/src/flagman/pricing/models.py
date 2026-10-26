@@ -6,12 +6,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
 
-_PRICE_COLUMNS = (
+# The hold is the only price that cannot be zero: a payment provider holds a positive amount.
+_NOT_NEGATIVE_COLUMNS = (
     "driving_per_minute",
     "parked_per_minute",
     "waiting_per_minute",
     "free_waiting_minutes",
-    "hold_amount",
 )
 
 
@@ -36,8 +36,9 @@ class TariffVersion(Base):
         CheckConstraint("number > 0", name="number_positive"),
         *(
             CheckConstraint(f"{column} >= 0", name=f"{column}_not_negative")
-            for column in _PRICE_COLUMNS
+            for column in _NOT_NEGATIVE_COLUMNS
         ),
+        CheckConstraint("hold_amount > 0", name="hold_amount_positive"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)

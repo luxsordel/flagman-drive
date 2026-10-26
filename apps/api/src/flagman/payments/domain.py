@@ -92,6 +92,12 @@ class PaymentCardNotFoundError(AppError):
     title = "Payment card not found"
 
 
+class PaymentCardExpiredError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "payment-card-expired"
+    title = "The card has expired and cannot be the default one"
+
+
 class CardBindingNotFoundError(AppError):
     status = HTTPStatus.NOT_FOUND
     slug = "card-binding-not-found"
@@ -273,9 +279,12 @@ def check_child(
             raise ValueError(f"{kind} does not refer to another operation")
 
 
-def default_after_removal(cards: Iterable[PaymentCard], removed: UUID) -> PaymentCard | None:
-    """The card that becomes the default when the default one is removed: the newest other one."""
-    others = [card for card in cards if card.id != removed]
+def default_after_removal(
+    cards: Iterable[PaymentCard], removed: UUID, now: datetime
+) -> PaymentCard | None:
+    """The card that becomes the default when the default one is removed: the newest other one
+    that has not expired. An expired default would leave holds without a card to go to."""
+    others = [card for card in cards if card.id != removed and not card.details.is_expired(now)]
     return max(others, key=lambda card: (card.created_at, card.id), default=None)
 
 

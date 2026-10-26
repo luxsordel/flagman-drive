@@ -2,11 +2,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import select, update
+from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.payments.domain import (
+    FINAL_STATUSES,
     CardBinding,
     CardBindingStatus,
     CardBrand,
@@ -21,6 +22,9 @@ from flagman.payments.models import CardBinding as BindingRow
 from flagman.payments.models import PaymentAttempt, PaymentWebhookEvent
 from flagman.payments.models import PaymentCard as CardRow
 from flagman.payments.models import PaymentOperation as OperationRow
+
+# Any fixed number unique among the two-key advisory locks of the database.
+_CARDS_LOCK_CLASS = 4_600_101
 
 
 def _to_card(row: CardRow) -> PaymentCard:
@@ -71,7 +75,16 @@ def _to_operation(row: OperationRow) -> PaymentOperation:
 
 
 async def lock_cards(db: AsyncSession, user_id: UUID) -> list[PaymentCard]:
-    """The client's cards, locked until commit: card changes of one client go one at a time."""
+    """The client's cards, locked until commit: card changes of one client go one at a time.
+
+    A client without cards has no rows to lock, so a transaction lock on the client comes first:
+    two first cards bound at once would otherwise both become the default one.
+    """
+    # The two-key form keeps clear of the worker's single-key locks; two clients sharing the
+    # 32 bits of the id only wait for each other.
+    await db.execute(
+        select(func.pg_advisory_xact_lock(_CARDS_LOCK_CLASS, (user_id.int >> 96) - 2**31))
+    )
     rows = await db.scalars(
         select(CardRow)
         .where(CardRow.user_id == user_id, CardRow.removed_at.is_(None))
@@ -303,19 +316,26 @@ class OperationOutcome:
 
 async def finish_attempt(
     db: AsyncSession, operation_id: UUID, outcome: OperationOutcome, now: datetime
-) -> None:
-    await db.execute(
+) -> bool:
+    """Logs the attempt and stores its outcome; False if the operation had a final one already.
+
+    Two retries of one operation may run at once: the one that learned the outcome must not be
+    overwritten by the other that timed out, or a hold the provider made would be lost to us.
+    """
+    changed = await db.scalar(
         update(OperationRow)
-        .where(OperationRow.id == operation_id)
+        .where(OperationRow.id == operation_id, OperationRow.status.not_in(FINAL_STATUSES))
         .values(
             status=outcome.status,
             provider_ref=outcome.provider_ref,
             decline_reason=outcome.decline_reason,
             updated_at=now,
         )
+        .returning(OperationRow.id)
     )
     await db.execute(
         insert(PaymentAttempt).values(
             operation_id=operation_id, attempted_at=now, status=outcome.status, error=outcome.error
         )
     )
+    return changed is not None

@@ -560,7 +560,7 @@ export interface paths {
     put?: never;
     /**
      * Start binding a card: open the provider's page it returns
-     * @description The card number goes to the provider's page only. When the client is done, the page sends them to `return_url` with `binding_id`; the outcome comes from the provider separately, so ask `GET /payment-cards/bindings/{binding_id}` until it is not `pending`. The first card becomes the default one.
+     * @description The card number goes to the provider's page only. When the client is done, the page sends them to `return_url` with `binding_id`; the outcome comes from the provider separately, so ask `GET /payment-cards/bindings/{binding_id}` until it is not `pending`. The first card, or one bound while the default card has expired, becomes the default.
      */
     post: operations['start_binding_payment_cards_bindings_post'];
     delete?: never;
@@ -598,7 +598,7 @@ export interface paths {
     post?: never;
     /**
      * Remove a card
-     * @description If it was the default one, the newest other card becomes the default.
+     * @description If it was the default one, the newest other card that has not expired takes over.
      */
     delete: operations['remove_card_payment_cards__card_id__delete'];
     options?: never;
@@ -791,6 +791,9 @@ export interface components {
       | 'zone.disabled'
       | 'tariff.created'
       | 'tariff.updated'
+      | 'payment.succeeded'
+      | 'payment.declined'
+      | 'payment.failed'
       | 'car.command_sent';
     /** AuditEventOut */
     AuditEventOut: {
@@ -858,7 +861,8 @@ export interface components {
      *     Values are stored as is, like AuditAction: renaming one leaves older events with the old name.
      * @enum {string}
      */
-    AuditTargetType: 'staff_member' | 'kyc_application' | 'zone' | 'tariff' | 'car';
+    AuditTargetType:
+      'staff_member' | 'kyc_application' | 'zone' | 'tariff' | 'payment_operation' | 'car';
     /**
      * CarCommand
      * @description What staff may ask a car to do; values are stored in the audit log as is.
@@ -1250,8 +1254,8 @@ export interface components {
        * @description Estimated from the charge, rounded down.
        */
       range_km: number;
-      /** @description The current tariff of the car's model; none until an admin sets one. */
-      tariff: components['schemas']['MapTariffOut'] | null;
+      /** @description The current tariff of the car's model; cars of a model without one are hidden. */
+      tariff: components['schemas']['MapTariffOut'];
     };
     /**
      * MapTariffOut
@@ -4365,6 +4369,15 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:payment-card-not-found`. */
       404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:payment-card-expired`: bind another card. */
+      409: {
         headers: {
           [name: string]: unknown;
         };

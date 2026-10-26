@@ -122,14 +122,18 @@
       "zoneDisabled": "Zone disabled",
       "carCommandSent": "Car command",
       "tariffCreated": "Tariff created",
-      "tariffUpdated": "Tariff changed"
+      "tariffUpdated": "Tariff changed",
+      "paymentSucceeded": "Payment succeeded",
+      "paymentDeclined": "Payment declined",
+      "paymentFailed": "Payment got no answer from the provider"
     },
     "targets": {
       "staffMember": "Staff member",
       "kycApplication": "KYC application",
       "zone": "Zone",
       "car": "Car",
-      "tariff": "Tariff"
+      "tariff": "Tariff",
+      "paymentOperation": "Payment operation"
     },
     "noTarget": "none",
     "loading": "Loading the log…",
@@ -424,7 +428,8 @@
       "problems": {
         "required": "Fill in the field.",
         "format": "Enter a number: rubles with at most two decimals.",
-        "tooLarge": "Too much: at most {{max}}."
+        "tooLarge": "Too much: at most {{max}}.",
+        "tooSmall": "The hold cannot be zero: enter at least 0.01."
       }
     },
     "confirm": {

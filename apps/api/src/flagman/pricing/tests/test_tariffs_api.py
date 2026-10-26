@@ -220,6 +220,7 @@ def test_unknown_model_and_tariff(client: TestClient, admin: Caller) -> None:
         {"hold_amount": 1.5},
         {"hold_amount": "3000"},
         {"free_waiting_minutes": 601},
+        {"hold_amount": 0},
     ],
 )
 def test_prices_out_of_range_are_refused(

@@ -154,6 +154,8 @@ async def find_rentable_cars(
         )
     if car_id is not None:
         select_cars = select_cars.where(CarRow.id == car_id)
+    if query.models is not None:
+        select_cars = select_cars.where(CarRow.model_id.in_(query.models))
     rows = await db.execute(select_cars)
     return [(_to_car(row, model, lat, lon), meters) for row, model, lat, lon, meters in rows]
 

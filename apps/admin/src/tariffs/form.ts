@@ -46,7 +46,7 @@ export function draftOf(prices: TariffPrices): TariffDraft {
   };
 }
 
-export type FieldProblem = 'required' | 'format' | 'tooLarge';
+export type FieldProblem = 'required' | 'format' | 'tooSmall' | 'tooLarge';
 
 function parseField(field: PriceField, text: string): number | FieldProblem {
   if (text.trim() === '') return 'required';
@@ -57,6 +57,8 @@ function parseField(field: PriceField, text: string): number | FieldProblem {
         : null
       : parseRubles(text);
   if (value === null) return 'format';
+  // A payment provider holds a positive amount only (pricing/domain.py).
+  if (field === 'hold_amount' && value === 0) return 'tooSmall';
   return value > limits[field] ? 'tooLarge' : value;
 }
 

@@ -20,7 +20,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from flagman.fleet import signing
+from flagman.core import signing
 from flagman.payments.domain import (
     CardBrand,
     CardDetails,

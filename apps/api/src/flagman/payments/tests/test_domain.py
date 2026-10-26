@@ -113,23 +113,24 @@ def test_pending_binding_expires() -> None:
 
 
 def _operation(
-    kind: OperationKind, amount: int, status: OperationStatus, **kwargs: object
+    kind: OperationKind,
+    amount: int,
+    status: OperationStatus,
+    parent_id: uuid.UUID | None = None,
 ) -> PaymentOperation:
-    values: dict[str, object] = {
-        "id": uuid.uuid4(),
-        "user_id": uuid.uuid4(),
-        "card_id": uuid.uuid4(),
-        "kind": kind,
-        "amount": amount,
-        "parent_id": None,
-        "idempotency_key": uuid.uuid4().hex,
-        "status": status,
-        "provider_ref": "ref",
-        "decline_reason": None,
-        "created_at": NOW,
-        **kwargs,
-    }
-    return PaymentOperation(**values)  # type: ignore[arg-type]
+    return PaymentOperation(
+        id=uuid.uuid4(),
+        user_id=uuid.uuid4(),
+        card_id=uuid.uuid4(),
+        kind=kind,
+        amount=amount,
+        parent_id=parent_id,
+        idempotency_key=uuid.uuid4().hex,
+        status=status,
+        provider_ref="ref",
+        decline_reason=None,
+        created_at=NOW,
+    )
 
 
 HOLD = _operation(OperationKind.HOLD, 3000, OperationStatus.SUCCEEDED)
@@ -211,9 +212,13 @@ def test_idempotency_keys_are_short_printable_ascii(key: str) -> None:
         check_idempotency_key(key)
 
 
-def _card(created: datetime, *, default: bool = False) -> PaymentCard:
+def _card(created: datetime, *, default: bool = False, exp_year: int = 2030) -> PaymentCard:
     return PaymentCard(
-        uuid.uuid4(), uuid.uuid4(), CardDetails(CardBrand.VISA, "4242", 1, 2030), default, created
+        uuid.uuid4(),
+        uuid.uuid4(),
+        CardDetails(CardBrand.VISA, "4242", 1, exp_year),
+        default,
+        created,
     )
 
 
@@ -224,8 +229,19 @@ def test_the_newest_other_card_becomes_the_default() -> None:
         _card(NOW + timedelta(2)),
     )
 
-    assert default_after_removal([oldest, default, newest], default.id) == newest
-    assert default_after_removal([default], default.id) is None
+    assert default_after_removal([oldest, default, newest], default.id, NOW) == newest
+    assert default_after_removal([default], default.id, NOW) is None
+
+
+def test_an_expired_card_does_not_become_the_default() -> None:
+    working, default, expired = (
+        _card(NOW),
+        _card(NOW + timedelta(1), default=True),
+        _card(NOW + timedelta(2), exp_year=2020),
+    )
+
+    assert default_after_removal([working, default, expired], default.id, NOW) == working
+    assert default_after_removal([default, expired], default.id, NOW) is None
 
 
 def test_card_token_decrypts_only_for_its_card() -> None:

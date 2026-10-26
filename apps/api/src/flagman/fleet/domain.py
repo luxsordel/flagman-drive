@@ -327,6 +327,9 @@ class MapQuery:
     area: MapArea | None
     near: GeoPoint | None
     limit: int
+    # Only cars of these models, None for any: a model without a tariff is not rented out, and
+    # the tariffs are pricing's, so the caller names the models.
+    models: frozenset[uuid.UUID] | None = None
 
 
 @dataclass(frozen=True)

@@ -322,6 +322,11 @@ def test_payments_provider_needs_its_secrets(make_settings: SettingsFactory, mis
         make_settings(**values)
 
 
+def test_fake_payments_are_refused_in_production(make_settings: SettingsFactory) -> None:
+    with pytest.raises(ValidationError, match="PAYMENTS_PROVIDER=fake"):
+        make_settings(**_PAYMENTS, api_env="prod")
+
+
 def test_payments_webhook_secret_must_be_long(make_settings: SettingsFactory) -> None:
     with pytest.raises(ValidationError, match="PAYMENTS_WEBHOOK_SECRET"):
         make_settings(**{**_PAYMENTS, "payments_webhook_secret": "w" * 31})

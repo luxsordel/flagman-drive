@@ -78,7 +78,7 @@ async def list_cards(client: Client, db: Db, response: Response) -> PaymentCardL
         "The card number goes to the provider's page only. When the client is done, the page "
         "sends them to `return_url` with `binding_id`; the outcome comes from the provider "
         "separately, so ask `GET /payment-cards/bindings/{binding_id}` until it is not `pending`. "
-        "The first card becomes the default one."
+        "The first card, or one bound while the default card has expired, becomes the default."
     ),
     status_code=HTTPStatus.CREATED,
     responses={
@@ -98,11 +98,14 @@ async def start_binding(  # noqa: PLR0913 - FastAPI dependencies
     client: Client,
     body: CardBindingIn,
     request: Request,
+    response: Response,
     gw: Gateway,
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
     resources: Annotated[Resources, Depends(get_resources)],
     db: Db,
 ) -> CardBindingStarted:
+    # The page link carries a signed session: whoever has it binds a card to this account.
+    _no_store(response)
     await limiter.hit(BINDING_LIMIT, str(client.user_id))
     binding_request = service.BindingRequest(
         user_id=client.user_id,
@@ -135,7 +138,9 @@ async def get_binding(
 @router.delete(
     "/{card_id}",
     summary="Remove a card",
-    description="If it was the default one, the newest other card becomes the default.",
+    description=(
+        "If it was the default one, the newest other card that has not expired takes over."
+    ),
     status_code=HTTPStatus.NO_CONTENT,
     responses={HTTPStatus.NOT_FOUND: _CARD_NOT_FOUND},
 )
@@ -146,11 +151,18 @@ async def remove_card(client: Client, card_id: UUID, db: Db) -> None:
 @router.post(
     "/{card_id}/default",
     summary="Make a card the default one",
-    responses={HTTPStatus.NOT_FOUND: _CARD_NOT_FOUND},
+    responses={
+        HTTPStatus.NOT_FOUND: _CARD_NOT_FOUND,
+        HTTPStatus.CONFLICT: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:payment-card-expired`: bind another card.",
+        },
+    },
 )
 async def set_default_card(client: Client, card_id: UUID, db: Db) -> PaymentCardOut:
-    card = await service.set_default_card(db, client.user_id, card_id)
-    return PaymentCardOut.of(card, datetime.now(UTC))
+    now = datetime.now(UTC)
+    card = await service.set_default_card(db, client.user_id, card_id, now)
+    return PaymentCardOut.of(card, now)
 
 
 webhook_router = APIRouter()

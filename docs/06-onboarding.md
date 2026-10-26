@@ -82,7 +82,8 @@ Docker Desktop должен быть запущен. Все команды — �
    `PAYMENTS_WEBHOOK_SECRET` — не короче 32 символов, `PAYMENTS_TOKEN_ENCRYPTION_KEY` — тоже 32 байта в
    base64 и не равен `API_TOTP_ENCRYPTION_KEY`. Они нужны тестовому платёжному провайдеру
    (`PAYMENTS_PROVIDER=fake`): без них API с этим провайдером не стартует. Если оставить `PAYMENTS_PROVIDER`
-   пустым, API работает, но карты привязать нельзя.
+   пустым, API работает, но карты привязать нельзя. С `API_ENV=prod` тестовый провайдер запрещён: на сервере
+   пилота `PAYMENTS_PROVIDER` оставьте пустым, пока не подключён настоящий.
    Если `.env` у вас уже был, перенесите в него из `.env.example` новые строки
    `API_JWT_SECRET`, `API_OTP_PEPPER`, `SMS_BACKEND`, `SMS_FIXED_CODE`, `SMS_FIXED_PHONES`,
    `API_TOTP_ENCRYPTION_KEY`, `S3_ENDPOINT_URL`, `S3_REGION`, `S3_PUBLIC_URL`, `FLEET_MIN_BATTERY_PCT`,

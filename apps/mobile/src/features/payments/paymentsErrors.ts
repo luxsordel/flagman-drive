@@ -4,9 +4,10 @@ import { parseRetryAfter, problemSlug } from '@flagman/api-client';
  * What went wrong with a payments request, in the terms the screen explains to the user.
  * `unavailable`: the server has no payment provider configured, nothing the client can fix.
  * `notFound`: the card was removed meanwhile, e.g. on another phone.
+ * `expired`: an expired card cannot become the default one.
  */
 export type PaymentsErrorKind =
-  'network' | 'sessionExpired' | 'rateLimited' | 'unavailable' | 'notFound' | 'unknown';
+  'network' | 'sessionExpired' | 'rateLimited' | 'unavailable' | 'notFound' | 'expired' | 'unknown';
 
 export interface PaymentsError {
   kind: PaymentsErrorKind;
@@ -20,6 +21,7 @@ const kindByProblem: Readonly<Record<string, PaymentsErrorKind>> = {
   'payments-unavailable': 'unavailable',
   'payment-card-not-found': 'notFound',
   'card-binding-not-found': 'notFound',
+  'payment-card-expired': 'expired',
 };
 
 /** Maps an error response with a Problem Details body (ADR-0006) to an error the UI can explain. */

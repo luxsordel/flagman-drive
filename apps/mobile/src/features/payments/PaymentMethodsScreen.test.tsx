@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 
 import { initI18n } from '../../i18n';
 import { PaymentMethodsScreen } from './PaymentMethodsScreen';
@@ -58,17 +58,18 @@ describe('PaymentMethodsScreen', () => {
     expect(screen.getAllByRole('button', { name: 'Сделать основной' })).toHaveLength(1);
   });
 
-  it('says when there are no cards and marks an expired one', async () => {
+  it('says when there are no cards', async () => {
     await renderScreen([]);
     expect(await screen.findByText('Карт пока нет')).toBeOnTheScreen();
   });
 
-  it('marks an expired card', async () => {
-    await renderScreen([paymentCard({ expired: true })]);
+  it('marks an expired card and does not offer it as the default', async () => {
+    await renderScreen([visa, { ...mastercard, expired: true }]);
 
     expect(
       await screen.findByText('Срок действия истёк: привяжите другую карту'),
     ).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Сделать основной' })).toBeNull();
   });
 
   it('binds a card on the provider page and shows it', async () => {
@@ -185,6 +186,54 @@ describe('PaymentMethodsScreen', () => {
     await fireEvent.press(button('Повторить'));
 
     expect(await screen.findByText('Visa •••• 4242')).toBeOnTheScreen();
+  });
+
+  it('opens one provider page however fast the client taps', async () => {
+    const deps = await renderScreen([]);
+    await screen.findByText('Карт пока нет');
+    deps.api.startBinding.mockResolvedValue(ok(started));
+    deps.api.getBinding.mockResolvedValue(ok(binding('succeeded', visa)));
+    deps.api.listCards.mockResolvedValue(ok([visa]));
+    const bind = button('Привязать карту');
+
+    // Both presses land before the button re-renders as disabled.
+    await act(() => {
+      void fireEvent.press(bind);
+      void fireEvent.press(bind);
+    });
+
+    expect(await screen.findByText('Карта привязана')).toBeOnTheScreen();
+    expect(deps.api.startBinding).toHaveBeenCalledTimes(1);
+  });
+
+  it('sends one request however fast the client taps', async () => {
+    const deps = await renderScreen();
+    await screen.findByText('Mastercard •••• 4444');
+    deps.api.setDefaultCard.mockResolvedValue(ok({ ...mastercard, is_default: true }));
+    const makeDefault = button('Сделать основной');
+
+    // Both presses land before the button re-renders as disabled.
+    await act(() => {
+      void fireEvent.press(makeDefault);
+      void fireEvent.press(makeDefault);
+    });
+
+    await waitFor(() => {
+      expect(deps.api.listCards).toHaveBeenCalledTimes(2);
+    });
+    expect(deps.api.setDefaultCard).toHaveBeenCalledTimes(1);
+  });
+
+  it('explains a card that expired meanwhile', async () => {
+    const deps = await renderScreen();
+    await screen.findByText('Mastercard •••• 4444');
+    deps.api.setDefaultCard.mockResolvedValue({ ok: false, error: { kind: 'expired' } });
+
+    await fireEvent.press(button('Сделать основной'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Срок действия карты истёк: её нельзя сделать основной',
+    );
   });
 
   it('goes back', async () => {

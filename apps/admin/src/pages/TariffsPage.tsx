@@ -16,7 +16,7 @@ import {
   type TariffDraft,
 } from '../tariffs/form';
 import { formatKopecks } from '../tariffs/money';
-import { tariffError, type TariffError } from '../tariffs/problems';
+import { staleErrors, tariffError, type TariffError } from '../tariffs/problems';
 import { formatMinskTime } from '../time/minsk';
 
 type ListState =
@@ -329,7 +329,7 @@ function TariffForm({
       {error && (
         <div role="alert" className="list-error">
           <p>{t(`tariffs.errors.${error}`)}</p>
-          {error === 'changed' && (
+          {staleErrors.has(error) && (
             <button type="button" className="button" onClick={onStale}>
               {t('tariffs.reload')}
             </button>

@@ -15,6 +15,15 @@ from uuid import UUID
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.audit import service as audit
+from flagman.audit.domain import (
+    SYSTEM,
+    AuditAction,
+    AuditEntry,
+    AuditTarget,
+    AuditTargetType,
+    RequestOrigin,
+)
 from flagman.core.config import Settings
 from flagman.payments import repository
 from flagman.payments.domain import (
@@ -28,6 +37,7 @@ from flagman.payments.domain import (
     OperationKind,
     OperationStatus,
     PaymentCard,
+    PaymentCardExpiredError,
     PaymentCardNotFoundError,
     PaymentOperation,
     PaymentOperationNotFoundError,
@@ -52,6 +62,13 @@ from flagman.payments.ports import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Every outcome learned from the provider is a money event of its own (docs/03-security.md).
+_AUDIT_ACTIONS = {
+    OperationStatus.SUCCEEDED: AuditAction.PAYMENT_SUCCEEDED,
+    OperationStatus.DECLINED: AuditAction.PAYMENT_DECLINED,
+    OperationStatus.FAILED: AuditAction.PAYMENT_FAILED,
+}
 
 
 @dataclass(frozen=True)
@@ -166,17 +183,23 @@ async def remove_card(db: AsyncSession, user_id: UUID, card_id: UUID, now: datet
             raise PaymentCardNotFoundError
         await repository.remove_card(db, user_id, card_id, now)
         if card.is_default:
-            successor = default_after_removal(cards, card_id)
+            successor = default_after_removal(cards, card_id, now)
             if successor is not None:
                 await repository.set_default(db, user_id, successor.id)
     logger.info("payment_card_removed", card_id=str(card_id))
 
 
-async def set_default_card(db: AsyncSession, user_id: UUID, card_id: UUID) -> PaymentCard:
+async def set_default_card(
+    db: AsyncSession, user_id: UUID, card_id: UUID, now: datetime
+) -> PaymentCard:
+    """Raises PaymentCardExpiredError: holds and charges go to the default card only."""
     async with db.begin():
         cards = await repository.lock_cards(db, user_id)
-        if not any(card.id == card_id for card in cards):
+        chosen = next((card for card in cards if card.id == card_id), None)
+        if chosen is None:
             raise PaymentCardNotFoundError
+        if chosen.details.is_expired(now):
+            raise PaymentCardExpiredError
         await repository.set_default(db, user_id, card_id)
         cards = await repository.list_cards(db, user_id)
     return next(card for card in cards if card.id == card_id)
@@ -220,10 +243,13 @@ async def receive_webhook(
                         provider=provider,
                         details=event.card,
                         token_ciphertext=encrypt_card_token(event.token, gw.token_key, card_id),
-                        is_default=not any(card.is_default for card in cards),
+                        is_default=False,
                     ),
                     now,
                 )
+                # The first card, or one that replaces an expired default, takes over the payments.
+                if not any(card.is_default and not card.details.is_expired(now) for card in cards):
+                    await repository.set_default(db, binding.user_id, card_id)
                 await repository.complete_binding(
                     db, binding.id, CardBindingStatus.SUCCEEDED, now, card_id=card_id
                 )
@@ -462,7 +488,21 @@ async def _call(
             OperationStatus.FAILED, None, None, type(error).__name__
         )
     async with db.begin():
-        await repository.finish_attempt(db, operation.id, outcome, now)
+        if await repository.finish_attempt(db, operation.id, outcome, now):
+            await audit.record(
+                db,
+                AuditEntry(
+                    SYSTEM,
+                    _AUDIT_ACTIONS[outcome.status],
+                    RequestOrigin(),
+                    AuditTarget(AuditTargetType.PAYMENT_OPERATION, operation.id),
+                    details={
+                        "kind": operation.kind.value,
+                        "amount": operation.amount,
+                        "user_id": operation.user_id,
+                    },
+                ),
+            )
         finished = await repository.get_operation(db, operation.id)
     if finished is None:
         raise RuntimeError("the payment operation vanished")

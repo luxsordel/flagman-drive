@@ -13,6 +13,7 @@ const labelKeys: Record<AuditTargetType, TargetLabelKey> = {
   zone: 'zone',
   tariff: 'tariff',
   car: 'car',
+  payment_operation: 'paymentOperation',
 };
 
 export function isAuditTargetType(value: string): value is AuditTargetType {

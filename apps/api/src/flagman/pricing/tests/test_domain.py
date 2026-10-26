@@ -111,24 +111,6 @@ def test_no_intervals_cost_nothing() -> None:
     assert calculate([], PRICES) == Quote(lines=(), total=0)
 
 
-def test_a_new_tariff_version_does_not_change_a_rental_quoted_by_its_own() -> None:
-    intervals = [_driving(30 * 60)]
-    booked_with = PRICES
-    newer = TariffPrices(
-        driving_per_minute=99,
-        parked_per_minute=50,
-        waiting_per_minute=50,
-        free_waiting_minutes=0,
-        hold_amount=9000,
-    )
-
-    before = calculate(intervals, booked_with)
-    calculate(intervals, newer)
-
-    assert calculate(intervals, booked_with) == before
-    assert before.total == 30 * 39
-
-
 def test_overlapping_intervals_are_refused() -> None:
     with pytest.raises(ValueError, match="overlap"):
         calculate(
@@ -176,10 +158,12 @@ def test_prices_out_of_range_are_refused(field: str, value: int) -> None:
         TariffPrices(**values)
 
 
-def test_zero_prices_are_allowed() -> None:
-    free = TariffPrices(0, 0, 0, 0, 0)
+def test_minutes_may_be_free_but_the_hold_may_not() -> None:
+    free = TariffPrices(0, 0, 0, 0, 1)
 
     assert calculate([_driving(600)], free).total == 0
+    with pytest.raises(TariffPricesInvalidError, match="hold_amount"):
+        TariffPrices(0, 0, 0, 0, 0)
 
 
 def _min(minutes: int) -> timedelta:

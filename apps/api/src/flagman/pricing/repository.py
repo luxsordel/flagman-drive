@@ -40,9 +40,14 @@ def _latest(query: Select[TariffVersion, UUID]) -> Select[TariffVersion, UUID]:
     )
 
 
-async def current_versions(db: AsyncSession) -> dict[UUID, Version]:
-    """The latest version of every tariff, by car model id."""
-    rows = await db.execute(_latest(_select_versions()))
+async def current_versions(
+    db: AsyncSession, model_ids: frozenset[UUID] | None = None
+) -> dict[UUID, Version]:
+    """The latest version of each tariff, of the given models or of all, by car model id."""
+    query = _select_versions()
+    if model_ids is not None:
+        query = query.where(Tariff.model_id.in_(model_ids))
+    rows = await db.execute(_latest(query))
     return {model_id: _to_version(row, model_id) for row, model_id in rows}
 
 

@@ -122,14 +122,18 @@
       "zoneDisabled": "Зона отключена",
       "carCommandSent": "Команда машине",
       "tariffCreated": "Тариф создан",
-      "tariffUpdated": "Тариф изменён"
+      "tariffUpdated": "Тариф изменён",
+      "paymentSucceeded": "Платёж прошёл",
+      "paymentDeclined": "Платёж отклонён",
+      "paymentFailed": "Платёж без ответа провайдера"
     },
     "targets": {
       "staffMember": "Сотрудник",
       "kycApplication": "Заявка KYC",
       "zone": "Зона",
       "car": "Машина",
-      "tariff": "Тариф"
+      "tariff": "Тариф",
+      "paymentOperation": "Платёжная операция"
     },
     "noTarget": "нет",
     "loading": "Загружаем журнал…",
@@ -424,7 +428,8 @@
       "problems": {
         "required": "Заполните поле.",
         "format": "Введите число: рубли и не больше двух знаков после запятой.",
-        "tooLarge": "Слишком много: не больше {{max}}."
+        "tooLarge": "Слишком много: не больше {{max}}.",
+        "tooSmall": "Холд не может быть нулевым: укажите хотя бы 0,01."
       }
     },
     "confirm": {
