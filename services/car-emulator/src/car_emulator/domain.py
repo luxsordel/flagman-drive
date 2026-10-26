@@ -1,14 +1,20 @@
-"""Virtual car state and command rules. Pure Python: no HTTP, no I/O."""
+"""Virtual car state, command rules and the fleet's background life. No HTTP, no I/O."""
 
+import math
 import random
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 
 # Rough bounding box of Minsk inside the ring road.
 MINSK_LAT_RANGE = (53.84, 53.97)
 MINSK_LON_RANGE = (27.40, 27.70)
+
+_EARTH_RADIUS_KM = 6371.0088
+_COORDINATE_DIGITS = 6
+_SECONDS_PER_HOUR = 3600
 
 # Car ids are a contract with the API seed (apps/api, flagman.fleet): it derives the same ids from
 # EMULATOR_SEED and EMULATOR_CAR_COUNT, so telemetry lands on the cars the API knows. Changing the
@@ -29,16 +35,49 @@ class CommandRejectedError(Exception):
         self.reason = reason
 
 
+class CarMode(StrEnum):
+    PARKED = "parked"
+    DRIVING = "driving"
+    CHARGING = "charging"
+
+
+@dataclass(frozen=True, slots=True)
+class Destination:
+    lat: float
+    lon: float
+
+
 @dataclass(slots=True)
 class Car:
     id: uuid.UUID
     lat: float
     lon: float
-    battery_pct: int
+    # Fractional, so a slow drain adds up over many short steps instead of rounding away.
+    charge_pct: float
     doors_locked: bool
     ignition_on: bool
     engine_locked: bool
     updated_at: datetime
+    mode: CarMode = CarMode.PARKED
+    destination: Destination | None = None
+
+    @property
+    def battery_pct(self) -> int:
+        # Rounded down, like a dashboard: the car never reports charge it does not have.
+        return math.floor(self.charge_pct)
+
+
+@dataclass(frozen=True, slots=True)
+class SimulationParams:
+    """How the fleet lives between commands; rates are per hour of simulated time."""
+
+    trip_share: float
+    speed_kmh: float
+    idle_drain_pct_per_h: float
+    drive_drain_pct_per_km: float
+    charge_below_pct: float
+    charge_until_pct: float
+    charge_rate_pct_per_h: float
 
 
 def apply_command(car: Car, command: CommandType, now: datetime) -> None:
@@ -71,7 +110,7 @@ def seed_fleet(count: int, seed: int, now: datetime) -> list[Car]:
             id=car_id(seed, index),
             lat=round(rng.uniform(*MINSK_LAT_RANGE), 6),
             lon=round(rng.uniform(*MINSK_LON_RANGE), 6),
-            battery_pct=rng.randint(20, 100),
+            charge_pct=float(rng.randint(20, 100)),
             doors_locked=True,
             ignition_on=False,
             engine_locked=False,
@@ -79,3 +118,118 @@ def seed_fleet(count: int, seed: int, now: datetime) -> list[Car]:
         )
         for index in range(count)
     ]
+
+
+def distance_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    # Haversine on a sphere: within a city the error against the spheroid is a few meters.
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    d_phi, d_lambda = phi2 - phi1, math.radians(lon2 - lon1)
+    a = math.sin(d_phi / 2) ** 2 + math.cos(phi1) * math.cos(phi2) * math.sin(d_lambda / 2) ** 2
+    return 2 * _EARTH_RADIUS_KM * math.asin(math.sqrt(a))
+
+
+def _in_minsk(lat: float, lon: float) -> tuple[float, float]:
+    lat = min(max(lat, MINSK_LAT_RANGE[0]), MINSK_LAT_RANGE[1])
+    lon = min(max(lon, MINSK_LON_RANGE[0]), MINSK_LON_RANGE[1])
+    return round(lat, _COORDINATE_DIGITS), round(lon, _COORDINATE_DIGITS)
+
+
+def random_point_in_minsk(rng: random.Random) -> Destination:
+    lat, lon = _in_minsk(rng.uniform(*MINSK_LAT_RANGE), rng.uniform(*MINSK_LON_RANGE))
+    return Destination(lat=lat, lon=lon)
+
+
+def drive_toward(
+    car: Car, destination: Destination, max_km: float, drain_pct_per_km: float
+) -> bool:
+    """Moves the car up to `max_km` straight to `destination`; True once it is there or empty.
+
+    Rentals of stage 3 drive the same way: only who picks the destination differs.
+    """
+    remaining_km = distance_km(car.lat, car.lon, destination.lat, destination.lon)
+    reach_km = car.charge_pct / drain_pct_per_km if drain_pct_per_km > 0 else math.inf
+    step_km = min(max_km, remaining_km, reach_km)
+    arrived = step_km >= remaining_km
+    if arrived:
+        car.lat, car.lon = destination.lat, destination.lon
+    elif step_km > 0:
+        fraction = step_km / remaining_km
+        car.lat, car.lon = _in_minsk(
+            car.lat + (destination.lat - car.lat) * fraction,
+            car.lon + (destination.lon - car.lon) * fraction,
+        )
+    car.charge_pct = max(0.0, car.charge_pct - step_km * drain_pct_per_km)
+    return arrived or car.charge_pct <= 0
+
+
+def can_start_trip(car: Car, params: SimulationParams) -> bool:
+    # Someone opened or immobilized this car and waits for it to stay put; a low car would strand.
+    return (
+        car.mode is CarMode.PARKED
+        and car.doors_locked
+        and not car.ignition_on
+        and not car.engine_locked
+        and car.charge_pct >= params.charge_below_pct
+    )
+
+
+def start_trip(car: Car, destination: Destination, now: datetime) -> None:
+    car.mode = CarMode.DRIVING
+    car.destination = destination
+    car.ignition_on = True
+    car.updated_at = now
+
+
+def _park(car: Car) -> None:
+    car.mode = CarMode.PARKED
+    car.destination = None
+    car.ignition_on = False
+    car.doors_locked = True
+
+
+def _visible_state(car: Car) -> tuple[float, float, int, bool, bool]:
+    return car.lat, car.lon, car.battery_pct, car.doors_locked, car.ignition_on
+
+
+def step_car(car: Car, elapsed: timedelta, params: SimulationParams, now: datetime) -> None:
+    """Lives `elapsed` of simulated time: drains while parked, drives on, or charges."""
+    hours = elapsed.total_seconds() / _SECONDS_PER_HOUR
+    if hours <= 0:
+        return
+    before = _visible_state(car)
+    match car.mode:
+        case CarMode.DRIVING if car.destination is not None:
+            max_km = params.speed_kmh * hours
+            if drive_toward(car, car.destination, max_km, params.drive_drain_pct_per_km):
+                _park(car)
+        case CarMode.CHARGING:
+            gained = car.charge_pct + params.charge_rate_pct_per_h * hours
+            car.charge_pct = min(gained, params.charge_until_pct, 100.0)
+            if car.charge_pct >= params.charge_until_pct:
+                car.mode = CarMode.PARKED
+        case _:
+            car.charge_pct = max(0.0, car.charge_pct - params.idle_drain_pct_per_h * hours)
+    if car.mode is CarMode.PARKED and car.charge_pct < params.charge_below_pct:
+        car.mode = CarMode.CHARGING
+    # Like a tracker: the time moves only when something a client or the API sees has changed.
+    if _visible_state(car) != before:
+        car.updated_at = now
+
+
+def step_fleet(
+    cars: Sequence[Car],
+    elapsed: timedelta,
+    params: SimulationParams,
+    rng: random.Random,
+    now: datetime,
+) -> None:
+    """Lives `elapsed` for every car, then sends parked ones off until `trip_share` is driving."""
+    if elapsed <= timedelta(0):
+        return
+    for car in cars:
+        step_car(car, elapsed, params, now)
+    driving = sum(car.mode is CarMode.DRIVING for car in cars)
+    free_slots = max(0, math.floor(params.trip_share * len(cars)) - driving)
+    candidates = [car for car in cars if can_start_trip(car, params)]
+    for car in rng.sample(candidates, min(free_slots, len(candidates))):
+        start_trip(car, random_point_in_minsk(rng), now)
