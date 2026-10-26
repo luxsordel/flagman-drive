@@ -9,6 +9,7 @@ describe('kycErrorFromResponse', () => {
     ['document-type-unsupported', 415, 'unsupported'],
     ['kyc-locked', 409, 'locked'],
     ['kyc-incomplete', 409, 'incomplete'],
+    ['kyc-profile-incomplete', 409, 'profileIncomplete'],
     ['document-storage-unavailable', 503, 'storageUnavailable'],
     ['something-new', 400, 'unknown'],
   ])('maps %s to %s', (slug, status, kind) => {

@@ -55,6 +55,8 @@ export const en: Translation = {
     saved: 'Changes saved',
     retry: 'Try again',
     home: 'Back to home',
+    identityLocked:
+      'Your last name, first name and date of birth cannot be changed while your documents are under review or approved: the documents are checked against them',
     fieldErrors: {
       required: 'Fill in this field',
       tooLong: 'Too long. Maximum characters: {{max}}',
@@ -70,6 +72,8 @@ export const en: Translation = {
       sessionExpired: 'Your session has ended. Sign out and sign in again',
       invalid: 'The server did not accept the details. Check the fields and save again',
       birthDateInvalid: 'The server did not accept the date of birth. Please check it',
+      locked:
+        'Your documents are already under review, so the last name, first name and date of birth cannot be changed. The rest can be saved',
       unknown: 'Something went wrong. Please try again',
     },
   },
@@ -144,6 +148,11 @@ export const en: Translation = {
       submit: 'Send for review',
       back: 'Back',
     },
+    profileRequired: {
+      title: 'Fill in your profile first',
+      text: 'Your documents are checked against the last name, first name and date of birth in your profile. While they are under review, these cannot be changed',
+      open: 'Fill in the profile',
+    },
     errors: {
       network: 'Cannot reach the server. Check your connection',
       sessionExpired: 'Your session has ended. Sign out in your profile and sign in again',
@@ -151,6 +160,8 @@ export const en: Translation = {
       unsupported: 'Could not read the photo. A JPEG, PNG or WebP image is needed',
       locked: 'Your documents are already under review and cannot be changed',
       incomplete: 'Not all documents are uploaded',
+      profileIncomplete:
+        'Fill in your last name, first name and date of birth in the profile first',
       rateLimited: 'Too many attempts. Try again later',
       rateLimitedFor: 'Too many attempts. Try again in {{time}}',
       storageUnavailable: 'Document upload is temporarily unavailable. Try again later',

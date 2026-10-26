@@ -8,8 +8,11 @@ import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { Screen } from '../../ui/Screen';
 import type { KycApplication } from './kycApi';
+import { useProfile } from '../profile/ProfileProvider';
 import { KycErrorMessage } from './KycErrorMessage';
+import { canEditDocuments, hasProfileForKyc } from './kycFlow';
 import { useKycApplication, useKycStore } from './KycProvider';
+import { ProfileRequiredCard } from './ProfileRequiredCard';
 
 /** Where the documents stand: not sent, under review, approved, or rejected with the reason. */
 export function KycStatusScreen() {
@@ -18,6 +21,9 @@ export function KycStatusScreen() {
   const { colors } = useTheme();
   const store = useKycStore();
   const { application, loading, loadError } = useKycApplication();
+  const { profile } = useProfile();
+  // Until the profile loads the client may start: the overview checks it again before sending.
+  const needsProfile = profile !== null && !hasProfileForKyc(profile);
 
   return (
     <Screen>
@@ -29,7 +35,10 @@ export function KycStatusScreen() {
       )}
       <KycErrorMessage error={loadError} />
       {application !== null &&
-        (application.status === 'not_submitted' || application.status === 'rejected') && (
+        canEditDocuments(application.status) &&
+        (needsProfile ? (
+          <ProfileRequiredCard />
+        ) : (
           <Button
             title={t(
               application.status === 'rejected' ? 'kyc.status.resubmit' : 'kyc.status.start',
@@ -38,7 +47,7 @@ export function KycStatusScreen() {
               router.push('/kyc/upload');
             }}
           />
-        )}
+        ))}
       {(loadError !== null || application?.status === 'pending') && (
         <Button
           variant="secondary"

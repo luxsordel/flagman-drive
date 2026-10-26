@@ -23,6 +23,11 @@ RULES = AdmissionRules(min_age_years=21, min_driving_years=2)
 TODAY = date(2026, 10, 23)
 ADULT = Applicant(first_name="Анна", last_name="Ковалёва", birth_date=date(1990, 5, 17))
 LICENSED = date(2015, 6, 1)
+INCOMPLETE_PROFILES = [
+    Applicant(first_name=None, last_name="Ковалёва", birth_date=date(1990, 5, 17)),
+    Applicant(first_name="Анна", last_name=None, birth_date=date(1990, 5, 17)),
+    Applicant(first_name="Анна", last_name="Ковалёва", birth_date=None),
+]
 
 
 def _complete(status: KycStatus = KycStatus.NOT_SUBMITTED) -> KycApplication:
@@ -48,22 +53,37 @@ def test_documents_are_locked_under_review_and_after_approval(status: KycStatus)
 
 
 def test_submit_moves_a_complete_application_to_pending() -> None:
-    assert _complete().submit().status is KycStatus.PENDING
+    assert _complete().submit(ADULT).status is KycStatus.PENDING
 
 
 def test_submit_names_the_missing_documents() -> None:
     application = KycApplication(uploaded=REQUIRED_DOCUMENTS - {DocumentKind.PASSPORT})
 
     with pytest.raises(KycIncompleteError) as error:
-        application.submit()
+        application.submit(ADULT)
 
     assert error.value.detail == "Missing documents: passport."
+
+
+@pytest.mark.parametrize("applicant", INCOMPLETE_PROFILES)
+def test_submit_needs_the_profile_the_documents_are_checked_against(
+    applicant: Applicant,
+) -> None:
+    with pytest.raises(KycProfileIncompleteError):
+        _complete().submit(applicant)
+
+
+def test_missing_documents_are_named_before_the_profile() -> None:
+    application = KycApplication(uploaded=REQUIRED_DOCUMENTS - {DocumentKind.PASSPORT})
+
+    with pytest.raises(KycIncompleteError):
+        application.submit(Applicant(first_name=None, last_name=None, birth_date=None))
 
 
 def test_resubmitting_after_rejection_keeps_the_documents_and_clears_the_reason() -> None:
     rejected = _complete(KycStatus.PENDING).reject("Blurry selfie")
 
-    resubmitted = rejected.submit()
+    resubmitted = rejected.submit(ADULT)
 
     assert resubmitted.status is KycStatus.PENDING
     assert resubmitted.uploaded == REQUIRED_DOCUMENTS
@@ -73,7 +93,7 @@ def test_resubmitting_after_rejection_keeps_the_documents_and_clears_the_reason(
 @pytest.mark.parametrize("status", [KycStatus.PENDING, KycStatus.APPROVED])
 def test_submit_is_refused_while_under_review_or_approved(status: KycStatus) -> None:
     with pytest.raises(KycLockedError):
-        _complete(status).submit()
+        _complete(status).submit(ADULT)
 
 
 def test_approve_and_reject_need_a_pending_application() -> None:
@@ -120,14 +140,7 @@ def test_full_years_counts_only_completed_years(since: date, today: date, years:
     assert full_years(since, today) == years
 
 
-@pytest.mark.parametrize(
-    "applicant",
-    [
-        Applicant(first_name=None, last_name="Ковалёва", birth_date=date(1990, 5, 17)),
-        Applicant(first_name="Анна", last_name=None, birth_date=date(1990, 5, 17)),
-        Applicant(first_name="Анна", last_name="Ковалёва", birth_date=None),
-    ],
-)
+@pytest.mark.parametrize("applicant", INCOMPLETE_PROFILES)
 def test_approval_needs_the_profile_the_documents_are_checked_against(
     applicant: Applicant,
 ) -> None:

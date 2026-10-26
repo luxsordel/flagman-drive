@@ -7,7 +7,7 @@ describe('profileErrorFromResponse', () => {
     ['access-token-invalid', 'sessionExpired'],
     ['validation-error', 'invalid'],
     ['birth-date-invalid', 'birthDateInvalid'],
-    ['kyc-locked', 'unknown'],
+    ['kyc-locked', 'locked'],
   ])('maps the problem %s to %s', (slug, kind) => {
     expect(profileErrorFromResponse(problem(slug))).toEqual({ kind });
   });

@@ -76,10 +76,7 @@ def applicant(client: TestClient) -> Callable[..., Person]:
 
     def make(*, birth_date: str = ADULT_BIRTH_DATE, submit: bool = True) -> Person:
         person = Person(client)
-        response = person.update_profile(
-            first_name="Анна", last_name="Ковалёва", birth_date=birth_date
-        )
-        assert response.status_code == HTTPStatus.OK, response.text
+        person.fill_profile(birth_date)
         person.upload_all()
         if submit:
             response = person.submit()
@@ -258,10 +255,14 @@ def test_the_thresholds_come_from_the_settings(
 def test_approval_needs_the_name_and_birth_date(
     client: TestClient, operator: Staff, kyc_settings: Settings
 ) -> None:
-    # Submitting does not ask for the profile yet; the approval does.
+    # Submitted before the submission asked for the profile (#114).
     person = Person(client)
     person.upload_all()
-    assert person.submit().status_code == HTTPStatus.OK
+    query(
+        kyc_settings,
+        "UPDATE kyc_applications SET status = 'pending', submitted_at = now() WHERE id = :id",
+        id=_application_id(kyc_settings, person),
+    )
 
     response = operator.approve(_application_id(kyc_settings, person))
 

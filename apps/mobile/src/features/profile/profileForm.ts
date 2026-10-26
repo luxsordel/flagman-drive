@@ -86,8 +86,16 @@ function parsePastedDate(text: string): string | null {
  * Checks the draft before sending, so the client sees mistakes without a round trip.
  * The date of birth is required: the operator checks the age against it at KYC review (#35),
  * and the age limit itself is checked there, not here.
+ *
+ * `identityLocked`: the documents are under review or approved, so the name and birth date are
+ * neither checked nor sent; an application sent before they were required may have them empty
+ * (#114), and that must not stop the client saving the email.
  */
-export function checkDraft(draft: ProfileDraft, today: Date): DraftCheck {
+export function checkDraft(
+  draft: ProfileDraft,
+  today: Date,
+  { identityLocked = false }: { identityLocked?: boolean } = {},
+): DraftCheck {
   const errors: DraftErrors = {};
   const firstName = normalizeName(draft.firstName);
   const lastName = normalizeName(draft.lastName);
@@ -98,6 +106,13 @@ export function checkDraft(draft: ProfileDraft, today: Date): DraftCheck {
     if (refusedInName.test(name)) return 'nameCharacters';
     return length(name) > maxNameLength ? 'tooLong' : undefined;
   };
+  if (length(email) > maxEmailLength) errors.email = 'tooLong';
+  else if (email !== '' && !isEmail(email)) errors.email = 'email';
+  const contact = { email: email === '' ? null : email };
+  if (identityLocked) {
+    return Object.keys(errors).length > 0 ? { ok: false, errors } : { ok: true, update: contact };
+  }
+
   const firstNameError = nameError(firstName);
   if (firstNameError) errors.firstName = firstNameError;
   const lastNameError = nameError(lastName);
@@ -106,9 +121,6 @@ export function checkDraft(draft: ProfileDraft, today: Date): DraftCheck {
   const birthDate = parseBirthDate(draft.birthDate.trim(), today);
   if (!birthDate.ok) errors.birthDate = birthDate.error;
 
-  if (length(email) > maxEmailLength) errors.email = 'tooLong';
-  else if (email !== '' && !isEmail(email)) errors.email = 'email';
-
   if (!birthDate.ok || Object.keys(errors).length > 0) return { ok: false, errors };
   return {
     ok: true,
@@ -116,7 +128,7 @@ export function checkDraft(draft: ProfileDraft, today: Date): DraftCheck {
       first_name: firstName,
       last_name: lastName,
       birth_date: birthDate.iso,
-      email: email === '' ? null : email,
+      ...contact,
     },
   };
 }

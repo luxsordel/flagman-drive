@@ -54,7 +54,10 @@ class KycNotPendingError(AppError):
 
 
 class KycProfileIncompleteError(AppError):
-    """The operator checks the documents against the profile, so it must be filled in first."""
+    """The operator checks the documents against the profile, so it must be filled in first.
+
+    Raised on submission, and on approval of an application submitted before that check (#114).
+    """
 
     status = HTTPStatus.CONFLICT
     slug = "kyc-profile-incomplete"
@@ -135,6 +138,10 @@ class Applicant:
     last_name: str | None
     birth_date: date | None
 
+    @property
+    def is_complete(self) -> bool:
+        return bool(self.first_name and self.last_name and self.birth_date is not None)
+
 
 @dataclass(frozen=True)
 class KycApplication:
@@ -157,12 +164,16 @@ class KycApplication:
         if self.status not in (KycStatus.NOT_SUBMITTED, KycStatus.REJECTED):
             raise KycLockedError
 
-    def submit(self) -> "KycApplication":
+    def submit(self, applicant: Applicant) -> "KycApplication":
         self.ensure_editable()
         if self.missing:
             # Kinds only, no document data: safe to show to the client.
             names = ", ".join(sorted(self.missing))
             raise KycIncompleteError(f"Missing documents: {names}.")
+        # Once under review the name and birth date are locked, so an empty profile could
+        # neither be approved nor filled in.
+        if not applicant.is_complete:
+            raise KycProfileIncompleteError
         return replace(self, status=KycStatus.PENDING, rejection_reason=None)
 
     def approve(
@@ -172,7 +183,7 @@ class KycApplication:
         if self.status is not KycStatus.PENDING:
             raise KycNotPendingError
         birth_date = applicant.birth_date
-        if not applicant.first_name or not applicant.last_name or birth_date is None:
+        if not applicant.is_complete or birth_date is None:
             raise KycProfileIncompleteError
         if license_issued_on > today:
             raise LicenseIssueDateInvalidError("The license issue date must not be in the future.")
