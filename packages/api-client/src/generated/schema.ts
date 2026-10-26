@@ -344,6 +344,60 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/map/cars': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Cars a client may rent in the visible part of the map or near them
+     * @description Give the four edges of the area, the client's `lat` and `lon`, or both. With the point the cars come nearest first and carry `distance_m`. KYC is not needed to look.
+     */
+    get: operations['list_map_cars_map_cars_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/map/cars/{car_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One car of the map */
+    get: operations['get_map_car_map_cars__car_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/map/zones': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Active zones where a client may and may not end a rental */
+    get: operations['list_map_zones_map_zones_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/me': {
     parameters: {
       query?: never;
@@ -832,6 +886,59 @@ export interface components {
        * @description Left out by the web client, which sends the cookie instead.
        */
       refresh_token?: string | null;
+    };
+    /** MapCarList */
+    MapCarList: {
+      /** Items */
+      items: components['schemas']['MapCarOut'][];
+    };
+    /** MapCarOut */
+    MapCarOut: {
+      /** Battery Pct */
+      battery_pct: number;
+      /** Brand */
+      brand: string;
+      /**
+       * Distance M
+       * @description From the client's point, if one was given.
+       */
+      distance_m: number | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Lat */
+      lat: number;
+      /** Lon */
+      lon: number;
+      /** Model */
+      model: string;
+      /** Photo Url */
+      photo_url: string | null;
+      /**
+       * Range Km
+       * @description Estimated from the charge, rounded down.
+       */
+      range_km: number;
+    };
+    /** MapZoneList */
+    MapZoneList: {
+      /** Items */
+      items: components['schemas']['MapZoneOut'][];
+    };
+    /**
+     * MapZoneOut
+     * @description A zone as the client map draws it: no name, no history, no staff fields.
+     */
+    MapZoneOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      kind: components['schemas']['ZoneKind'];
+      polygon: components['schemas']['PolygonGeometry'];
     };
     /** OtpRequest */
     OtpRequest: {
@@ -2556,6 +2663,204 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:document-storage-unavailable`. */
       503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_map_cars_map_cars_get: {
+    parameters: {
+      query?: {
+        /** @description With `lon`: the client's latitude. */
+        lat?: number | null;
+        /** @description With `lat`: the client's longitude. */
+        lon?: number | null;
+        /** @description South edge of the visible map. */
+        min_lat?: number | null;
+        /** @description West edge of the visible map. */
+        min_lon?: number | null;
+        /** @description North edge of the visible map. */
+        max_lat?: number | null;
+        /** @description East edge of the visible map. */
+        max_lon?: number | null;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MapCarList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as a client. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rate-limited`: wait for `Retry-After` seconds. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_map_car_map_cars__car_id__get: {
+    parameters: {
+      query?: {
+        /** @description With `lon`: the client's latitude. */
+        lat?: number | null;
+        /** @description With `lat`: the client's longitude. */
+        lon?: number | null;
+      };
+      header?: never;
+      path: {
+        car_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MapCarOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as a client. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:car-not-found`: no such car, or it cannot be rented now; the reason is not told. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rate-limited`: wait for `Retry-After` seconds. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_map_zones_map_zones_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['MapZoneList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as a client. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rate-limited`: wait for `Retry-After` seconds. */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
         headers: {
           [name: string]: unknown;
         };
