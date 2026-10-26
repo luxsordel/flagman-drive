@@ -24,7 +24,7 @@ def _make_client(settings: Settings, role: StaffRole | None) -> TestClient:
     app = create_app(settings)
     if role is not None:
         # Real staff tokens are covered in test_staff_sign_in.py.
-        signed_in = CurrentStaff(staff_id=uuid.uuid4(), role=role)
+        signed_in = CurrentStaff(staff_id=uuid.uuid4(), session_id=uuid.uuid4(), role=role)
         app.dependency_overrides[get_current_staff] = lambda: signed_in
     return TestClient(app, base_url="https://testserver")
 

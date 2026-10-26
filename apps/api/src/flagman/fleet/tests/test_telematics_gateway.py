@@ -1,7 +1,8 @@
 import asyncio
 import json
+import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Coroutine
 from datetime import UTC, datetime
 from typing import Any
 
@@ -27,6 +28,7 @@ TELEMATICS_ID = uuid.UUID("3f1c6a52-6f0e-4b8e-9d55-2f0b7c9a1e10")
 COMMAND_ID = uuid.UUID("9b2d1f4e-0c3a-4e6b-8f7d-5a1c2e3b4d5f")
 
 Handler = Callable[[httpx2.Request], httpx2.Response]
+AsyncHandler = Callable[[httpx2.Request], Coroutine[None, None, httpx2.Response]]
 
 
 def _car_state(**overrides: Any) -> dict[str, Any]:
@@ -43,10 +45,14 @@ def _car_state(**overrides: Any) -> dict[str, Any]:
     } | overrides
 
 
-def _send(handler: Handler, base_url: str = BASE_URL) -> CarState | None:
+def _send(
+    handler: Handler | AsyncHandler, base_url: str = BASE_URL, timeout_s: float = 5.0
+) -> CarState | None:
     async def send() -> CarState | None:
         async with httpx2.AsyncClient(transport=httpx2.MockTransport(handler)) as client:
-            gateway = EmulatorTelematicsGateway(client, base_url, SECRET, clock=lambda: NOW)
+            gateway = EmulatorTelematicsGateway(
+                client, base_url, SECRET, timeout_s=timeout_s, clock=lambda: NOW
+            )
             return await gateway.send(TELEMATICS_ID, COMMAND_ID, CarCommand.OPEN)
 
     return asyncio.run(send())
@@ -136,15 +142,31 @@ def test_a_seen_command_id_is_a_duplicate() -> None:
     [
         _answer(401, {"detail": "invalid_signature"}),
         _answer(404, {"detail": "car_not_found"}),
-        _answer(500, "oops"),
         _answer(409, {"detail": "something_else"}),
+        _answer(422, {"detail": "validation"}),
+    ],
+    ids=["bad-secret", "unknown-car", "unknown-conflict", "invalid-request"],
+)
+def test_a_refusal_before_the_command_runs_means_unavailable(handler: Handler) -> None:
+    with pytest.raises(TelematicsUnavailableError):
+        _send(handler)
+
+
+@pytest.mark.parametrize(
+    "handler",
+    [
+        _answer(500, "oops"),
+        _answer(502, "bad gateway"),
         _answer(200, {"command_id": str(COMMAND_ID)}),
         lambda request: httpx2.Response(200, content=b"not json"),
     ],
-    ids=["bad-secret", "unknown-car", "server-error", "unknown-conflict", "no-car", "not-json"],
+    ids=["server-error", "bad-gateway", "no-car", "not-json"],
 )
-def test_answers_staff_cannot_act_on_mean_telematics_is_unavailable(handler: Handler) -> None:
-    with pytest.raises(TelematicsUnavailableError):
+def test_an_answer_after_the_command_may_have_run_has_an_unknown_outcome(
+    handler: Handler,
+) -> None:
+    # The emulator applies the command before it answers: a broken answer is no proof of nothing.
+    with pytest.raises(TelematicsTimeoutError):
         _send(handler)
 
 
@@ -168,3 +190,15 @@ def test_a_command_without_an_answer_has_an_unknown_outcome(error: Exception) ->
 
     with pytest.raises(TelematicsTimeoutError):
         _send(handler)
+
+
+def test_a_command_that_hangs_ends_at_the_timeout() -> None:
+    async def hang(request: httpx2.Request) -> httpx2.Response:
+        await asyncio.sleep(10)
+        return httpx2.Response(200)
+
+    started = time.monotonic()
+    with pytest.raises(TelematicsTimeoutError):
+        _send(hang, timeout_s=0.2)
+
+    assert time.monotonic() - started < 2

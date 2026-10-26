@@ -1,28 +1,31 @@
-import asyncio
 import contextlib
 import json
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
 from flagman.core.app import create_app
 from flagman.core.config import Settings
-from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.fleet import api, service, stream
 from flagman.fleet.domain import CarState, CarTransition, TelemetrySnapshot
-from flagman.fleet.tests.conftest import FakeGateway, add_car, client_token, staff_token
-from flagman.identity import service as identity
+from flagman.fleet.tests.conftest import (
+    FakeGateway,
+    Staff,
+    add_car,
+    client_token,
+    run_in_db,
+    staff_token,
+)
 from flagman.identity.domain import STAFF_ACCESS_TOKEN_TTL, StaffRole
 
 pytestmark = pytest.mark.integration
@@ -30,7 +33,6 @@ pytestmark = pytest.mark.integration
 URL = "/admin/fleet/stream"
 ORIGIN = "https://admin.flagman.test"
 POINT = GeoPoint(lat=53.9023, lon=27.5615)
-PASSWORD = "correct horse battery staple"
 TIMEOUT_S = 10.0
 
 
@@ -47,61 +49,6 @@ def client(settings: Settings) -> Iterator[TestClient]:
             assert time.monotonic() < deadline, "the fleet hub never started listening"
             time.sleep(0.05)
         yield client
-
-
-def _run[T](settings: Settings, work: Callable[[AsyncSession], Awaitable[T]]) -> T:
-    async def run() -> T:
-        engine = create_engine(settings)
-        try:
-            async with create_session_factory(engine)() as db:
-                return await work(db)
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(run())
-
-
-class Staff:
-    """A staff member with a real session, as the stream checks it in the database."""
-
-    def __init__(self, settings: Settings, role: StaffRole = StaffRole.OPERATOR) -> None:
-        self.settings = settings
-        self.email = f"stream-{uuid.uuid4().hex[:12]}@example.com"
-        now = datetime.now(UTC)
-        self.id = _run(
-            settings, lambda db: identity.create_staff(db, self.email, PASSWORD, role, now)
-        )
-        self.session_id = uuid.uuid4()
-        self.role = role
-        _run(settings, self._add_session)
-
-    async def _add_session(self, db: AsyncSession) -> None:
-        async with db.begin():
-            await db.execute(
-                text(
-                    "INSERT INTO staff_sessions (id, staff_id, created_at, expires_at) "
-                    "VALUES (:id, :staff_id, now(), now() + interval '12 hours')"
-                ),
-                {"id": self.session_id, "staff_id": self.id},
-            )
-
-    def token(self, now: datetime | None = None) -> str:
-        return staff_token(
-            self.settings, self.role, staff_id=self.id, session_id=self.session_id, now=now
-        )
-
-    def revoke_session(self) -> None:
-        async def revoke(db: AsyncSession) -> None:
-            async with db.begin():
-                await db.execute(
-                    text("UPDATE staff_sessions SET revoked_at = now() WHERE id = :id"),
-                    {"id": self.session_id},
-                )
-
-        _run(self.settings, revoke)
-
-    def disable(self) -> None:
-        _run(self.settings, lambda db: identity.disable_staff(db, self.email, datetime.now(UTC)))
 
 
 @pytest.fixture
@@ -156,11 +103,11 @@ def _change_status(settings: Settings, car_id: str, transition: CarTransition) -
         async with db.begin():
             await service.change_status(db, uuid.UUID(car_id), transition, datetime.now(UTC))
 
-    _run(settings, change)
+    run_in_db(settings, change)
 
 
 def _telematics_id(settings: Settings, car_id: str) -> uuid.UUID:
-    return _run(settings, lambda db: service.get_car(db, uuid.UUID(car_id))).telematics_id
+    return run_in_db(settings, lambda db: service.get_car(db, uuid.UUID(car_id))).telematics_id
 
 
 def test_after_signing_in_staff_get_the_whole_fleet(
@@ -206,7 +153,7 @@ def test_telemetry_reaches_staff(client: TestClient, settings: Settings, staff: 
 
     with _connect(client) as socket:
         _sign_in(socket, staff.token())
-        _run(
+        run_in_db(
             settings,
             lambda db: service.receive_telemetry(db, [snapshot], now, timedelta(minutes=5)),
         )
@@ -235,7 +182,7 @@ def test_a_rolled_back_change_is_not_sent(
 
     with _connect(client) as socket:
         _sign_in(socket, staff.token())
-        _run(settings, roll_back)
+        run_in_db(settings, roll_back)
         _change_status(settings, committed, CarTransition.GO_OFFLINE)
         message = _receive(socket)
 
@@ -279,10 +226,10 @@ def test_a_command_reaches_every_staff_member(
 
 @pytest.mark.parametrize("origin", [None, "https://evil.example"], ids=["missing", "foreign"])
 def test_a_socket_from_another_origin_is_refused(client: TestClient, origin: str | None) -> None:
-    with pytest.raises(WebSocketDisconnect) as refused, _connect(client, origin):
-        pass
-
-    assert refused.value.code == stream.CLOSE_POLICY
+    # Closed after the handshake with 1008: a browser sees a refused handshake only as 1006, the
+    # same as a lost connection, and would keep reconnecting.
+    with _connect(client, origin) as socket:
+        assert _close_code(socket) == stream.CLOSE_POLICY
 
 
 def test_a_client_token_is_refused(client: TestClient, settings: Settings) -> None:

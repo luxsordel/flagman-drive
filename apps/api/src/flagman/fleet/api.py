@@ -45,6 +45,7 @@ from flagman.identity.dependencies import (
     CurrentClient,
     CurrentStaff,
     get_current_client,
+    require_live_staff_session,
     require_staff_role,
 )
 from flagman.identity.domain import StaffRole
@@ -201,7 +202,8 @@ async def _run_fleet(app: FastAPI) -> AsyncIterator[None]:
     hub = FleetHub(resources.settings, resources.session_factory)
     app.state.fleet_hub = hub
     task = asyncio.create_task(hub.run())
-    # The timeout covers every phase, so a command never hangs longer than the setting.
+    # The gateway bounds each command as a whole; the client's own limits only keep a dead
+    # connection from lingering.
     timeout = resources.settings.telematics_command_timeout_seconds
     async with httpx2.AsyncClient(timeout=timeout) as telematics_client:
         app.state.telematics_client = telematics_client
@@ -277,6 +279,7 @@ def get_telematics_gateway(
         client=request.app.state.telematics_client,
         base_url=settings.emulator_url,
         secret=settings.emulator_command_secret.get_secret_value().encode(),
+        timeout_s=settings.telematics_command_timeout_seconds,
     )
 
 
@@ -285,7 +288,7 @@ COMMAND_LIMIT = Limit("car-commands-staff", 20, 60)
 
 
 async def limit_commands(
-    staff: Annotated[CurrentStaff, Depends(require_staff_role(*CAR_COMMANDERS))],
+    staff: Annotated[CurrentStaff, Depends(require_live_staff_session(*CAR_COMMANDERS))],
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
 ) -> CurrentStaff:
     await limiter.hit(COMMAND_LIMIT, str(staff.staff_id))

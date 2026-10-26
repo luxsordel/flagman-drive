@@ -35,7 +35,7 @@ from flagman.identity.domain import (
     AccessTokenInvalidError,
     StaffAccess,
     StaffRole,
-    read_staff_access,
+    StaffRoleForbiddenError,
 )
 
 logger = structlog.get_logger(__name__)
@@ -138,6 +138,9 @@ class FleetHub:
                 await self._listen_once()
             except (OSError, TimeoutError, asyncpg.PostgresError, asyncpg.InterfaceError) as error:
                 logger.warning("fleet_stream_listener_lost", error=type(error).__name__)
+            except Exception:
+                # A bug must not leave the process without its stream until the next restart.
+                logger.exception("fleet_stream_listener_failed")
             # Whatever came while nobody listened is lost: every socket starts over.
             self.drop_all(CLOSE_TRY_AGAIN)
             await asyncio.sleep(_RECONNECT_DELAY_S)
@@ -238,10 +241,14 @@ class StaffStream:
     async def serve(self) -> None:
         # Browsers send Origin with every WebSocket and CORS does not apply to sockets: without
         # this check any site the staff member opens could connect from their browser.
-        if self.websocket.headers.get("origin") not in self.settings.api_cors_origins:
-            await self.websocket.close(CLOSE_POLICY)
-            return
+        foreign = self.websocket.headers.get("origin") not in self.settings.api_cors_origins
+        # Refused after the handshake: a refused handshake reaches a browser as a bare 1006, the
+        # same as a lost connection, and it would keep reconnecting. Nothing is sent before
+        # the auth message, so the foreign page gets nothing but the close.
         await self.websocket.accept()
+        if foreign:
+            await self._close(CLOSE_POLICY)
+            return
         try:
             signed = _Signed(await self._sign_in())
         except _RefusedError as refused:
@@ -295,16 +302,16 @@ class StaffStream:
     async def _check(self, token: str, current: StaffAccess | None) -> StaffAccess:
         secret = self.settings.api_jwt_secret.get_secret_value()
         try:
-            access = read_staff_access(token, secret)
+            async with self.session_factory() as db:
+                access = await identity.authenticate_staff(
+                    db, token, secret, self.roles, datetime.now(UTC)
+                )
         except AccessTokenInvalidError:
             raise _RefusedError(CLOSE_UNAUTHORIZED) from None
-        claims = access.claims
-        if current is not None and claims.staff_id != current.claims.staff_id:
+        except StaffRoleForbiddenError:
+            raise _RefusedError(CLOSE_FORBIDDEN) from None
+        if current is not None and access.claims.staff_id != current.claims.staff_id:
             raise _RefusedError(CLOSE_POLICY)
-        if claims.role not in self.roles:
-            raise _RefusedError(CLOSE_FORBIDDEN)
-        if not await self._session_active(access):
-            raise _RefusedError(CLOSE_UNAUTHORIZED)
         return access
 
     async def _session_active(self, access: StaffAccess) -> bool:

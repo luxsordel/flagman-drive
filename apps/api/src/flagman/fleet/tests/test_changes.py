@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import uuid
 
@@ -66,3 +67,31 @@ def test_nobody_subscribes_while_the_hub_does_not_listen(make_settings: Settings
         return FleetHub(make_settings(), async_sessionmaker(class_=AsyncSession)).subscribe()
 
     assert asyncio.run(run()) is None
+
+
+def test_the_hub_listens_again_after_an_unexpected_error(
+    make_settings: SettingsFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(stream, "_RECONNECT_DELAY_S", 0)
+    attempts: list[int] = []
+
+    async def run() -> None:
+        hub = FleetHub(make_settings(), async_sessionmaker(class_=AsyncSession))
+
+        async def listen_once() -> None:
+            attempts.append(len(attempts))
+            if len(attempts) == 1:
+                raise RuntimeError("a bug")
+            hub._listening.set()
+            await asyncio.Event().wait()
+
+        monkeypatch.setattr(hub, "_listen_once", listen_once)
+        task = asyncio.create_task(hub.run())
+        await asyncio.wait_for(hub._listening.wait(), timeout=2)
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(run())
+
+    assert len(attempts) == 2

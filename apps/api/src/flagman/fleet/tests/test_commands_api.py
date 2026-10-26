@@ -26,7 +26,7 @@ from flagman.fleet.domain import (
     TelematicsTimeoutError,
     TelematicsUnavailableError,
 )
-from flagman.fleet.tests.conftest import FakeGateway, add_car, bearer, client_token, staff_token
+from flagman.fleet.tests.conftest import FakeGateway, Staff, add_car, bearer, client_token
 from flagman.identity.domain import StaffRole
 
 pytestmark = pytest.mark.integration
@@ -52,15 +52,9 @@ def client(integration_settings: Settings, gateway: FakeGateway) -> Iterator[Tes
         yield client
 
 
-class Caller:
-    def __init__(self, settings: Settings, role: StaffRole) -> None:
-        self.id = uuid.uuid4()
-        self.headers = bearer(staff_token(settings, role, staff_id=self.id))
-
-
 @pytest.fixture
-def operator(integration_settings: Settings) -> Caller:
-    return Caller(integration_settings, StaffRole.OPERATOR)
+def operator(integration_settings: Settings) -> Staff:
+    return Staff(integration_settings, StaffRole.OPERATOR)
 
 
 def _url(car_id: str) -> str:
@@ -91,7 +85,7 @@ def test_every_staff_role_sends_commands(
     client: TestClient, integration_settings: Settings, gateway: FakeGateway, role: StaffRole
 ) -> None:
     car_id = add_car(integration_settings, POINT)
-    caller = Caller(integration_settings, role)
+    caller = Staff(integration_settings, role)
 
     response = client.post(_url(car_id), json=_body(), headers=caller.headers)
 
@@ -100,7 +94,7 @@ def test_every_staff_role_sends_commands(
 
 
 def test_a_done_command_returns_the_car_after_it(
-    client: TestClient, integration_settings: Settings, gateway: FakeGateway, operator: Caller
+    client: TestClient, integration_settings: Settings, gateway: FakeGateway, operator: Staff
 ) -> None:
     car_id = add_car(integration_settings, POINT, battery_pct=80)
 
@@ -118,7 +112,7 @@ def test_a_done_command_returns_the_car_after_it(
 
 
 def test_every_command_gets_a_fresh_id(
-    client: TestClient, integration_settings: Settings, gateway: FakeGateway, operator: Caller
+    client: TestClient, integration_settings: Settings, gateway: FakeGateway, operator: Staff
 ) -> None:
     car_id = add_car(integration_settings, POINT)
 
@@ -129,7 +123,7 @@ def test_every_command_gets_a_fresh_id(
 
 
 def test_a_done_command_is_audited(
-    client: TestClient, integration_settings: Settings, operator: Caller
+    client: TestClient, integration_settings: Settings, operator: Staff
 ) -> None:
     car_id = add_car(integration_settings, POINT)
 
@@ -186,7 +180,7 @@ def test_a_failed_command_is_a_problem_and_still_audited(
     client: TestClient,
     integration_settings: Settings,
     gateway: FakeGateway,
-    operator: Caller,
+    operator: Staff,
     failure: Failure,
 ) -> None:
     car_id = add_car(integration_settings, POINT)
@@ -202,7 +196,7 @@ def test_a_failed_command_is_a_problem_and_still_audited(
 
 
 def test_a_refusal_tells_the_cars_reason_and_leaves_the_state(
-    client: TestClient, integration_settings: Settings, gateway: FakeGateway, operator: Caller
+    client: TestClient, integration_settings: Settings, gateway: FakeGateway, operator: Staff
 ) -> None:
     car_id = add_car(integration_settings, POINT)
     gateway.outcome = CarCommandRejectedError("ignition_on")
@@ -221,7 +215,7 @@ def test_a_car_a_client_holds_needs_confirmation(
     client: TestClient,
     integration_settings: Settings,
     gateway: FakeGateway,
-    operator: Caller,
+    operator: Staff,
     status: CarStatus,
 ) -> None:
     car_id = add_car(integration_settings, POINT, status=status)
@@ -245,7 +239,7 @@ def test_a_car_a_client_holds_needs_confirmation(
 
 @pytest.mark.parametrize("status", [CarStatus.AVAILABLE, CarStatus.SERVICE, CarStatus.OFFLINE])
 def test_other_cars_need_no_confirmation(
-    client: TestClient, integration_settings: Settings, operator: Caller, status: CarStatus
+    client: TestClient, integration_settings: Settings, operator: Staff, status: CarStatus
 ) -> None:
     car_id = add_car(integration_settings, POINT, status=status)
 
@@ -255,7 +249,7 @@ def test_other_cars_need_no_confirmation(
 
 
 def test_an_unknown_car_is_404_and_nothing_is_sent(
-    client: TestClient, gateway: FakeGateway, operator: Caller
+    client: TestClient, gateway: FakeGateway, operator: Staff
 ) -> None:
     response = client.post(_url(str(uuid.uuid4())), json=_body(), headers=operator.headers)
 
@@ -288,7 +282,7 @@ def test_a_wrong_command_is_422_and_nothing_is_sent(
     client: TestClient,
     integration_settings: Settings,
     gateway: FakeGateway,
-    operator: Caller,
+    operator: Staff,
     body: dict[str, Any],
 ) -> None:
     car_id = add_car(integration_settings, POINT)
@@ -319,7 +313,7 @@ def test_clients_and_strangers_cannot_send_commands(
 def test_commands_are_rate_limited(
     client: TestClient,
     integration_settings: Settings,
-    operator: Caller,
+    operator: Staff,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(api, "COMMAND_LIMIT", Limit(f"car-commands-test-{uuid.uuid4()}", 2, 60))
@@ -334,7 +328,7 @@ def test_commands_are_rate_limited(
 
 
 def test_without_telematics_settings_commands_are_unavailable(
-    integration_settings: Settings, operator: Caller
+    integration_settings: Settings, operator: Staff
 ) -> None:
     car_id = add_car(integration_settings, POINT)
     app: FastAPI = create_app(integration_settings)
@@ -345,3 +339,30 @@ def test_without_telematics_settings_commands_are_unavailable(
     assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
     assert response.json()["type"] == "urn:flagman:problem:telematics-unavailable"
     assert _events(integration_settings, operator.id) == []
+
+
+def test_a_revoked_session_sends_no_commands(
+    client: TestClient, integration_settings: Settings, gateway: FakeGateway, operator: Staff
+) -> None:
+    car_id = add_car(integration_settings, POINT)
+    headers = operator.headers
+    operator.revoke_session()
+
+    response = client.post(_url(car_id), json=_body(), headers=headers)
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert response.json()["type"] == "urn:flagman:problem:access-token-invalid"
+    assert gateway.calls == []
+
+
+def test_a_disabled_staff_member_sends_no_commands(
+    client: TestClient, integration_settings: Settings, gateway: FakeGateway, operator: Staff
+) -> None:
+    car_id = add_car(integration_settings, POINT)
+    headers = operator.headers
+    operator.disable()
+
+    response = client.post(_url(car_id), json=_body(), headers=headers)
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert gateway.calls == []

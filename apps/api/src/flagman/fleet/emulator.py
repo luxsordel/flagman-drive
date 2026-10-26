@@ -1,5 +1,6 @@
 """Adapters for services/car-emulator: telemetry in, commands out, HMAC-signed (docs/adr/0007)."""
 
+import asyncio
 import json
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -85,11 +86,13 @@ def _utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class EmulatorTelematicsGateway:
-    """`POST /cars/{id}/commands` of the emulator; the client carries the timeout."""
+    """`POST /cars/{id}/commands` of the emulator."""
 
     client: httpx2.AsyncClient
     base_url: str
     secret: bytes
+    # For the whole command: the client's own timeouts count each phase and each read apart.
+    timeout_s: float
     clock: Callable[[], datetime] = field(default=_utc_now)
 
     async def send(
@@ -104,32 +107,37 @@ class EmulatorTelematicsGateway:
             SIGNATURE_HEADER: sign(self.secret, timestamp, "POST", url.raw_path, body),
         }
         try:
-            response = await self.client.post(url, content=body, headers=headers)
+            async with asyncio.timeout(self.timeout_s):
+                response = await self.client.post(url, content=body, headers=headers)
         except _NOT_SENT as error:
             logger.warning("telematics_unreachable", error=type(error).__name__)
             raise TelematicsUnavailableError from error
-        except httpx2.TransportError as error:
-            # Sent, but the answer is lost: the car may have done it.
+        except (TimeoutError, httpx2.TransportError) as error:
+            # Maybe sent, and the answer is lost: the car may have done it.
             logger.warning("telematics_no_answer", error=type(error).__name__)
             raise TelematicsTimeoutError from error
         if response.status_code == HTTPStatus.OK:
             try:
                 return _state(EmulatorCommandResult.model_validate_json(response.content).car)
             except ValidationError as error:
+                # The car did it, only its state is unreadable: the outcome is not "nothing".
                 logger.error("telematics_answer_invalid")
-                raise TelematicsUnavailableError from error
+                raise TelematicsTimeoutError from error
         detail = _detail(response)
         if response.status_code == HTTPStatus.CONFLICT and detail == _DUPLICATE:
             raise CarCommandDuplicateError
         if response.status_code == HTTPStatus.CONFLICT and detail.startswith(_REJECTED_PREFIX):
             raise CarCommandRejectedError(detail.removeprefix(_REJECTED_PREFIX))
-        # A wrong secret (401) or a car the emulator does not run (404): ours to fix, not staff's.
         logger.error(
             "telematics_command_failed",
             status=response.status_code,
             detail=detail[:_LOGGED_DETAIL_LENGTH],
         )
-        raise TelematicsUnavailableError
+        # A 4xx comes before the command runs: a wrong secret (401), a car the emulator does not
+        # run (404). A 5xx may come after it did.
+        if response.status_code < HTTPStatus.INTERNAL_SERVER_ERROR:
+            raise TelematicsUnavailableError
+        raise TelematicsTimeoutError
 
 
 def _detail(response: httpx2.Response) -> str:
