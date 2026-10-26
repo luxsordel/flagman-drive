@@ -167,7 +167,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     padding: spacing.lg,
   },
-  bottom: { position: 'absolute', bottom: 0, left: 0, right: 0 },
+  // Leaves the map's attribution and logo in the corners visible under the card.
+  bottom: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: spacing.xxl },
   center: { justifyContent: 'center' },
   notice: { padding: spacing.lg },
 });

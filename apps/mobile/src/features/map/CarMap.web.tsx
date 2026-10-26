@@ -46,10 +46,6 @@ export default function CarMap({
 }: CarMapProps) {
   const container = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibreMap | null>(null);
-  const camera = useRef<{ center: [number, number]; zoom: number }>({
-    center: [minskCenter.lon, minskCenter.lat],
-    zoom: cityZoom,
-  });
   // The map's listeners are set once; they read the latest callbacks from here.
   const latest = useRef({ onAreaChange, onCarPress, onMapPress });
   useEffect(() => {
@@ -62,9 +58,11 @@ export default function CarMap({
     const created = new MapLibreMap({
       container: host,
       style: mapStyleUrl(),
-      center: camera.current.center,
-      zoom: camera.current.zoom,
+      center: [minskCenter.lon, minskCenter.lat],
+      zoom: cityZoom,
       pitchWithRotate: false,
+      // A small (i) button instead of a line of credits that the bottom card would cover.
+      attributionControl: { compact: true },
     });
     const reportArea = () => {
       const bounds = created.getBounds();
@@ -77,8 +75,12 @@ export default function CarMap({
       if (area !== null) latest.current.onAreaChange(area);
     };
 
+    // A compact attribution still opens itself once the sources bring their credits, and then
+    // covers the bottom card; the (i) button keeps them one tap away.
+    created.once('idle', () => {
+      host.querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
+    });
     created.on('load', () => {
-      const layers = mapLayers(palette);
       created.addSource(zonesSourceId, { type: 'geojson', data: zoneFeatures([]) });
       created.addSource(carsSourceId, {
         type: 'geojson',
@@ -87,11 +89,6 @@ export default function CarMap({
         clusterRadius,
         clusterMaxZoom,
       });
-      created.addLayer({ ...layers.zonesFill, source: zonesSourceId });
-      created.addLayer({ ...layers.zonesOutline, source: zonesSourceId });
-      created.addLayer({ ...layers.clusters, source: carsSourceId });
-      created.addLayer({ ...layers.clusterCount, source: carsSourceId });
-      created.addLayer({ ...layers.cars, source: carsSourceId });
       setMap(created);
       reportArea();
     });
@@ -119,13 +116,28 @@ export default function CarMap({
     });
 
     return () => {
-      // A theme change makes a new map with the new colors; it opens where the old one was.
-      const center = created.getCenter();
-      camera.current = { center: [center.lng, center.lat], zoom: created.getZoom() };
       created.remove();
       setMap(null);
     };
-  }, [palette]);
+  }, []);
+
+  // Our layers in the theme's colors. A theme change redraws only them: a new map would load
+  // the style and the tiles again.
+  useEffect(() => {
+    if (!map) return;
+    const layers = mapLayers(palette);
+    const ordered = [
+      { ...layers.zonesFill, source: zonesSourceId },
+      { ...layers.zonesOutline, source: zonesSourceId },
+      { ...layers.clusters, source: carsSourceId },
+      { ...layers.clusterCount, source: carsSourceId },
+      { ...layers.cars, source: carsSourceId },
+    ];
+    for (const layer of ordered) {
+      if (map.getLayer(layer.id)) map.removeLayer(layer.id);
+      map.addLayer(layer);
+    }
+  }, [map, palette]);
 
   useEffect(() => {
     void map?.getSource<GeoJSONSource>(carsSourceId)?.setData(carFeatures(cars, selectedId));

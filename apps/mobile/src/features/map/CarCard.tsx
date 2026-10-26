@@ -82,10 +82,11 @@ function Fact({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
+  // Floats above the map's attribution like the notices, rather than sitting on the edge.
   sheet: {
     borderWidth: 1,
-    borderTopLeftRadius: radius.sheet,
-    borderTopRightRadius: radius.sheet,
+    borderRadius: radius.sheet,
+    marginHorizontal: spacing.lg,
     padding: spacing.xl,
     gap: spacing.md,
   },
