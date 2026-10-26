@@ -122,6 +122,85 @@ class TelemetryUnavailableError(AppError):
     title = "Telemetry is not accepted now"
 
 
+class CarCommand(StrEnum):
+    """What staff may ask a car to do; values are stored in the audit log as is."""
+
+    OPEN = "open"
+    CLOSE = "close"
+    LOCK_ENGINE = "lock_engine"
+    UNLOCK_ENGINE = "unlock_engine"
+
+
+class CommandOutcome(StrEnum):
+    """How a command ended; values are stored in the audit log as is."""
+
+    DONE = "done"
+    REJECTED = "rejected"
+    DUPLICATE = "duplicate"
+    UNAVAILABLE = "unavailable"
+    # No answer in time: the car may or may not have done it.
+    TIMED_OUT = "timed_out"
+
+
+COMMENT_MIN_LENGTH = 3
+COMMENT_MAX_LENGTH = 300
+# Reason codes come from telematics: anything else is replaced, as it would reach the client.
+REASON_PATTERN = re.compile(r"[a-z][a-z0-9_]{0,63}")
+UNKNOWN_REASON = "unknown"
+
+# A client holds or drives the car: a command could lock them out or in (docs/01, staff scenarios).
+_CLIENT_STATUSES = frozenset({CarStatus.RESERVED, CarStatus.IN_RENTAL})
+
+
+def needs_rental_confirmation(status: CarStatus) -> bool:
+    # By status until rentals exist (stage 3): then the active rental itself is the reason.
+    return status in _CLIENT_STATUSES
+
+
+def normalize_reason(reason: str) -> str:
+    return reason if REASON_PATTERN.fullmatch(reason) else UNKNOWN_REASON
+
+
+class CarInActiveRentalError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "car-in-active-rental"
+    title = "A client holds the car: confirm the command"
+
+
+class CarCommandRejectedError(AppError):
+    """The car refused; `detail` is its reason code, e.g. `ignition_on`."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "car-command-rejected"
+    title = "The car refused the command"
+
+    def __init__(self, reason: str) -> None:
+        super().__init__(normalize_reason(reason))
+        self.reason = normalize_reason(reason)
+
+
+class CarCommandDuplicateError(AppError):
+    """Telematics has seen the command id: a replay, never a retry of ours (ids are fresh)."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "car-command-duplicate"
+    title = "The command was already sent"
+
+
+class TelematicsUnavailableError(AppError):
+    """The reason stays in the server log: a wrong secret is not the caller's business."""
+
+    status = HTTPStatus.SERVICE_UNAVAILABLE
+    slug = "telematics-unavailable"
+    title = "The car cannot be reached now"
+
+
+class TelematicsTimeoutError(AppError):
+    status = HTTPStatus.GATEWAY_TIMEOUT
+    slug = "telematics-timeout"
+    title = "The car did not answer in time; check its state before trying again"
+
+
 def apply_transition(status: CarStatus, transition: CarTransition) -> CarStatus:
     rule = _RULES[transition]
     if status not in rule.sources:
@@ -137,6 +216,8 @@ class CarState:
     battery_pct: int
     doors_locked: bool
     ignition_on: bool
+    # The immobilizer: a locked engine does not start, a running one is not stopped by it.
+    engine_locked: bool
     recorded_at: datetime
 
     def __post_init__(self) -> None:
@@ -254,6 +335,25 @@ class CarOnMap:
     range_km: int
     # Only when the client shared where they are; the point itself is never kept.
     distance_m: int | None
+
+
+@dataclass(frozen=True)
+class StaffCarFilter:
+    """Which cars a staff member lists; no statuses means every status."""
+
+    statuses: frozenset[CarStatus] = frozenset()
+    low_battery: bool = False
+
+
+def is_low_battery(state: CarState | None, rules: AvailabilityRules) -> bool:
+    # Below the charge a car is offered to clients at: it waits for a charge, not for a client.
+    return state is not None and state.battery_pct < rules.min_battery_pct
+
+
+def matches_staff_filter(car: Car, car_filter: StaffCarFilter, rules: AvailabilityRules) -> bool:
+    if car_filter.statuses and car.status not in car_filter.statuses:
+        return False
+    return not car_filter.low_battery or is_low_battery(car.state, rules)
 
 
 def range_left_km(full_range_km: int, battery_pct: int) -> int:

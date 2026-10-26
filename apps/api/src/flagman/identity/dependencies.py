@@ -2,13 +2,17 @@
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.core.db import get_session
 from flagman.core.resources import Resources, get_resources
+from flagman.identity import service
 from flagman.identity.domain import (
     AccessTokenInvalidError,
     StaffRole,
@@ -53,6 +57,7 @@ async def get_current_client(
 @dataclass(frozen=True)
 class CurrentStaff:
     staff_id: UUID
+    session_id: UUID
     role: StaffRole
 
 
@@ -70,7 +75,7 @@ async def get_current_staff(
     claims = read_staff_access_token(
         credentials.credentials, resources.settings.api_jwt_secret.get_secret_value()
     )
-    return CurrentStaff(staff_id=claims.staff_id, role=claims.role)
+    return CurrentStaff(staff_id=claims.staff_id, session_id=claims.session_id, role=claims.role)
 
 
 def require_staff_role(*roles: StaffRole) -> Callable[[CurrentStaff], Awaitable[CurrentStaff]]:
@@ -80,6 +85,30 @@ def require_staff_role(*roles: StaffRole) -> Callable[[CurrentStaff], Awaitable[
     async def check(staff: Annotated[CurrentStaff, Depends(get_current_staff)]) -> CurrentStaff:
         if staff.role not in allowed:
             raise StaffRoleForbiddenError
+        return staff
+
+    return check
+
+
+def require_live_staff_session(
+    *roles: StaffRole,
+) -> Callable[[CurrentStaff, AsyncSession], Awaitable[CurrentStaff]]:
+    """`require_staff_role` that also asks the database whether the session is still on.
+
+    For actions too dangerous to allow for the rest of a token's 15 minutes after a sign-out,
+    a revoked session or a disabled account, such as commands to cars.
+    """
+    check_role = require_staff_role(*roles)
+
+    async def check(
+        staff: Annotated[CurrentStaff, Depends(check_role)],
+        db: Annotated[AsyncSession, Depends(get_session)],
+    ) -> CurrentStaff:
+        active = await service.is_staff_session_active(
+            db, staff.staff_id, staff.session_id, datetime.now(UTC)
+        )
+        if not active:
+            raise AccessTokenInvalidError
         return staff
 
     return check

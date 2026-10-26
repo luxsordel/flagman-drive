@@ -12,6 +12,8 @@ export class ApiError extends Error {
     readonly problem?: string,
     /** From `Retry-After` of a 429. */
     readonly retryAfterSeconds?: number,
+    /** The Problem's `detail`, for the problems whose detail is a code, e.g. a car's refusal reason. */
+    readonly detail?: string,
   ) {
     super(`API request failed with status ${String(status)}`);
     this.name = 'ApiError';
@@ -43,11 +45,18 @@ const fetchOrNetworkError = (request: Request): Promise<Response> =>
 /** Builds an ApiError from a failed response and the body openapi-fetch parsed from it. */
 export function toApiError(response: Response, body: unknown): ApiError {
   const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
+  const slug = problemSlug(body);
+  // Only a Problem's own detail: a proxy's error page is not ours to show.
+  const detail =
+    slug !== null && typeof body === 'object' && body !== null && 'detail' in body
+      ? body.detail
+      : undefined;
   return new ApiError(
     response.status,
-    problemSlug(body) ?? undefined,
+    slug ?? undefined,
     // "0" asks for no wait at all: the form then shows no countdown.
     retryAfterSeconds ? retryAfterSeconds : undefined,
+    typeof detail === 'string' ? detail : undefined,
   );
 }
 

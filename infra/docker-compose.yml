@@ -132,9 +132,11 @@ services:
       # For `flagman-fleet seed`: the same values as the emulator, so the seeded cars get its ids.
       EMULATOR_SEED: ${EMULATOR_SEED:-42}
       EMULATOR_CAR_COUNT: ${EMULATOR_CAR_COUNT:-30}
-      # Checks the emulator's telemetry webhooks. The command secret stays with the emulator:
-      # the API does not send commands yet (docs/adr/0007).
+      # Checks the emulator's telemetry webhooks and signs car commands (docs/adr/0007).
       EMULATOR_TELEMETRY_SECRET: ${EMULATOR_TELEMETRY_SECRET:?set EMULATOR_TELEMETRY_SECRET in .env}
+      EMULATOR_COMMAND_SECRET: ${EMULATOR_COMMAND_SECRET:?set EMULATOR_COMMAND_SECRET in .env}
+      EMULATOR_URL: ${EMULATOR_URL:-http://car-emulator:8100}
+      TELEMATICS_COMMAND_TIMEOUT_SECONDS: ${TELEMATICS_COMMAND_TIMEOUT_SECONDS:-}
       TELEMATICS_SIGNATURE_TOLERANCE_SECONDS: ${TELEMATICS_SIGNATURE_TOLERANCE_SECONDS:-}
     ports:
       - "127.0.0.1:${API_PORT:-8000}:8000"

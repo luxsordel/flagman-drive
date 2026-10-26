@@ -117,7 +117,11 @@ async def test_oversized_body_is_rejected_before_parsing(
 
 @pytest.mark.parametrize(
     ("command", "field", "expected"),
-    [("open", "doors_locked", False), ("lock_engine", "engine_locked", True)],
+    [
+        ("open", "doors_locked", False),
+        ("lock_engine", "engine_locked", True),
+        ("unlock_engine", "engine_locked", False),
+    ],
 )
 async def test_execute_command(
     client: httpx.AsyncClient,
