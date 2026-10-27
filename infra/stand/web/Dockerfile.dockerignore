@@ -9,7 +9,6 @@
 !infra/stand/web/Caddyfile
 **/node_modules
 **/dist
-**/dist-web
 **/.expo
 **/.env*
 !**/.env.example

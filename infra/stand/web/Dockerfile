@@ -25,8 +25,7 @@ COPY apps/mobile apps/mobile
 ARG STAND_DOMAIN
 RUN test -n "$STAND_DOMAIN" || { echo "STAND_DOMAIN build arg is required" >&2; exit 1; }
 RUN npm run build --workspace @flagman/admin
-RUN cd apps/mobile \
-    && EXPO_PUBLIC_API_URL="https://api.${STAND_DOMAIN}" npx expo export --platform web --output-dir dist-web
+RUN EXPO_PUBLIC_API_URL="https://api.${STAND_DOMAIN}" npm run build:web --workspace @flagman/mobile
 
 
 FROM caddy:2.10.2-alpine
@@ -41,6 +40,6 @@ RUN cp /usr/bin/caddy /tmp/caddy && mv /tmp/caddy /usr/bin/caddy \
 COPY infra/stand/web/Caddyfile /etc/caddy/Caddyfile
 # Owned by root and read-only for the Caddy user, like the API's code.
 COPY --from=build /src/apps/admin/dist /srv/admin
-COPY --from=build /src/apps/mobile/dist-web /srv/app
+COPY --from=build /src/apps/mobile/dist/web /srv/app
 
 USER caddy
