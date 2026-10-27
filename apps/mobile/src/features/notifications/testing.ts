@@ -28,6 +28,7 @@ export function fakeNotificationsApi() {
     registerDevice: jest.fn<Promise<Result<null>>, [string, PushPlatform]>(() =>
       Promise.resolve(ok(null)),
     ),
+    forgetDevice: jest.fn<Promise<Result<null>>, []>(() => Promise.resolve(ok(null))),
     getPreferences: jest.fn<Promise<Result<NotificationPreferences>>, []>(),
     updatePreferences: jest.fn<
       Promise<Result<NotificationPreferences>>,

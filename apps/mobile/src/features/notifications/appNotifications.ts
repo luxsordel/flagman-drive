@@ -43,6 +43,8 @@ export function createAppNotifications(session: AuthSession): NotificationsDeps 
       return (await Notifications.getExpoPushTokenAsync()).data;
     },
   };
+  // The server stops pushes to a signed-out session anyway; this also deletes the token at once.
+  session.beforeSignOut(() => api.forgetDevice());
   return {
     api,
     push,

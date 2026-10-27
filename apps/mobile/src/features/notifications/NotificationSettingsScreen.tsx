@@ -2,7 +2,7 @@ import { spacing } from '@flagman/design-tokens';
 import { useRouter } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ActivityIndicator, StyleSheet, Switch, View } from 'react-native';
+import { ActivityIndicator, AppState, StyleSheet, Switch, View } from 'react-native';
 
 import { useMounted } from '../../hooks/useMounted';
 import { useTheme } from '../../theme/theme';
@@ -91,11 +91,19 @@ function DevicePush() {
 
   useEffect(() => {
     let active = true;
-    void syncPush(push).then((result) => {
-      if (active) setState(result);
+    const sync = () => {
+      void syncPush(push).then((result) => {
+        if (active) setState(result);
+      });
+    };
+    sync();
+    // The client may have allowed notifications in the system settings and come back.
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next === 'active') sync();
     });
     return () => {
       active = false;
+      subscription.remove();
     };
   }, [push]);
 

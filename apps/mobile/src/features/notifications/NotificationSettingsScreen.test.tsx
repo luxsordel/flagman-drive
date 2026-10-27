@@ -1,4 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AppState, type AppStateStatus } from 'react-native';
 
 import { initI18n } from '../../i18n';
 import { NotificationSettingsScreen } from './NotificationSettingsScreen';
@@ -48,6 +49,10 @@ const toggle = (name: string) => screen.getByRole('switch', { name });
 describe('NotificationSettingsScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('shows every category, with trip and payment locked on', async () => {
@@ -119,6 +124,24 @@ describe('NotificationSettingsScreen', () => {
     );
 
     expect(deps.openSystemSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('sees a permission given in the system settings on coming back', async () => {
+    const listeners: ((state: AppStateStatus) => void)[] = [];
+    jest.spyOn(AppState, 'addEventListener').mockImplementation((_event, listener) => {
+      listeners.push(listener);
+      return { remove: jest.fn() };
+    });
+    const push = fakePushDeps(refused);
+    await renderScreen(push, 'blocked');
+    push.getPermission.mockResolvedValue(granted);
+
+    await act(() => {
+      for (const listener of listeners) listener('active');
+    });
+
+    expect(await screen.findByText(deviceTexts.enabled)).toBeOnTheScreen();
+    expect(push.api.registerDevice).toHaveBeenCalledTimes(1);
   });
 
   it('explains that the web gets no pushes', async () => {

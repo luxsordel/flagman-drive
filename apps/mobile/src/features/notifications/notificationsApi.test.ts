@@ -20,6 +20,14 @@ describe('createNotificationsApi', () => {
     ]);
   });
 
+  it('forgets the device of this session', async () => {
+    const { http, notifications } = setup();
+    http.on('/me/push-device', new Response(null, { status: 204 }));
+
+    await expect(notifications.forgetDevice()).resolves.toEqual(ok(null));
+    expect(http.calls).toEqual([{ path: '/me/push-device', body: null }]);
+  });
+
   it('reads and changes the preferences', async () => {
     const { http, notifications } = setup();
     http.on(

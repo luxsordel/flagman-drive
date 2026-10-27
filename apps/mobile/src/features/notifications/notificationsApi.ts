@@ -13,6 +13,8 @@ export type Result<T> = { ok: true; value: T } | { ok: false; error: Notificatio
 export interface NotificationsApi {
   /** Pushes go to this token while the current session lasts; sign-out stops them on the server. */
   registerDevice(token: string, platform: PushPlatform): Promise<Result<null>>;
+  /** Stops pushes to this phone; idempotent. */
+  forgetDevice(): Promise<Result<null>>;
   getPreferences(): Promise<Result<NotificationPreferences>>;
   /** Only the categories to change; the others stay as they are. */
   updatePreferences(
@@ -34,6 +36,16 @@ export function createNotificationsApi(api: ApiClient): NotificationsApi {
         const { response, error } = await api.PUT('/me/push-device', {
           body: { token, platform },
         });
+        return response.ok
+          ? { ok: true, value: null }
+          : { ok: false, error: notificationsErrorFromResponse(response, error) };
+      } catch {
+        return { ok: false, error: { kind: 'network' } };
+      }
+    },
+    forgetDevice: async () => {
+      try {
+        const { response, error } = await api.DELETE('/me/push-device');
         return response.ok
           ? { ok: true, value: null }
           : { ok: false, error: notificationsErrorFromResponse(response, error) };
