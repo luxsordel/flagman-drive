@@ -28,7 +28,10 @@ conflict with open PRs and work in progress; ask which one to take.
 5. Move the issue to **In progress** on the board: `bash scripts/board-status.sh <n> "In progress"`.
    If it fails, tell the user and continue — the board is not a reason to stop the task.
 6. Rename this session after the task if the session-title tool is available: `#<n> <short title>`.
-7. Read the docs relevant to the issue area (`docs/01..07`, ADRs) and the code it touches.
+7. Gather context with one `Explore` subagent (medium breadth): the doc sections (`docs/01..07`, ADRs) and the
+   code the issue touches, the patterns to follow, and the existing tests nearby. Ask for `path:line` and short
+   notes, not file contents. Then read yourself only the ranges you are going to change (see «Экономия контекста»
+   in CLAUDE.md).
 8. Present a plan: files to change, tests to add, risks (security-sensitive modules: identity, kyc, payments,
    rentals, car commands), and any overlap with other open PRs (`gh pr list --state open` + their files).
    The whole issue is delivered in **one PR** (see «Жизненный цикл задачи» in `docs/04-workflow.md`): plan all
@@ -41,5 +44,7 @@ conflict with open PRs and work in progress; ask which one to take.
    For anything bigger than a trivial change, wait for the user's approval of the plan before writing code.
 9. While implementing, keep going until every acceptance criterion is met on this branch. Do not stop halfway to
    ship a partial PR; if a criterion cannot be met, tell the user before `/ship`, not after.
+   When everything is done and the checks pass, tell the user to run `/clear` and then `/pre-ship-review` and
+   `/ship`: the branch and the changes stay, and a short context makes the review rounds much cheaper.
 10. After the plan is approved, post it as a short comment on the issue (`gh issue comment <n>`) so the
    teammates see what is going on, unless the user says not to.
