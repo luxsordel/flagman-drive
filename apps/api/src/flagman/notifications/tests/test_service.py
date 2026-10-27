@@ -1,0 +1,289 @@
+import uuid
+from datetime import UTC, datetime, timedelta
+
+import pytest
+import structlog
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+from flagman.core.config import Settings
+from flagman.identity import repository as identity_repository
+from flagman.identity.domain import Language
+from flagman.notifications import service
+from flagman.notifications.domain import (
+    MAX_ATTEMPTS,
+    Notification,
+    NotificationCategory,
+    NotificationEvent,
+    OutboxStatus,
+    PushPlatform,
+)
+from flagman.notifications.fake_provider import FakePushProvider
+from flagman.notifications.models import OutboxNotification, PushDevice
+from flagman.notifications.tests.conftest import Caller, push_token, sign_in
+
+pytestmark = pytest.mark.integration
+
+
+def _notification(
+    event: NotificationEvent = NotificationEvent.TRIP_FINISHED, **params: int
+) -> Notification:
+    defaults = {
+        NotificationEvent.RESERVATION_EXPIRING: {"minutes_left": 5},
+        NotificationEvent.RESERVATION_EXPIRED: {},
+        NotificationEvent.TRIP_LOW_BATTERY: {"battery_pct": 15},
+        NotificationEvent.TRIP_FINISHED: {"total": 1250},
+        NotificationEvent.PAYMENT_FAILED: {"amount": 990},
+    }
+    return Notification(event, uuid.uuid4(), params or defaults[event])
+
+
+async def _notify(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller, notification: Notification
+) -> None:
+    async with sessions() as db, db.begin():
+        await service.notify_client(db, caller.id, notification, datetime.now(UTC))
+
+
+async def _register(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller, token: str | None = None
+) -> str:
+    token = token or push_token()
+    async with sessions() as db:
+        await service.register_device(
+            db,
+            user_id=caller.id,
+            session_id=caller.session_id,
+            token=token,
+            platform=PushPlatform.IOS,
+            now=datetime.now(UTC),
+        )
+    return token
+
+
+async def _outbox(
+    sessions: async_sessionmaker[AsyncSession], notification: Notification
+) -> list[OutboxNotification]:
+    async with sessions() as db:
+        rows = await db.scalars(
+            select(OutboxNotification).where(OutboxNotification.dedup_key == notification.dedup_key)
+        )
+        return list(rows)
+
+
+def _sent_to(provider: FakePushProvider, token: str) -> list[tuple[str, str]]:
+    return [(m.content.title, m.content.body) for m in provider.sent if m.token == token]
+
+
+async def _dispatch(
+    sessions: async_sessionmaker[AsyncSession],
+    provider: FakePushProvider,
+    now: datetime | None = None,
+) -> service.DispatchResult:
+    return await service.dispatch_due(sessions, provider, now or datetime.now(UTC))
+
+
+@pytest.mark.parametrize("event", list(NotificationEvent))
+async def test_every_event_reaches_every_device_of_the_client(
+    sessions: async_sessionmaker[AsyncSession],
+    notifications_settings: Settings,
+    event: NotificationEvent,
+) -> None:
+    phone = await sign_in(sessions, notifications_settings, Language.EN)
+    tablet = await sign_in(sessions, notifications_settings, user_id=phone.id)
+    tokens = [await _register(sessions, phone), await _register(sessions, tablet)]
+    notification = _notification(event)
+    provider = FakePushProvider()
+
+    await _notify(sessions, phone, notification)
+    await _dispatch(sessions, provider)
+
+    for token in tokens:
+        assert len(_sent_to(provider, token)) == 1
+    [row] = await _outbox(sessions, notification)
+    assert row.status == OutboxStatus.SENT
+    assert row.attempts == 1
+
+
+async def test_text_is_in_the_clients_language(
+    sessions: async_sessionmaker[AsyncSession], notifications_settings: Settings
+) -> None:
+    caller = await sign_in(sessions, notifications_settings, Language.EN)
+    token = await _register(sessions, caller)
+    provider = FakePushProvider()
+
+    await _notify(sessions, caller, _notification(NotificationEvent.PAYMENT_FAILED, amount=990))
+    await _dispatch(sessions, provider)
+
+    assert _sent_to(provider, token) == [
+        ("Payment failed", "We could not charge 9.90 BYN. Please check your card.")
+    ]
+
+
+async def test_the_same_event_is_sent_once(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    first = _notification(NotificationEvent.TRIP_LOW_BATTERY, battery_pct=19)
+    again = Notification(first.event, first.rental_id, {"battery_pct": 12})
+    provider = FakePushProvider()
+
+    await _notify(sessions, caller, first)
+    await _notify(sessions, caller, again)
+    await _dispatch(sessions, provider)
+    await _notify(sessions, caller, again)
+    await _dispatch(sessions, provider)
+
+    assert len(_sent_to(provider, token)) == 1
+    assert len(await _outbox(sessions, first)) == 1
+
+
+async def test_a_rolled_back_event_sends_nothing(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    notification = _notification()
+
+    class BusinessFailedError(Exception):
+        pass
+
+    async def finish_rental() -> None:
+        # The rental or the payment the notification tells of fails after it was queued.
+        async with sessions() as db, db.begin():
+            await service.notify_client(db, caller.id, notification, datetime.now(UTC))
+            raise BusinessFailedError
+
+    with pytest.raises(BusinessFailedError):
+        await finish_rental()
+
+    assert await _outbox(sessions, notification) == []
+
+
+async def test_a_switched_off_category_is_not_queued(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    async with sessions() as db:
+        await service.update_preferences(
+            db, caller.id, {NotificationCategory.RESERVATION: False}, datetime.now(UTC)
+        )
+    expiring = _notification(NotificationEvent.RESERVATION_EXPIRING)
+    finished = _notification(NotificationEvent.TRIP_FINISHED)
+
+    await _notify(sessions, caller, expiring)
+    await _notify(sessions, caller, finished)
+
+    assert await _outbox(sessions, expiring) == []
+    assert len(await _outbox(sessions, finished)) == 1
+
+
+async def test_a_provider_outage_is_retried_and_then_given_up(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    notification = _notification()
+    provider = FakePushProvider(failures_left=MAX_ATTEMPTS)
+    await _notify(sessions, caller, notification)
+    now = datetime.now(UTC)
+
+    await _dispatch(sessions, provider, now)
+    [row] = await _outbox(sessions, notification)
+    assert (row.status, row.attempts) == (OutboxStatus.PENDING, 1)
+    assert row.next_attempt_at == now + timedelta(seconds=30)
+
+    # Not due yet: nothing is tried before the pause is over.
+    await _dispatch(sessions, provider, now + timedelta(seconds=29))
+    [row] = await _outbox(sessions, notification)
+    assert row.attempts == 1
+
+    for _ in range(MAX_ATTEMPTS - 1):
+        now += timedelta(hours=1)
+        await _dispatch(sessions, provider, now)
+
+    [row] = await _outbox(sessions, notification)
+    assert (row.status, row.attempts) == (OutboxStatus.UNDELIVERED, MAX_ATTEMPTS)
+    assert _sent_to(provider, token) == []
+
+
+async def test_a_retry_after_an_outage_delivers(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    notification = _notification()
+    provider = FakePushProvider(failures_left=1)
+    await _notify(sessions, caller, notification)
+    now = datetime.now(UTC)
+
+    await _dispatch(sessions, provider, now)
+    await _dispatch(sessions, provider, now + timedelta(seconds=30))
+
+    assert len(_sent_to(provider, token)) == 1
+    [row] = await _outbox(sessions, notification)
+    assert (row.status, row.attempts) == (OutboxStatus.SENT, 2)
+
+
+async def test_an_unregistered_device_is_deleted(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    notification = _notification()
+    provider = FakePushProvider(unregistered_tokens={token})
+    await _notify(sessions, caller, notification)
+
+    await _dispatch(sessions, provider)
+
+    [row] = await _outbox(sessions, notification)
+    assert row.status == OutboxStatus.UNDELIVERED
+    async with sessions() as db:
+        assert await db.scalar(select(PushDevice).where(PushDevice.token == token)) is None
+
+
+async def test_a_signed_out_phone_gets_nothing(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    async with sessions() as db, db.begin():
+        await identity_repository.revoke_session(db, caller.session_id, datetime.now(UTC))
+    notification = _notification()
+    provider = FakePushProvider()
+    await _notify(sessions, caller, notification)
+
+    await _dispatch(sessions, provider)
+
+    assert _sent_to(provider, token) == []
+    [row] = await _outbox(sessions, notification)
+    assert row.status == OutboxStatus.UNDELIVERED
+    async with sessions() as db:
+        assert await db.scalar(select(PushDevice).where(PushDevice.token == token)) is None
+
+
+async def test_logs_hold_neither_tokens_nor_texts(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    await _notify(sessions, caller, _notification(NotificationEvent.PAYMENT_FAILED, amount=990))
+
+    with structlog.testing.capture_logs() as logs:
+        await _dispatch(sessions, FakePushProvider())
+
+    logged = repr(logs)
+    assert token not in logged
+    assert "9,90" not in logged
+    assert str(caller.id) not in logged
+
+
+async def test_old_finished_notifications_are_cleaned_up(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    await _register(sessions, caller)
+    notification = _notification()
+    await _notify(sessions, caller, notification)
+    await _dispatch(sessions, FakePushProvider())
+
+    async with sessions() as db:
+        await service.clean_up_outbox(db, datetime.now(UTC), timedelta(days=30))
+    assert len(await _outbox(sessions, notification)) == 1
+
+    async with sessions() as db:
+        await service.clean_up_outbox(
+            db, datetime.now(UTC) + timedelta(days=31), timedelta(days=30)
+        )
+    assert await _outbox(sessions, notification) == []
