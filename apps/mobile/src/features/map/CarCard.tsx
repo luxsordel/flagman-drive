@@ -5,7 +5,7 @@ import { ActivityIndicator, Image, StyleSheet, View } from 'react-native';
 import { useTheme } from '../../theme/theme';
 import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
-import { formatDistance } from './mapFormat';
+import { formatDistance, formatKopecks } from './mapFormat';
 import type { SelectedCar } from './mapStore';
 
 const photoHeight = 120;
@@ -56,6 +56,20 @@ export function CarCard({ selected, onClose }: { selected: SelectedCar; onClose:
                 }
               />
             ) : null}
+          </View>
+          <View style={styles.facts}>
+            <Fact
+              label={t('map.card.driving')}
+              value={t('map.card.perMinute', {
+                price: formatKopecks(car.tariff.driving_per_minute, i18n.language),
+              })}
+            />
+            <Fact
+              label={t('map.card.parked')}
+              value={t('map.card.perMinute', {
+                price: formatKopecks(car.tariff.parked_per_minute, i18n.language),
+              })}
+            />
           </View>
           <AppText tone="muted">{t('map.card.bookingSoon')}</AppText>
         </>

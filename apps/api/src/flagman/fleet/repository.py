@@ -22,6 +22,7 @@ from flagman.fleet.domain import (
     CarStatus,
     MapQuery,
     SnapshotOutcome,
+    StoredCarModel,
 )
 from flagman.fleet.models import Car as CarRow
 from flagman.fleet.models import CarModel
@@ -67,6 +68,7 @@ def _to_car(row: CarRow, model: CarModel, lat: float | None, lon: float | None) 
         )
     return Car(
         id=row.id,
+        model_id=row.model_id,
         model=CarModelSpec(
             brand=model.brand,
             name=model.name,
@@ -92,6 +94,30 @@ async def get_car(db: AsyncSession, car_id: UUID) -> Car | None:
 async def list_cars(db: AsyncSession) -> list[Car]:
     rows = await db.execute(_select_cars().order_by(CarRow.plate))
     return [_to_car(*row) for row in rows]
+
+
+def _to_model(model: CarModel) -> StoredCarModel:
+    return StoredCarModel(
+        id=model.id,
+        spec=CarModelSpec(
+            brand=model.brand,
+            name=model.name,
+            seats=model.seats,
+            battery_wh=model.battery_wh,
+            range_km=model.range_km,
+            photo_url=model.photo_url,
+        ),
+    )
+
+
+async def list_models(db: AsyncSession) -> list[StoredCarModel]:
+    models = await db.scalars(select(CarModel).order_by(CarModel.brand, CarModel.name))
+    return [_to_model(model) for model in models]
+
+
+async def get_model(db: AsyncSession, model_id: UUID) -> StoredCarModel | None:
+    model = await db.get(CarModel, model_id)
+    return _to_model(model) if model else None
 
 
 async def find_rentable_cars(
@@ -129,6 +155,8 @@ async def find_rentable_cars(
         )
     if car_id is not None:
         select_cars = select_cars.where(CarRow.id == car_id)
+    if query.models is not None:
+        select_cars = select_cars.where(CarRow.model_id.in_(query.models))
     rows = await db.execute(select_cars)
     return [(_to_car(row, model, lat, lon), meters) for row, model, lat, lon, meters in rows]
 

@@ -2,7 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from flagman.fleet.signing import SignatureError, SignedRequest, sign, verify
+from flagman.core.signing import SignatureError, SignedRequest, sign, verify
 
 SECRET = b"s" * 40
 NOW = datetime(2026, 10, 25, 12, 0, tzinfo=UTC)

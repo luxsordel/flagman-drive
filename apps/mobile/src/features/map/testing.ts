@@ -14,6 +14,7 @@ export function mapCar(overrides: Partial<MapCar> = {}): MapCar {
     battery_pct: 80,
     range_km: 320,
     distance_m: null,
+    tariff: { driving_per_minute: 39, parked_per_minute: 12 },
     ...overrides,
   };
 }
