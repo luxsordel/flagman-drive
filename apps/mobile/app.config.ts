@@ -42,6 +42,11 @@ const config: ExpoConfig = {
       },
     },
   },
+  extra: {
+    // Expo push tokens are issued per EAS project (docs/adr/0020). Not a secret: it ends up in the
+    // build. Without it the app runs, only this phone gets no pushes.
+    ...(process.env.EAS_PROJECT_ID ? { eas: { projectId: process.env.EAS_PROJECT_ID } } : {}),
+  },
   plugins: [
     'expo-router',
     'expo-dev-client',
@@ -60,6 +65,8 @@ const config: ExpoConfig = {
       },
     ],
     'expo-localization',
+    // Pushes only: no background tasks, no remote-notification background mode.
+    'expo-notifications',
     'expo-secure-store',
     [
       'expo-image-picker',
