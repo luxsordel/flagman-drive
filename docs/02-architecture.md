@@ -270,9 +270,11 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 
 ### Инфраструктура
 - Локально: **Docker Compose** (Postgres/PostGIS, Redis, SeaweedFS (S3), API, worker, эмулятор)
-- CI: **GitHub Actions** — линт, типы, тесты, сканеры безопасности, сборка образов
-- Хостинг демо: облако вне РФ (кредиты GitHub Student Pack: DigitalOcean / Azure for Students), регион ЕС.
-  См. [ADR-0004](adr/0004-hosting.md)
+- CI: **GitHub Actions** — линт, типы, тесты, сканеры безопасности; образы стенда собираются и публикуются
+  в GHCR только при выкладке
+- Демо-стенд: один дроплет DigitalOcean во Франкфурте, Compose + Caddy, выкладка по кнопке или тегу.
+  См. [ADR-0004](adr/0004-hosting.md), [ADR-0021](adr/0021-demo-stand-digitalocean-ghcr.md),
+  [docs/08-demo-stand.md](08-demo-stand.md)
 
 ## Почему не другое — см. ADR
 
@@ -293,3 +295,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0015](adr/0015-postgis-geoalchemy2.md) — геоданные в PostGIS через GeoAlchemy2
 - [ADR-0016](adr/0016-maplibre-react-native-dev-build.md) — карта в мобилке: MapLibre React Native и dev-сборка
 - [ADR-0017](adr/0017-fleet-stream-websocket.md) — живой парк для сотрудников: WebSocket и уведомления Postgres
+- [ADR-0021](adr/0021-demo-stand-digitalocean-ghcr.md) — демо-стенд: DigitalOcean, образы в GHCR, выкладка по кнопке
