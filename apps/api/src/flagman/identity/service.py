@@ -71,6 +71,7 @@ from flagman.identity.domain import (
     issue_staff_challenge,
     match_totp,
     normalize_email,
+    normalize_totp_secret,
     password_needs_rehash,
     read_staff_access,
     read_staff_challenge,
@@ -737,6 +738,61 @@ async def create_staff(
             ),
         )
     return staff_id
+
+
+@dataclass(frozen=True)
+class StandStaff:
+    email: str
+    password: str
+    role: StaffRole
+    totp_secret: str
+
+
+@dataclass(frozen=True)
+class EnsuredStaff:
+    id: UUID
+    role: StaffRole
+    created: bool
+
+
+async def ensure_staff(
+    db: AsyncSession, account: StandStaff, totp_key: bytes, now: datetime
+) -> EnsuredStaff:
+    """For the stand seed (#123): a staff member with 2FA already set up, safe to run again.
+
+    An existing account is left as it is, even with another role or password: changing them
+    would end the sessions of whoever is showing the stand. `set-password` and `reset-totp` do
+    that on purpose. Raises PasswordPolicyError, TotpSecretPolicyError, both checked first so a
+    broken seed fails on every run, not only on the first one.
+    """
+    check_password_policy(account.password)
+    secret = normalize_totp_secret(account.totp_secret)
+    email = normalize_email(account.email)
+    role = account.role
+    async with db.begin():
+        existing = await repository.get_staff_by_email(db, email)
+    if existing is not None:
+        return EnsuredStaff(existing.id, existing.role, created=False)
+    password_hash = await asyncio.to_thread(hash_password, account.password)
+    async with db.begin():
+        staff_id = await repository.create_staff(db, email, password_hash, role, now)
+        if staff_id is None:
+            # Another seed run created it in the meantime: the goal is reached either way.
+            raced = await _get_staff(db, email)
+            return EnsuredStaff(raced.id, raced.role, created=False)
+        ciphertext = encrypt_totp_secret(secret, totp_key, staff_id)
+        await repository.set_enrolled_totp_secret(db, staff_id, ciphertext, now)
+        await audit.record(
+            db,
+            AuditEntry(
+                SYSTEM,
+                AuditAction.STAFF_CREATED,
+                RequestOrigin(),
+                target=AuditTarget(AuditTargetType.STAFF_MEMBER, staff_id),
+                details={"role": role.value, "totp_preset": True},
+            ),
+        )
+    return EnsuredStaff(staff_id, role, created=True)
 
 
 async def reset_staff_totp(db: AsyncSession, email: str, now: datetime) -> UUID:

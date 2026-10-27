@@ -4,9 +4,14 @@
     flagman-staff set-password --email admin@flagman.by
     flagman-staff reset-totp --email admin@flagman.by
     flagman-staff disable --email admin@flagman.by
+    flagman-staff ensure --email operator@stand.test --role operator < password-and-2fa-secret
 
 The password is asked for twice without echo, or read from stdin with --password-stdin. It is
 never an argument: those end up in the shell history and in the process list.
+
+`ensure` is for the demo stand seed (#123, docs/08-demo-stand.md): it reads the password and the
+base32 2FA secret from the first two lines of stdin, creates the account with 2FA already set up
+and leaves an existing account untouched, so it is safe to run on every deploy.
 """
 
 import argparse
@@ -29,6 +34,7 @@ from flagman.identity.domain import (
     StaffEmailTakenError,
     StaffNotFoundError,
     StaffRole,
+    TotpSecretPolicyError,
     normalize_email,
 )
 
@@ -77,6 +83,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     reset.add_argument("--email", required=True)
 
+    ensure = commands.add_parser(
+        "ensure",
+        help="create a staff member with a preset 2FA secret unless the email exists (stand seed)",
+    )
+    ensure.add_argument("--email", required=True, type=_email)
+    ensure.add_argument("--role", required=True, choices=[role.value for role in StaffRole])
+
     disable = commands.add_parser(
         "disable", help="block sign-in and end every session (left the company, compromised)"
     )
@@ -94,7 +107,8 @@ def _read_password(from_stdin: bool, stdin: TextIO) -> str:
 
 
 async def _run(args: argparse.Namespace, stdin: TextIO, stdout: TextIO) -> int:
-    engine = create_engine(load_settings())
+    settings = load_settings()
+    engine = create_engine(settings)
     try:
         async with create_session_factory(engine)() as db:
             now = datetime.now(UTC)
@@ -106,6 +120,24 @@ async def _run(args: argparse.Namespace, stdin: TextIO, stdout: TextIO) -> int:
                     )
                     email = normalize_email(args.email)
                     stdout.write(f"Created {args.role} {staff_id} ({email}).\n")
+                case "ensure":
+                    account = service.StandStaff(
+                        email=args.email,
+                        password=stdin.readline().rstrip("\r\n"),
+                        role=StaffRole(args.role),
+                        totp_secret=stdin.readline().rstrip("\r\n"),
+                    )
+                    ensured = await service.ensure_staff(
+                        db, account, settings.totp_encryption_key, now
+                    )
+                    email = normalize_email(args.email)
+                    if ensured.created:
+                        stdout.write(f"Created {args.role} {ensured.id} ({email}) with 2FA.\n")
+                    else:
+                        stdout.write(
+                            f"Already there as {ensured.role.value} {ensured.id} ({email}); "
+                            "nothing changed.\n"
+                        )
                 case "set-password":
                     password = _read_password(args.password_stdin, stdin)
                     staff_id = await service.set_staff_password(db, args.email, password, now)
@@ -137,7 +169,7 @@ def main(
     args = _parser().parse_args(argv)
     try:
         return asyncio.run(_run(args, stdin, stdout))
-    except PasswordPolicyError as error:
+    except (PasswordPolicyError, TotpSecretPolicyError) as error:
         sys.stderr.write(f"error: {error}\n")
     except StaffEmailTakenError:
         sys.stderr.write("error: a staff member with this email already exists\n")
