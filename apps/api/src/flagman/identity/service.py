@@ -403,6 +403,27 @@ async def get_client_identities(
     }
 
 
+async def get_client_languages(
+    db: AsyncSession, user_ids: Collection[UUID]
+) -> dict[UUID, Language]:
+    """For texts sent to clients (#119); runs in the caller's transaction."""
+    records = await repository.get_client_profiles(db, user_ids)
+    return {user_id: Language(record.language) for user_id, record in records.items()}
+
+
+async def get_active_client_sessions(
+    db: AsyncSession, session_ids: Collection[UUID], now: datetime
+) -> set[UUID]:
+    """Which of these sessions are still signed in; runs in the caller's transaction.
+
+    Unlike an access token, this sees a logout at once: push notifications (#119) stop the
+    moment the client signs out.
+    """
+    if not session_ids:
+        return set()
+    return await repository.get_active_client_sessions(db, session_ids, now)
+
+
 def _verify_password_or_dummy(password_hash: str | None, password: str) -> bool:
     # An unknown email still costs one argon2 run, so timing does not reveal who has an account.
     if password_hash is None:

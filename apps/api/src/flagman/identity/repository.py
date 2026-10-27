@@ -107,6 +107,19 @@ async def get_client_profiles(
     return {row.id: _client_profile_record(row) for row in rows}
 
 
+async def get_active_client_sessions(
+    db: AsyncSession, session_ids: Collection[UUID], now: datetime
+) -> set[UUID]:
+    rows = await db.scalars(
+        select(AuthSession.id).where(
+            AuthSession.id.in_(session_ids),
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > now,
+        )
+    )
+    return set(rows)
+
+
 async def update_client_profile(
     db: AsyncSession, user_id: UUID, changes: Mapping[str, str | date | None]
 ) -> ClientProfileRecord | None:
