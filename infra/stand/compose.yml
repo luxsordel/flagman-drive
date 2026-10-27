@@ -70,6 +70,8 @@ services:
     environment:
       STAND_DOMAIN: ${STAND_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+      # Caddy treats a set but empty variable as a value, so the default is applied here.
+      MAP_ORIGINS: ${MAP_ORIGINS:-https://tiles.openfreemap.org}
     ports:
       - "80:80"
       - "443:443"

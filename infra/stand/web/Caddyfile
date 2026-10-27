@@ -1,7 +1,7 @@
 # The stand's edge (docs/adr/0021): HTTPS for four subdomains of STAND_DOMAIN.
 # Caddy runs as a non-root user and still binds 80 and 443: Docker lets any user of a container
 # bind low ports inside the container's own network namespace.
-# MAP_ORIGINS: where the maps load tiles, styles and fonts from (ADR-0003); one origin by default.
+# MAP_ORIGINS (stand.env): where the maps load tiles, styles and fonts from (ADR-0003).
 {
 	email {$ACME_EMAIL}
 	# Nothing reconfigures Caddy at runtime, so its admin API stays closed.
@@ -43,7 +43,7 @@
 }
 
 # The admin panel. Its API calls stay on this origin, like the Vite proxy in development, so the
-# staff refresh cookie belongs to admin. and no CORS is needed.
+# staff refresh cookie belongs to admin. and no CORS is needed. Document photos come from s3.
 admin.{$STAND_DOMAIN} {
 	import common
 	@api path /staff/* /admin/*
@@ -52,7 +52,7 @@ admin.{$STAND_DOMAIN} {
 	}
 	handle {
 		root * /srv/admin
-		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: {$MAP_ORIGINS:https://tiles.openfreemap.org}; font-src 'self'; connect-src 'self' wss://admin.{$STAND_DOMAIN} {$MAP_ORIGINS:https://tiles.openfreemap.org}; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
+		header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://s3.{$STAND_DOMAIN} {$MAP_ORIGINS:https://tiles.openfreemap.org}; font-src 'self'; connect-src 'self' wss://admin.{$STAND_DOMAIN} {$MAP_ORIGINS:https://tiles.openfreemap.org}; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 		import spa
 	}
 }

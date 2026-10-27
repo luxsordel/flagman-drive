@@ -83,10 +83,17 @@ jobs:
       SSH_HOST: ${{ secrets.STAND_SSH_HOST }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # A rollback looks up the commit of its tag below.
+          fetch-depth: 0
       - name: Check the tag
         # The tag reaches a shell on the server, so only an image tag of this workflow passes.
         run: |
           [[ "$TAG" =~ ^[0-9a-f]{12}$ ]] || { echo "::error::Not an image tag: $TAG"; exit 1; }
+      - name: Take infra/ of the tag's commit
+        # Old images go with the compose files and scripts they were built with: newer ones may
+        # expect variables, services or commands the old images do not have.
+        run: git checkout --quiet "$TAG"
       - name: Set up SSH
         env:
           SSH_KEY: ${{ secrets.STAND_SSH_KEY }}

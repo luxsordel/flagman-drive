@@ -28,10 +28,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # shellcheck comes preinstalled on the GitHub Ubuntu runners.
       - name: Run shellcheck
-        run: shellcheck scripts/*.sh scripts/tests/*.sh infra/stand/bin/*.sh
+        run: shellcheck scripts/*.sh scripts/tests/*.sh infra/stand/bin/*.sh infra/stand/tests/*.sh
       - name: Run script tests
         run: |
-          for t in scripts/tests/*.test.sh; do
+          for t in scripts/tests/*.test.sh infra/stand/tests/*.test.sh; do
             echo "== $t"
             bash "$t"
           done

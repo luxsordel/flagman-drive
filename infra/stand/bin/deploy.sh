@@ -10,6 +10,8 @@ new_tag="${1:?usage: deploy.sh <tag>}"
 old_tag="$(last_deployed_tag)"
 registry="$(stand_env STAND_REGISTRY)"
 api_image="$registry/flagman-api"
+# Tags whose images stay on the server for a rollback without a pull; older ones are removed.
+keep_tags=5
 
 alembic_in() {
   docker run --rm --entrypoint alembic "$api_image:$1" "${@:2}"
@@ -20,8 +22,24 @@ revision_ids() {
   grep -oE '^[0-9a-f]{6,}\b' || true
 }
 
+# Images of the stand whose tags are not among the last keep_tags deploys. One still in use by a
+# container is refused by docker and stays.
+remove_old_images() {
+  local kept image
+  kept="$(tail -n "$keep_tags" "$STAND_TAGS_LOG" | cut -d ' ' -f 2)"
+  docker image ls --format '{{.Repository}}:{{.Tag}}' | { grep "^$registry/flagman-" || true; } \
+    | while read -r image; do
+      if ! grep -qxF "${image##*:}" <<<"$kept"; then
+        docker image rm "$image" >/dev/null 2>&1 || true
+      fi
+    done
+  docker image prune --force >/dev/null
+}
+
 echo "deploy: $old_tag -> $new_tag"
 STAND_TAG="$new_tag" stand_compose pull --quiet
+# Before anything changes: a broken stand.env must stop the deploy while the old version runs.
+"$(dirname "$0")/seed.sh" "$new_tag" --check
 
 # A rollback to an image with fewer migrations: the newer image is the only one that knows how
 # to undo them, so it takes the schema down to the old image's head before the switch.
@@ -49,8 +67,7 @@ for _ in $(seq 1 60); do
     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)" \
     >/dev/null 2>&1; then
     printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$new_tag" >>"$STAND_TAGS_LOG"
-    # Tagged images stay for rollbacks; only layers no tag uses any more go.
-    docker image prune --force >/dev/null
+    remove_old_images
     if [[ -n "$old_tag" && "$old_tag" != "$new_tag" ]]; then
       echo "deploy: $new_tag is up; roll back with deploy.sh $old_tag"
     else
