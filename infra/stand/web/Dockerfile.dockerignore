@@ -1,0 +1,15 @@
+# The build context is the repository root; only what infra/stand/web/Dockerfile copies goes in.
+*
+!package.json
+!package-lock.json
+!tsconfig.base.json
+!packages/
+!apps/admin/
+!apps/mobile/
+!infra/stand/web/Caddyfile
+**/node_modules
+**/dist
+**/dist-web
+**/.expo
+**/.env*
+!**/.env.example
