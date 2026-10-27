@@ -272,6 +272,23 @@ def test_empty_cleanup_retention_falls_back_to_the_default(monkeypatch: pytest.M
     assert _worker_settings().auth_cleanup_retention_days == 7
 
 
+def test_fake_push_provider_is_refused_in_prod() -> None:
+    with pytest.raises(ValidationError, match="NOTIFICATIONS_PROVIDER=fake"):
+        _worker_settings(api_env="prod", notifications_provider="fake")
+
+
+def test_empty_push_settings_leave_notifications_queued(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Compose passes the variables through even when .env leaves them empty.
+    for name in ("NOTIFICATIONS_PROVIDER", "EXPO_ACCESS_TOKEN", "NOTIFICATIONS_RETENTION_DAYS"):
+        monkeypatch.setenv(name, "")
+
+    settings = _worker_settings(api_env="prod")
+
+    assert settings.notifications_provider is None
+    assert settings.expo_access_token is None
+    assert settings.notifications_retention_days == 30
+
+
 @pytest.mark.parametrize("days", [0, -1])
 def test_cleanup_retention_must_be_at_least_a_day(days: int) -> None:
     # Zero would delete a session the moment it is revoked, together with its reuse evidence.
