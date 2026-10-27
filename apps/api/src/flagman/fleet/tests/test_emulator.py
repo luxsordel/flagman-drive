@@ -7,6 +7,7 @@ import pytest
 from pydantic import ValidationError
 
 from flagman.core.geo import GeoPoint
+from flagman.core.signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, sign
 from flagman.fleet.domain import (
     CarState,
     TelemetrySignatureInvalidError,
@@ -15,7 +16,6 @@ from flagman.fleet.domain import (
 from flagman.fleet.emulator import EmulatorTelemetryReceiver
 from flagman.fleet.ports import TelemetryWebhook
 from flagman.fleet.schemas import MAX_TELEMETRY_CARS
-from flagman.fleet.signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, sign
 
 SECRET = b"t" * 40
 NOW = datetime(2026, 10, 25, 12, 0, tzinfo=UTC)

@@ -147,6 +147,9 @@ describe('MapScreen', () => {
     expect(screen.getByText('80 %')).toBeOnTheScreen();
     expect(screen.getByText('320 км')).toBeOnTheScreen();
     expect(screen.getByText('1,5 км')).toBeOnTheScreen();
+    // Intl puts a no-break space between the amount and the currency.
+    expect(screen.getByText(/^0,39\sBYN\/мин$/)).toBeOnTheScreen();
+    expect(screen.getByText(/^0,12\sBYN\/мин$/)).toBeOnTheScreen();
     expect(mapProps().selectedId).toBe('car-1');
 
     await fireEvent.press(screen.getByRole('button', { name: 'Закрыть' }));

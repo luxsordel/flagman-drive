@@ -49,6 +49,11 @@ class AuditAction(StrEnum):
     ZONE_CREATED = "zone.created"
     ZONE_UPDATED = "zone.updated"
     ZONE_DISABLED = "zone.disabled"
+    TARIFF_CREATED = "tariff.created"
+    TARIFF_UPDATED = "tariff.updated"
+    PAYMENT_SUCCEEDED = "payment.succeeded"
+    PAYMENT_DECLINED = "payment.declined"
+    PAYMENT_FAILED = "payment.failed"
     CAR_COMMAND_SENT = "car.command_sent"
 
 
@@ -61,6 +66,8 @@ class AuditTargetType(StrEnum):
     STAFF_MEMBER = "staff_member"
     KYC_APPLICATION = "kyc_application"
     ZONE = "zone"
+    TARIFF = "tariff"
+    PAYMENT_OPERATION = "payment_operation"
     CAR = "car"
 
 

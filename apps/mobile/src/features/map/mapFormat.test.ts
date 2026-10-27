@@ -1,4 +1,12 @@
-import { formatDistance } from './mapFormat';
+import { formatDistance, formatKopecks } from './mapFormat';
+
+describe('formatKopecks', () => {
+  it('shows kopecks as rubles of the language', () => {
+    // Intl puts a no-break space between the amount and the currency.
+    expect(formatKopecks(39, 'ru').replace(/\s/g, ' ')).toBe('0,39 BYN');
+    expect(formatKopecks(1250, 'en').replace(/\s/g, ' ')).toBe('BYN 12.50');
+  });
+});
 
 describe('formatDistance', () => {
   it.each([

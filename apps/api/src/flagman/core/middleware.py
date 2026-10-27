@@ -92,7 +92,9 @@ class SecurityHeadersMiddleware:
                 headers["X-Content-Type-Options"] = "nosniff"
                 headers["Referrer-Policy"] = "no-referrer"
                 headers["X-Frame-Options"] = "DENY"
-                if strict_csp:
+                # A page that needs a little more (the fake payment provider's card form) sets its
+                # own policy, as narrow as it can; everything else gets the strict one.
+                if strict_csp and "Content-Security-Policy" not in headers:
                     headers["Content-Security-Policy"] = (
                         "default-src 'none'; frame-ancestors 'none'"
                     )

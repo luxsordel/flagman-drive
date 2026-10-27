@@ -12,7 +12,7 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.fleet import repository
-from flagman.fleet.domain import CarCommand, CarState, CarStatus
+from flagman.fleet.domain import CarCommand, CarModelSpec, CarState, CarStatus
 from flagman.fleet.models import Car as CarRow
 from flagman.fleet.seed import DEMO_MODELS
 from flagman.identity import service as identity
@@ -39,6 +39,7 @@ def add_car(  # noqa: PLR0913
     model_index: int = 0,
     engine_locked: bool = False,
     ignition_on: bool = False,
+    model: CarModelSpec | None = None,
 ) -> str:
     """Adds a car with a random plate and VIN, with a snapshot at `point` unless it is None."""
 
@@ -48,7 +49,8 @@ def add_car(  # noqa: PLR0913
         now = datetime.now(UTC)
         try:
             async with create_session_factory(engine)() as db, db.begin():
-                model_id, _ = await repository.ensure_model(db, DEMO_MODELS[model_index].spec, now)
+                spec = model or DEMO_MODELS[model_index].spec
+                model_id, _ = await repository.ensure_model(db, spec, now)
                 telematics_id = uuid.uuid4()
                 car = repository.NewCar(
                     model_id=model_id,

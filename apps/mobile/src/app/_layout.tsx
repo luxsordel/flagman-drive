@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AuthProvider, createAppAuthSession } from '../features/auth/session/AuthProvider';
 import { createAppKycStore, KycProvider } from '../features/kyc/KycProvider';
 import { createAppMapStore, MapProvider } from '../features/map/MapProvider';
+import { createAppPayments, PaymentsProvider } from '../features/payments/PaymentsProvider';
 import { createAppProfileStore, ProfileProvider } from '../features/profile/ProfileProvider';
 import { initI18n } from '../i18n';
 import { fontAssets } from '../theme/fonts';
@@ -22,6 +23,7 @@ export default function RootLayout() {
   const [kycStore] = useState(() => createAppKycStore(session));
   const [profileStore] = useState(() => createAppProfileStore(session));
   const [mapStore] = useState(() => createAppMapStore(session));
+  const [payments] = useState(() => createAppPayments(session));
   const status = useSyncExternalStore(session.subscribe, session.getStatus);
   const [fontsLoaded, fontError] = useFonts(fontAssets);
   // A failed font load falls back to system fonts rather than leaving the splash up forever.
@@ -46,19 +48,22 @@ export default function RootLayout() {
           <KycProvider store={kycStore}>
             <ProfileProvider store={profileStore}>
               <MapProvider store={mapStore}>
-                <StatusBar style="auto" />
-                <Stack screenOptions={{ headerShown: false }}>
-                  <Stack.Protected guard={signedIn}>
-                    <Stack.Screen name="index" />
-                    <Stack.Screen name="kyc/index" />
-                    <Stack.Screen name="kyc/upload" />
-                    <Stack.Screen name="profile" />
-                  </Stack.Protected>
-                  <Stack.Protected guard={!signedIn}>
-                    <Stack.Screen name="sign-in" />
-                    <Stack.Screen name="code" />
-                  </Stack.Protected>
-                </Stack>
+                <PaymentsProvider deps={payments}>
+                  <StatusBar style="auto" />
+                  <Stack screenOptions={{ headerShown: false }}>
+                    <Stack.Protected guard={signedIn}>
+                      <Stack.Screen name="index" />
+                      <Stack.Screen name="kyc/index" />
+                      <Stack.Screen name="kyc/upload" />
+                      <Stack.Screen name="profile" />
+                      <Stack.Screen name="payment-methods" />
+                    </Stack.Protected>
+                    <Stack.Protected guard={!signedIn}>
+                      <Stack.Screen name="sign-in" />
+                      <Stack.Screen name="code" />
+                    </Stack.Protected>
+                  </Stack>
+                </PaymentsProvider>
               </MapProvider>
             </ProfileProvider>
           </KycProvider>

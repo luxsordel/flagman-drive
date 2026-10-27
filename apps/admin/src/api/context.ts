@@ -6,6 +6,7 @@ import type { FleetApi } from '../fleet/api';
 import type { OpenFleetStream } from '../fleet/stream';
 import type { KycReviewApi } from '../kyc/api';
 import type { StaffListApi } from '../staff/api';
+import type { TariffsApi } from '../tariffs/api';
 import type { ZonesApi } from '../zones/api';
 
 /** The API calls the pages make; tests put fakes here instead of the network. */
@@ -17,6 +18,7 @@ export interface AdminApis {
   kycReview: KycReviewApi;
   staffList: StaffListApi;
   staffSignIn: StaffSignInApi;
+  tariffs: TariffsApi;
   zones: ZonesApi;
 }
 

@@ -121,6 +121,13 @@ class MapCarsQuery(ClientPoint):
         return MapQuery(area=self.area(), near=self.point(), limit=self.limit)
 
 
+class MapTariffOut(BaseModel):
+    """Kopecks of BYN; the server counts the price of a rental, the app only shows these."""
+
+    driving_per_minute: int
+    parked_per_minute: int
+
+
 class MapCarOut(BaseModel):
     id: UUID
     brand: str
@@ -131,9 +138,12 @@ class MapCarOut(BaseModel):
     battery_pct: int
     range_km: int = Field(description="Estimated from the charge, rounded down.")
     distance_m: int | None = Field(description="From the client's point, if one was given.")
+    tariff: MapTariffOut = Field(
+        description="The current tariff of the car's model; cars of a model without one are hidden."
+    )
 
     @classmethod
-    def of(cls, car: CarOnMap) -> "MapCarOut":
+    def of(cls, car: CarOnMap, tariff: MapTariffOut) -> "MapCarOut":
         return cls(
             id=car.id,
             brand=car.brand,
@@ -144,6 +154,7 @@ class MapCarOut(BaseModel):
             battery_pct=car.battery_pct,
             range_km=car.range_km,
             distance_m=car.distance_m,
+            tariff=tariff,
         )
 
 
