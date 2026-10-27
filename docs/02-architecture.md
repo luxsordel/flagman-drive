@@ -53,7 +53,7 @@
 | `rentals` | Бронь, поездка, завершение, осмотры — ядро продукта |
 | `payments` | Карты, предавторизации, списания, чеки |
 | `support` | Чат, инциденты, штрафы |
-| `notifications` | Push, SMS, шаблоны на ru/en |
+| `notifications` | Push через Expo (outbox + worker), устройства, настройки, шаблоны на ru/en; SMS — после пилота |
 | `audit` | Журнал действий сотрудников и важных событий |
 | `core` | Конфиг, БД, ошибки, безопасность, общие утилиты |
 
@@ -226,6 +226,19 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
   Функции открывают свои транзакции: сетевой вызов провайдера идёт вне транзакции. Каждый исход операции
   пишется в аудит (`payment.*`).
 
+## Уведомления (`notifications`)
+
+- Push клиенту через Expo Push Service за портом `PushProvider` (`notifications/ports.py`); для разработки
+  и тестов — `FakePushProvider`. Выбор — `NOTIFICATIONS_PROVIDER`, настройки читает только worker
+  ([ADR-0020](adr/0020-push-notifications-outbox.md)).
+- Другие модули вызывают `notifications.service.notify_client(db, user_id, notification, now)` в своей
+  транзакции. Уведомление ложится в таблицу `notification_outbox`; одно событие по одной аренде — один раз
+  (`dedup_key`). Отправляет `flagman-worker` раз в несколько секунд, с повторами (до 5 попыток).
+- Текст собирается на сервере по шаблонам ru/en на языке профиля. В уведомлении только числа и id аренды.
+- Устройство — одно на сессию входа: `PUT/DELETE /me/push-device`. После выхода или отзыва сессии push
+  на телефон не идут, устройство удаляется.
+- Настройки — `GET/PATCH /me/notification-preferences`: бронь можно отключить, поездку и оплату нельзя.
+
 ## Карта клиента
 
 - `GET /map/cars` (`fleet`) — машины, которые можно арендовать, в видимой области (четыре края) и/или
@@ -253,8 +266,9 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - Python 3.12, **FastAPI**, Pydantic v2, SQLAlchemy 2 (async) + Alembic, asyncpg
 - PostgreSQL 16 + **PostGIS**, Redis 7
 - Фоновые задачи: свой процесс **`flagman-worker`** — периодические задачи с advisory lock в Postgres
-  ([ADR-0013](adr/0013-periodic-jobs-worker.md)). arq несовместим с `redis>=6`; очередь заданий
-  (таймауты броней, повторы платежей, уведомления) выберем, когда она понадобится
+  ([ADR-0013](adr/0013-periodic-jobs-worker.md)), у каждой свой интервал. arq несовместим с `redis>=6`.
+  Задания по событию идут через таблицу-outbox в Postgres: модуль пишет в неё в своей транзакции, worker
+  отправляет и повторяет — так сделаны push-уведомления ([ADR-0020](adr/0020-push-notifications-outbox.md))
 - Пакеты и окружение: **uv**; линт и формат: **ruff**; типы: **mypy --strict**; тесты: **pytest** + testcontainers
 - Логи — структурированные JSON (structlog), трассировка запросов через `request_id`
 
@@ -293,3 +307,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0015](adr/0015-postgis-geoalchemy2.md) — геоданные в PostGIS через GeoAlchemy2
 - [ADR-0016](adr/0016-maplibre-react-native-dev-build.md) — карта в мобилке: MapLibre React Native и dev-сборка
 - [ADR-0017](adr/0017-fleet-stream-websocket.md) — живой парк для сотрудников: WebSocket и уведомления Postgres
+- [ADR-0020](adr/0020-push-notifications-outbox.md) — push-уведомления: Expo Push Service за портом, очередь-outbox в Postgres
