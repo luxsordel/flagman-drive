@@ -148,8 +148,9 @@ def test_cars_outside_the_area_are_not_shown(
         {"status": CarStatus.SERVICE},
         {"battery_pct": 19},
         {"age": timedelta(minutes=10)},
+        {"ignition_on": True},
     ],
-    ids=["reserved", "in-service", "low-battery", "stale-telemetry"],
+    ids=["reserved", "in-service", "low-battery", "stale-telemetry", "ignition-on"],
 )
 def test_only_rentable_cars_are_shown(
     client: TestClient,

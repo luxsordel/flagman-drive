@@ -140,6 +140,7 @@ async def find_rentable_cars(
         .where(
             CarRow.status == CarStatus.AVAILABLE,
             CarRow.state_at >= now - rules.max_state_age,
+            CarRow.ignition_on.is_(False),
             CarRow.battery_pct >= rules.min_battery_pct,
         )
         .order_by(distance if near else CarRow.id)

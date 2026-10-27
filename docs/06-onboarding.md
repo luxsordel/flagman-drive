@@ -134,6 +134,12 @@ Docker Desktop должен быть запущен. Все команды — �
    Если API запущен на хосте через `uv run`, а эмулятор в Docker, задайте
    `EMULATOR_TELEMETRY_URL=http://host.docker.internal:8000/fleet/telemetry`.
 
+   Машины эмулятора живут сами: стоящие медленно разряжаются, часть парка ездит по городу, разряженные
+   заряжаются. Для демо ускорьте время — `EMULATOR_TIME_SCALE=60` в `.env` (час за минуту); чтобы
+   машины стояли на месте, задайте `EMULATOR_SIMULATION_ENABLED=false`. После правки `.env`
+   пересоздайте эмулятор: `docker compose --env-file .env -f infra/docker-compose.yml up -d car-emulator`.
+   Остальные настройки — в [`services/car-emulator/README.md`](../services/car-emulator/README.md).
+
 | Сервис | Адрес | Доступ |
 |---|---|---|
 | PostgreSQL 16 + PostGIS | `127.0.0.1:5432` | `POSTGRES_USER` / `POSTGRES_PASSWORD`, база `POSTGRES_DB` |

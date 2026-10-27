@@ -38,6 +38,7 @@ def add_car(  # noqa: PLR0913
     age: timedelta = timedelta(seconds=5),
     model_index: int = 0,
     engine_locked: bool = False,
+    ignition_on: bool = False,
     model: CarModelSpec | None = None,
 ) -> str:
     """Adds a car with a random plate and VIN, with a snapshot at `point` unless it is None."""
@@ -61,7 +62,9 @@ def add_car(  # noqa: PLR0913
                 )
                 assert await repository.add_car_if_absent(db, car, now)
                 if point is not None:
-                    state = CarState(point, battery_pct, True, False, engine_locked, now - age)
+                    state = CarState(
+                        point, battery_pct, True, ignition_on, engine_locked, now - age
+                    )
                     await repository.apply_state(db, telematics_id, state, now)
                 car_id = await db.scalar(
                     select(CarRow.id).where(CarRow.telematics_id == telematics_id)
