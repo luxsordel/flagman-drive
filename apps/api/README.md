@@ -109,6 +109,15 @@ uv run flagman-staff reset-totp --email admin@flagman.by
 uv run flagman-staff disable --email admin@flagman.by
 ```
 
+Для сида демо-стенда — `ensure`: создаёт сотрудника с уже настроенной 2FA, а существующего не трогает, поэтому
+её можно запускать при каждой выкладке. Пароль и base32-секрет 2FA — первыми двумя строками stdin. Её вызывает
+`infra/stand/bin/seed.sh`, подробнее — [docs/08-demo-stand.md](../../docs/08-demo-stand.md). С `--check` она только
+проверяет пароль и секрет, без базы. При `API_ENV=prod` она не работает: секрет 2FA из файла слабее настроенного по QR-коду.
+
+```bash
+printf '%s\n%s\n' "$PASSWORD" "$TOTP_SECRET" | uv run flagman-staff ensure --email operator@flagman.by --role operator
+```
+
 ## Демо-зона
 
 Команда `flagman-geo seed` добавляет одну разрешённую зону внутри МКАД, над той же областью, где эмулятор

@@ -7,6 +7,10 @@
 Зависимости ставятся из корня репозитория: `npm install`. Карта на iOS и Android — нативный модуль MapLibre,
 в Expo Go его нет ([ADR-0016](../../docs/adr/0016-maplibre-react-native-dev-build.md)). Поэтому способов три.
 
+Сборки для людей вне команды — APK для Android и веб-версия для iPhone — собираются по
+[docs/08-demo-stand.md](../../docs/08-demo-stand.md) (профиль `stand` в `eas.json`). Версия приложения
+задаётся только в `package.json`.
+
 ### Веб — всё, включая карту
 
 ```bash

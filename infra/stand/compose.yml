@@ -1,0 +1,126 @@
+# The public demo stand (#123, docs/08-demo-stand.md, docs/adr/0021): layered over the local stack,
+# so a new service or setting in infra/docker-compose.yml reaches the stand without a second copy.
+# On the server, from the checkout of infra/ in /opt/flagman:
+#   docker compose --env-file stand.env -f infra/docker-compose.yml -f infra/stand/compose.yml up -d
+# bin/deploy.sh does exactly that; run it rather than compose by hand.
+#
+# Only Caddy publishes ports. Everything else is reachable on the internal network alone.
+
+x-logging: &logging
+  # Rotated, so a chatty container cannot fill the droplet's disk.
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+x-hardening: &hardening
+  read_only: true
+  tmpfs:
+    - /tmp
+  cap_drop:
+    - ALL
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  postgres:
+    ports: !reset []
+    logging: *logging
+
+  redis:
+    ports: !reset []
+    logging: *logging
+
+  seaweedfs:
+    ports: !reset []
+    logging: *logging
+
+  seaweedfs-init:
+    logging: *logging
+
+  api:
+    image: ${STAND_REGISTRY:?set STAND_REGISTRY}/flagman-api:${STAND_TAG:?set STAND_TAG}
+    # Images come from GHCR only: a stray `up` must not build on the server.
+    build: !reset null
+    ports: !reset []
+    environment:
+      # Only Caddy talks to the API, from its fixed address below; anyone else's X-Forwarded-For
+      # is ignored, so a container on the network cannot pose as another client IP.
+      FORWARDED_ALLOW_IPS: 172.30.0.10
+      S3_PUBLIC_URL: https://s3.${STAND_DOMAIN:?set STAND_DOMAIN}
+      # The web app calls the API from app.; the admin panel's live fleet WebSocket checks the
+      # origin against the same list (docs/adr/0017).
+      API_CORS_ORIGINS: https://app.${STAND_DOMAIN},https://admin.${STAND_DOMAIN}
+    logging: *logging
+
+  worker:
+    image: ${STAND_REGISTRY}/flagman-api:${STAND_TAG}
+    build: !reset null
+    logging: *logging
+
+  car-emulator:
+    image: ${STAND_REGISTRY}/flagman-car-emulator:${STAND_TAG}
+    build: !reset null
+    ports: !reset []
+    logging: *logging
+
+  # Caddy with the admin panel and the web app baked in (infra/stand/web/Dockerfile).
+  web:
+    image: ${STAND_REGISTRY}/flagman-web:${STAND_TAG}
+    environment:
+      STAND_DOMAIN: ${STAND_DOMAIN}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL}
+      # Caddy treats a set but empty variable as a value, so the default is applied here.
+      MAP_ORIGINS: ${MAP_ORIGINS:-https://tiles.openfreemap.org}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      # Certificates survive a redeploy: Let's Encrypt limits how often they are issued.
+      - caddydata:/data
+      - caddyconfig:/config
+    networks:
+      default:
+        ipv4_address: 172.30.0.10
+    depends_on:
+      api:
+        condition: service_healthy
+    <<: *hardening
+    logging: *logging
+    restart: unless-stopped
+
+  # A dump of Postgres once a day, kept for BACKUP_KEEP_DAYS days (bin/backup.sh).
+  backup:
+    # The same image as the database, so pg_dump matches the server version.
+    image: postgis/postgis:16-3.6
+    entrypoint: ["sh", "/stand/bin/backup.sh", "--loop"]
+    environment:
+      PGHOST: postgres
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
+    volumes:
+      # Relative to infra/, the directory of the first compose file.
+      - ./stand/bin:/stand/bin:ro
+      - pgbackups:/backups
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Root of the upstream image, but with no capabilities and a read-only filesystem: it owns
+    # the fresh volume, and a non-root user could not write to it without a chown step.
+    <<: *hardening
+    logging: *logging
+    restart: unless-stopped
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
+volumes:
+  caddydata:
+  caddyconfig:
+  pgbackups:

@@ -1,5 +1,8 @@
 import type { ExpoConfig } from 'expo/config';
 
+// The one place for the version: `npm version` changes it. Build numbers are kept by EAS (eas.json).
+import { version } from './package.json';
+
 // Native config is read before the JS bundle exists, so token values are repeated here;
 // src/theme/theme.test.ts fails if they drift from @flagman/design-tokens.
 export const splashBackground = { light: '#F4F7FB', dark: '#0B1424' } as const;
@@ -16,10 +19,19 @@ const locationPermission = {
   ru: 'FLAGMAN Drive использует ваше местоположение, чтобы показать ближайшие машины и расстояние до них.',
 } as const;
 
+// The API address is inlined into the bundle at build time (src/features/auth/session). A stand
+// build without it would quietly talk to localhost, so it fails here instead (docs/08-demo-stand.md).
+if (
+  process.env.EAS_BUILD_PROFILE === 'stand' &&
+  !process.env.EXPO_PUBLIC_API_URL?.startsWith('https://')
+) {
+  throw new Error('The stand build needs EXPO_PUBLIC_API_URL=https://api.<stand domain>');
+}
+
 const config: ExpoConfig = {
   name: 'FLAGMAN Drive',
   slug: 'flagman-drive',
-  version: '0.1.0',
+  version,
   scheme: 'flagmandrive',
   orientation: 'portrait',
   userInterfaceStyle: 'automatic',
