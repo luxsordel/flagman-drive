@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from enum import StrEnum
 from http import HTTPStatus
-from typing import Any
 from uuid import UUID
 
 from flagman.core.errors import AppError
@@ -208,10 +207,6 @@ def render(notification: Notification, language: Language) -> PushContent:
         body=body,
         data={"event": notification.event.value, "rental_id": str(notification.rental_id)},
     )
-
-
-def stored_params(notification: Notification) -> dict[str, Any]:
-    return dict(notification.params)
 
 
 def battery_crossed_low(previous_pct: int | None, current_pct: int, threshold_pct: int) -> bool:

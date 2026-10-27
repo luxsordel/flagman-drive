@@ -126,7 +126,7 @@ def push_provider(settings: WorkerSettings, http: httpx2.AsyncClient) -> PushPro
                 timeout_s=settings.expo_push_timeout_seconds,
             )
         case "fake":
-            return FakePushProvider()
+            return FakePushProvider(record=False)
         case None:
             return None
 

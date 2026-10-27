@@ -8,7 +8,7 @@ import structlog
 
 from flagman.notifications.domain import PushContent
 from flagman.notifications.expo import MAX_BATCH, ExpoPushProvider
-from flagman.notifications.ports import PushMessage, PushProviderError, PushTicketStatus
+from flagman.notifications.ports import PushMessage, PushTicketStatus
 
 CONTENT = PushContent(title="Title", body="Body", data={"event": "trip_finished"})
 
@@ -103,30 +103,44 @@ async def test_ticket_errors_are_told_apart() -> None:
     assert "ExponentPushToken" not in repr(logs)
 
 
+NOT_SENT = [PushTicketStatus.NOT_SENT]
+
+
 @pytest.mark.parametrize("status", [401, 429, 500, 503])
-async def test_a_refused_request_fails_the_whole_batch(status: int) -> None:
+async def test_a_refused_request_sends_nothing(status: int) -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(status, json={"errors": [{"code": "X", "message": "no"}]})
 
-    with pytest.raises(PushProviderError):
-        await _provider(handler).send([_message()])
+    assert await _provider(handler).send([_message()]) == NOT_SENT
 
 
-async def test_an_unreachable_expo_fails_the_whole_batch() -> None:
+async def test_an_unreachable_expo_sends_nothing() -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         raise httpx2.ConnectError("down", request=request)
 
-    with pytest.raises(PushProviderError):
-        await _provider(handler).send([_message()])
+    assert await _provider(handler).send([_message()]) == NOT_SENT
 
 
 @pytest.mark.parametrize(
     "body",
     [b"not json", b'{"data": "x"}', b'{"data": []}', b'{"errors": []}'],
 )
-async def test_a_garbled_answer_fails_the_whole_batch(body: bytes) -> None:
+async def test_a_garbled_answer_counts_as_not_sent(body: bytes) -> None:
     def handler(request: httpx2.Request) -> httpx2.Response:
         return httpx2.Response(200, content=body)
 
-    with pytest.raises(PushProviderError):
-        await _provider(handler).send([_message()])
+    assert await _provider(handler).send([_message()]) == NOT_SENT
+
+
+async def test_a_failed_request_leaves_the_earlier_ones_delivered() -> None:
+    requests = 0
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        nonlocal requests
+        requests += 1
+        return _ok(request) if requests == 1 else httpx2.Response(429)
+
+    statuses = await _provider(handler).send([_message(n) for n in range(MAX_BATCH + 1)])
+
+    # Only the second request is to be tried again, not the hundred already delivered.
+    assert statuses == [PushTicketStatus.OK] * MAX_BATCH + NOT_SENT

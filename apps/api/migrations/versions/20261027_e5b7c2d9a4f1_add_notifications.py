@@ -104,9 +104,9 @@ def upgrade() -> None:
         op.f("ix_notification_outbox_user_id"), "notification_outbox", ["user_id"], unique=False
     )
     op.create_index(
-        op.f("ix_notification_outbox_created_at"),
+        op.f("ix_notification_outbox_finished_at"),
         "notification_outbox",
-        ["created_at"],
+        ["finished_at"],
         unique=False,
     )
     op.create_index(
@@ -124,7 +124,7 @@ def downgrade() -> None:
         table_name="notification_outbox",
         postgresql_where=sa.text("status = 'pending'"),
     )
-    op.drop_index(op.f("ix_notification_outbox_created_at"), table_name="notification_outbox")
+    op.drop_index(op.f("ix_notification_outbox_finished_at"), table_name="notification_outbox")
     op.drop_index(op.f("ix_notification_outbox_user_id"), table_name="notification_outbox")
     op.drop_table("notification_outbox")
     op.drop_table("notification_opt_outs")

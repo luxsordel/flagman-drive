@@ -19,14 +19,13 @@ class PushTicketStatus(StrEnum):
     DEVICE_NOT_REGISTERED = "device_not_registered"
     # Anything else the provider refused this one message for; retrying will not help.
     REJECTED = "rejected"
-
-
-class PushProviderError(Exception):
-    """The provider did not take the batch: down, rate limiting us, or rejecting our credentials.
-    Nothing in it was delivered, so the whole batch may be tried again."""
+    # The provider did not take the message: down, rate limiting us, rejecting our credentials,
+    # or its answer was unreadable. The message may be tried again.
+    NOT_SENT = "not_sent"
 
 
 class PushProvider(Protocol):
     async def send(self, messages: Sequence[PushMessage]) -> list[PushTicketStatus]:
-        """One status per message, in order. Raises PushProviderError."""
+        """One status per message, in order. Never raises: a provider that sends in several
+        requests may get some through and not others, and only the rest may be tried again."""
         ...

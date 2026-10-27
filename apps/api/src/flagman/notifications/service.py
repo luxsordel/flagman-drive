@@ -31,14 +31,14 @@ from flagman.notifications.domain import (
 from flagman.notifications.ports import (
     PushMessage,
     PushProvider,
-    PushProviderError,
     PushTicketStatus,
 )
 
 logger = structlog.get_logger(__name__)
 
 DISPATCH_BATCH = 100
-# Longer than a send of a whole batch may take, with Expo's timeout and a retry inside it.
+# Longer than a send of a whole batch may take: a request to Expo per 100 messages, each with
+# its own timeout.
 DISPATCH_LEASE = timedelta(minutes=2)
 
 
@@ -143,10 +143,7 @@ async def _dispatch_batch(
         return DispatchResult(0, 0, 0), 0
 
     addressed, no_device = _address(claimed)
-    try:
-        statuses = await provider.send([a.message for a in addressed]) if addressed else []
-    except PushProviderError:
-        statuses = None
+    statuses = await provider.send([a.message for a in addressed]) if addressed else []
     outcome = _outcome(addressed, no_device, statuses, now)
 
     async with session_factory() as db, db.begin():
@@ -166,7 +163,7 @@ async def _dispatch_batch(
         retried=result.retried,
         undelivered=result.undelivered,
         unregistered_devices=len(outcome.unregistered),
-        provider_failed=statuses is None,
+        not_sent_messages=statuses.count(PushTicketStatus.NOT_SENT),
     )
     return result, len(claimed.items)
 
@@ -206,35 +203,33 @@ class _Outcome:
 def _outcome(
     addressed: list[_Addressed],
     no_device: list[UUID],
-    statuses: list[PushTicketStatus] | None,
+    statuses: list[PushTicketStatus],
     now: datetime,
 ) -> _Outcome:
-    """`statuses` is None when the provider took nothing: then the whole batch is retried."""
-    tried = {a.item.id: a.item for a in addressed}
-    if statuses is None:
-        retry: dict[UUID, datetime] = {}
-        gave_up = list(no_device)
-        for item in tried.values():
-            delay = retry_delay(item.attempts)
-            if delay is None:
-                gave_up.append(item.id)
-            else:
-                retry[item.id] = now + delay
-        return _Outcome(delivered=set(), gave_up=gave_up, retry=retry, unregistered=[])
-    delivered = {
-        a.item.id
-        for a, status in zip(addressed, statuses, strict=True)
-        if status is PushTicketStatus.OK
-    }
-    unregistered = [
-        a.device.id
-        for a, status in zip(addressed, statuses, strict=True)
-        if status is PushTicketStatus.DEVICE_NOT_REGISTERED
-    ]
-    # Delivered to at least one phone is enough; a message the provider refused will be refused
-    # again, so there is no retry.
-    gave_up = no_device + [item_id for item_id in tried if item_id not in delivered]
-    return _Outcome(delivered=delivered, gave_up=gave_up, retry={}, unregistered=unregistered)
+    """Delivered to at least one phone is enough; a phone the provider did not reach then misses
+    it rather than the others getting it twice. Nothing delivered and something not sent: tried
+    again later. A message the provider refused will be refused again, so no retry for it."""
+    by_item: dict[UUID, list[PushTicketStatus]] = defaultdict(list)
+    items: dict[UUID, OutboxItem] = {}
+    unregistered: list[UUID] = []
+    for a, status in zip(addressed, statuses, strict=True):
+        by_item[a.item.id].append(status)
+        items[a.item.id] = a.item
+        if status is PushTicketStatus.DEVICE_NOT_REGISTERED:
+            unregistered.append(a.device.id)
+    delivered: set[UUID] = set()
+    retry: dict[UUID, datetime] = {}
+    gave_up = list(no_device)
+    for item_id, item_statuses in by_item.items():
+        if PushTicketStatus.OK in item_statuses:
+            delivered.add(item_id)
+            continue
+        delay = retry_delay(items[item_id].attempts)
+        if PushTicketStatus.NOT_SENT in item_statuses and delay is not None:
+            retry[item_id] = now + delay
+        else:
+            gave_up.append(item_id)
+    return _Outcome(delivered=delivered, gave_up=gave_up, retry=retry, unregistered=unregistered)
 
 
 async def _claim(db: AsyncSession, now: datetime) -> _Claimed:

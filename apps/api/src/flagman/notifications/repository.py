@@ -15,7 +15,6 @@ from flagman.notifications.domain import (
     OutboxStatus,
     PushDevice,
     PushPlatform,
-    stored_params,
 )
 from flagman.notifications.models import NotificationOptOut, OutboxNotification
 from flagman.notifications.models import PushDevice as DeviceRow
@@ -102,7 +101,7 @@ async def add_to_outbox(
             user_id=user_id,
             event=notification.event.value,
             rental_id=notification.rental_id,
-            params=stored_params(notification),
+            params=dict(notification.params),
             dedup_key=notification.dedup_key,
             status=OutboxStatus.PENDING.value,
             attempts=0,
@@ -173,7 +172,7 @@ async def delete_finished_before(db: AsyncSession, before: datetime) -> int:
         delete(OutboxNotification)
         .where(
             OutboxNotification.status != OutboxStatus.PENDING.value,
-            OutboxNotification.created_at < before,
+            OutboxNotification.finished_at < before,
         )
         .returning(OutboxNotification.id)
     )

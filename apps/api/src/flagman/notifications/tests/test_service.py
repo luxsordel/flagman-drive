@@ -1,9 +1,10 @@
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
 import structlog
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flagman.core.config import Settings
@@ -20,9 +21,23 @@ from flagman.notifications.domain import (
 )
 from flagman.notifications.fake_provider import FakePushProvider
 from flagman.notifications.models import OutboxNotification, PushDevice
+from flagman.notifications.ports import PushMessage, PushTicketStatus
 from flagman.notifications.tests.conftest import Caller, push_token, sign_in
 
 pytestmark = pytest.mark.integration
+
+
+@pytest.fixture(autouse=True)
+async def _only_this_tests_notifications(sessions: async_sessionmaker[AsyncSession]) -> None:
+    """The database is shared by the whole run: rows other tests left pending would be sent
+    together with this test's, use up FakePushProvider.failures_left and push its row into a
+    later batch."""
+    async with sessions() as db, db.begin():
+        await db.execute(
+            update(OutboxNotification)
+            .where(OutboxNotification.status == OutboxStatus.PENDING.value)
+            .values(status=OutboxStatus.UNDELIVERED.value, finished_at=datetime.now(UTC))
+        )
 
 
 def _notification(
@@ -218,6 +233,41 @@ async def test_a_retry_after_an_outage_delivers(
     assert len(_sent_to(provider, token)) == 1
     [row] = await _outbox(sessions, notification)
     assert (row.status, row.attempts) == (OutboxStatus.SENT, 2)
+
+
+class _OnePhoneDown(FakePushProvider):
+    """Delivers to every token but one, as if that phone's request failed."""
+
+    def __init__(self, down: str) -> None:
+        super().__init__()
+        self.down = down
+
+    async def send(self, messages: Sequence[PushMessage]) -> list[PushTicketStatus]:
+        up = [m for m in messages if m.token != self.down]
+        delivered = iter(await super().send(up))
+        return [
+            PushTicketStatus.NOT_SENT if m.token == self.down else next(delivered) for m in messages
+        ]
+
+
+async def test_a_phone_the_provider_missed_does_not_resend_to_the_others(
+    sessions: async_sessionmaker[AsyncSession], notifications_settings: Settings
+) -> None:
+    phone = await sign_in(sessions, notifications_settings)
+    tablet = await sign_in(sessions, notifications_settings, user_id=phone.id)
+    reached = await _register(sessions, phone)
+    missed = await _register(sessions, tablet)
+    notification = _notification()
+    provider = _OnePhoneDown(missed)
+    await _notify(sessions, phone, notification)
+    now = datetime.now(UTC)
+
+    await _dispatch(sessions, provider, now)
+    await _dispatch(sessions, provider, now + timedelta(hours=1))
+
+    assert len(_sent_to(provider, reached)) == 1
+    [row] = await _outbox(sessions, notification)
+    assert (row.status, row.attempts) == (OutboxStatus.SENT, 1)
 
 
 async def test_an_unregistered_device_is_deleted(

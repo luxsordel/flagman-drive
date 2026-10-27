@@ -9,7 +9,7 @@ from typing import Any
 import httpx2
 import structlog
 
-from flagman.notifications.ports import PushMessage, PushProviderError, PushTicketStatus
+from flagman.notifications.ports import PushMessage, PushTicketStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +28,7 @@ class ExpoPushProvider:
     url: str = EXPO_PUSH_URL
 
     async def send(self, messages: Sequence[PushMessage]) -> list[PushTicketStatus]:
+        # Request by request: a failed one leaves the ones before it delivered.
         statuses: list[PushTicketStatus] = []
         for start in range(0, len(messages), MAX_BATCH):
             statuses += await self._send_batch(messages[start : start + MAX_BATCH])
@@ -52,16 +53,21 @@ class ExpoPushProvider:
                 response = await self.client.post(self.url, json=body, headers=headers)
         except (TimeoutError, httpx2.TransportError) as error:
             logger.warning("expo_push_unreachable", error=type(error).__name__)
-            raise PushProviderError from error
+            return _not_sent(messages)
         if response.status_code != HTTPStatus.OK:
             # 401 means a wrong EXPO_ACCESS_TOKEN, 429 and 5xx a busy or broken Expo.
             logger.error("expo_push_failed", status=response.status_code)
-            raise PushProviderError
+            return _not_sent(messages)
         tickets = _tickets(response)
         if tickets is None or len(tickets) != len(messages):
+            # Expo may have taken them: a retry risks a second copy, which beats losing them.
             logger.error("expo_push_answer_invalid")
-            raise PushProviderError
+            return _not_sent(messages)
         return [_status(ticket) for ticket in tickets]
+
+
+def _not_sent(messages: Sequence[PushMessage]) -> list[PushTicketStatus]:
+    return [PushTicketStatus.NOT_SENT] * len(messages)
 
 
 def _tickets(response: httpx2.Response) -> list[Any] | None:
