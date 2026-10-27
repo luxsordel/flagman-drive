@@ -48,6 +48,7 @@ export class AuthSession {
   private readonly now: () => number;
   private readonly deviceLanguage: () => Language;
   private readonly listeners = new Set<() => void>();
+  private readonly signOutHooks = new Set<() => Promise<unknown>>();
   private status: AuthStatus = 'restoring';
   private pending: PendingSignIn | null = null;
   private access: { token: string; expiresAt: number } | null = null;
@@ -75,6 +76,17 @@ export class AuthSession {
   };
 
   readonly getStatus = (): AuthStatus => this.status;
+
+  /**
+   * Runs `hook` on sign-out while the access token still works, e.g. to stop pushes to this phone.
+   * A failing hook does not stop the sign-out. Returns the way to remove it.
+   */
+  readonly beforeSignOut = (hook: () => Promise<unknown>): (() => void) => {
+    this.signOutHooks.add(hook);
+    return () => {
+      this.signOutHooks.delete(hook);
+    };
+  };
 
   readonly getPendingSignIn = (): PendingSignIn | null => this.pending;
 
@@ -143,6 +155,7 @@ export class AuthSession {
   async signOut(): Promise<void> {
     // Logs out with the token a rotation in flight is about to store, not the one it replaces.
     await this.refreshing?.catch(() => undefined);
+    await Promise.all([...this.signOutHooks].map((hook) => hook().catch(() => undefined)));
     const refreshToken = await this.store.getRefreshToken().catch(() => null);
     if (this.store.transport === 'cookie' || refreshToken !== null) {
       // Waits for the server on the web: only its response clears the HttpOnly cookie,
