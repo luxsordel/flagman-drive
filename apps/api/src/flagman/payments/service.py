@@ -127,7 +127,7 @@ class ReturnUrlRules:
 
 def return_url_rules(settings: Settings) -> ReturnUrlRules:
     return ReturnUrlRules(
-        web_origins=frozenset(settings.api_cors_origins), allow_expo_go=not settings.is_prod
+        web_origins=frozenset(settings.api_cors_origins), allow_expo_go=not settings.is_public
     )
 
 
