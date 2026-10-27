@@ -1,3 +1,4 @@
+import base64
 import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
@@ -264,6 +265,17 @@ def test_preset_totp_secret_is_accepted_as_authenticator_apps_show_it() -> None:
     grouped = " ".join(secret[i : i + 4] for i in range(0, len(secret), 4)).lower()
 
     assert normalize_totp_secret(grouped) == secret
+
+
+@pytest.mark.parametrize("length", [21, 32])
+def test_preset_totp_secret_needs_no_padding(length: int) -> None:
+    # 21 bytes are 34 base32 characters: not a multiple of 8, so the full form ends in "=".
+    secret = base64.b32encode(bytes(range(length))).decode()
+    unpadded = secret.rstrip("=")
+
+    assert normalize_totp_secret(unpadded) == unpadded
+    assert normalize_totp_secret(secret) == unpadded
+    assert pyotp.TOTP(unpadded).now()
 
 
 @pytest.mark.parametrize(

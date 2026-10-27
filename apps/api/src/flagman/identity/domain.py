@@ -383,9 +383,10 @@ def normalize_totp_secret(value: str) -> str:
     At least 160 bits, like the generated ones: a shorter secret is easier to guess offline from a
     few observed codes.
     """
-    secret = "".join(value.split()).upper()
+    secret = "".join(value.split()).upper().rstrip("=")
     try:
-        raw = base64.b32decode(secret)
+        # Authenticator apps and pyotp drop the padding; b32decode insists on it.
+        raw = base64.b32decode(secret + "=" * (-len(secret) % 8))
     except binascii.Error as exc:
         raise TotpSecretPolicyError("the 2FA secret is not base32") from exc
     if len(raw) < _TOTP_SECRET_MIN_BYTES:

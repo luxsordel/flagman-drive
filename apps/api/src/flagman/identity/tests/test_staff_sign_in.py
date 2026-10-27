@@ -14,17 +14,19 @@ import pytest
 from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy import Row, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
-from flagman.identity import cli, service
+from flagman.identity import cli, repository, service
 from flagman.identity.domain import (
     REFRESH_REUSE_GRACE,
     TOTP_INTERVAL_SECONDS,
     StaffRole,
     hash_refresh_token,
 )
+from flagman.identity.repository import StaffRecord
 
 pytestmark = pytest.mark.integration
 
@@ -862,3 +864,34 @@ def test_ensure_refuses_a_weak_password_or_2fa_secret(
 
     assert code == cli.EXIT_FAILED
     assert _staff_by_email(integration_settings, email) == []
+
+
+def test_ensure_takes_an_account_created_by_a_parallel_run(
+    integration_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    email = f"stand-{secrets.token_hex(6)}@flagman.by"
+    staff_id = _create_staff(integration_settings, email, StaffRole.ADMIN)
+    # The other run inserts between this run's lookup and its insert: the first lookup misses.
+    lookups: list[StaffRecord | None] = [None]
+    get_staff = repository.get_staff_by_email
+
+    async def stale_lookup(db: AsyncSession, email: str) -> StaffRecord | None:
+        return lookups.pop() if lookups else await get_staff(db, email)
+
+    monkeypatch.setattr(repository, "get_staff_by_email", stale_lookup)
+    account = service.StandStaff(email, PASSWORD, StaffRole.OPERATOR, pyotp.random_base32())
+
+    async def run() -> service.EnsuredStaff:
+        engine = create_engine(integration_settings)
+        try:
+            async with create_session_factory(engine)() as db:
+                return await service.ensure_staff(
+                    db, account, integration_settings.totp_encryption_key, datetime.now(UTC)
+                )
+        finally:
+            await engine.dispose()
+
+    ensured = asyncio.run(run())
+
+    assert ensured == service.EnsuredStaff(staff_id, StaffRole.ADMIN, created=False)
+    assert _system_events(integration_settings, staff_id) == ["staff.created"]

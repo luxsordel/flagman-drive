@@ -11,7 +11,10 @@ never an argument: those end up in the shell history and in the process list.
 
 `ensure` is for the demo stand seed (#123, docs/08-demo-stand.md): it reads the password and the
 base32 2FA secret from the first two lines of stdin, creates the account with 2FA already set up
-and leaves an existing account untouched, so it is safe to run on every deploy.
+and leaves an existing account untouched, so it is safe to run on every deploy. With --check it
+only checks the password and the secret, without the database: the deploy runs that before it
+migrates, so a broken stand.env stops it while the old version still runs. It refuses to run
+when API_ENV=prod: a 2FA secret kept in a file is weaker than one set up through the QR code.
 """
 
 import argparse
@@ -22,7 +25,7 @@ import sys
 from datetime import UTC, datetime
 from typing import TextIO
 
-from flagman.core.config import load_settings
+from flagman.core.config import Settings, load_settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.identity import service
 from flagman.identity.domain import (
@@ -89,6 +92,9 @@ def _parser() -> argparse.ArgumentParser:
     )
     ensure.add_argument("--email", required=True, type=_email)
     ensure.add_argument("--role", required=True, choices=[role.value for role in StaffRole])
+    ensure.add_argument(
+        "--check", action="store_true", help="only check the password and the 2FA secret"
+    )
 
     disable = commands.add_parser(
         "disable", help="block sign-in and end every session (left the company, compromised)"
@@ -106,8 +112,34 @@ def _read_password(from_stdin: bool, stdin: TextIO) -> str:
     return password
 
 
+def _stand_staff(
+    args: argparse.Namespace, settings: Settings, stdin: TextIO, stdout: TextIO
+) -> service.StandStaff | int:
+    """The account for `ensure`, or the exit code when the command ends before the database."""
+    if settings.is_prod:
+        sys.stderr.write("error: preset 2FA accounts are not created when API_ENV=prod\n")
+        return EXIT_FAILED
+    account = service.StandStaff(
+        email=args.email,
+        password=stdin.readline().rstrip("\r\n"),
+        role=StaffRole(args.role),
+        totp_secret=stdin.readline().rstrip("\r\n"),
+    )
+    if args.check:
+        service.check_stand_staff(account)
+        stdout.write(f"The password and the 2FA secret for {args.role} are fine.\n")
+        return EXIT_OK
+    return account
+
+
 async def _run(args: argparse.Namespace, stdin: TextIO, stdout: TextIO) -> int:
     settings = load_settings()
+    account: service.StandStaff | None = None
+    if args.command == "ensure":
+        prepared = _stand_staff(args, settings, stdin, stdout)
+        if isinstance(prepared, int):
+            return prepared
+        account = prepared
     engine = create_engine(settings)
     try:
         async with create_session_factory(engine)() as db:
@@ -120,13 +152,7 @@ async def _run(args: argparse.Namespace, stdin: TextIO, stdout: TextIO) -> int:
                     )
                     email = normalize_email(args.email)
                     stdout.write(f"Created {args.role} {staff_id} ({email}).\n")
-                case "ensure":
-                    account = service.StandStaff(
-                        email=args.email,
-                        password=stdin.readline().rstrip("\r\n"),
-                        role=StaffRole(args.role),
-                        totp_secret=stdin.readline().rstrip("\r\n"),
-                    )
+                case "ensure" if account is not None:
                     ensured = await service.ensure_staff(
                         db, account, settings.totp_encryption_key, now
                     )

@@ -755,6 +755,12 @@ class EnsuredStaff:
     created: bool
 
 
+def check_stand_staff(account: StandStaff) -> str:
+    """The normalized 2FA secret; raises PasswordPolicyError, TotpSecretPolicyError."""
+    check_password_policy(account.password)
+    return normalize_totp_secret(account.totp_secret)
+
+
 async def ensure_staff(
     db: AsyncSession, account: StandStaff, totp_key: bytes, now: datetime
 ) -> EnsuredStaff:
@@ -765,8 +771,7 @@ async def ensure_staff(
     that on purpose. Raises PasswordPolicyError, TotpSecretPolicyError, both checked first so a
     broken seed fails on every run, not only on the first one.
     """
-    check_password_policy(account.password)
-    secret = normalize_totp_secret(account.totp_secret)
+    secret = check_stand_staff(account)
     email = normalize_email(account.email)
     role = account.role
     async with db.begin():

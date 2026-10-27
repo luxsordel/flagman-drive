@@ -201,12 +201,15 @@ def test_storage_urls_are_scheme_and_host_only(make_settings: SettingsFactory, u
         make_settings(s3_public_url=url)
 
 
-def test_document_links_must_be_https_in_prod(make_settings: SettingsFactory) -> None:
+@pytest.mark.parametrize("api_env", ["stand", "prod"])
+def test_document_links_must_be_https_on_the_internet(
+    make_settings: SettingsFactory, api_env: str
+) -> None:
     keys = {"s3_access_key": "key", "s3_secret_key": "secret"}
 
     with pytest.raises(ValidationError, match="must be https"):
-        make_settings(api_env="prod", s3_public_url="http://files.example.com", **keys)
-    settings = make_settings(api_env="prod", s3_public_url="https://files.example.com", **keys)
+        make_settings(api_env=api_env, s3_public_url="http://files.example.com", **keys)
+    settings = make_settings(api_env=api_env, s3_public_url="https://files.example.com", **keys)
     assert settings.storage_public_url == "https://files.example.com"
     # Without keys there are no links, so a prod server without storage still starts.
     assert not make_settings(api_env="prod").storage_configured

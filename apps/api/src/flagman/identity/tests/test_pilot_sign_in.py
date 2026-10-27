@@ -1,4 +1,7 @@
-"""The pilot in prod mode without an SMS gateway: test phones sign in with the shared code (#47)."""
+"""No SMS gateway yet: test phones sign in with the shared code (#47).
+
+Both public environments: the pilot in prod mode and the demo stand (#123).
+"""
 
 import secrets
 import uuid
@@ -29,8 +32,9 @@ def test_phone() -> str:
     return _random_phone()
 
 
-@pytest.fixture
+@pytest.fixture(params=["stand", "prod"])
 def pilot_settings(
+    request: pytest.FixtureRequest,
     integration_env: dict[str, str],
     migrated_database: None,
     make_settings: SettingsFactory,
@@ -38,7 +42,7 @@ def pilot_settings(
 ) -> Settings:
     values: dict[str, Any] = {name.lower(): value for name, value in integration_env.items()}
     values |= {
-        "api_env": "prod",
+        "api_env": request.param,
         "sms_backend": "fixed",
         "sms_fixed_code": FIXED_CODE,
         "sms_fixed_phones": [test_phone],
