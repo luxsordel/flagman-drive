@@ -6,9 +6,10 @@ import { Linking, Platform } from 'react-native';
 import { appApiUrl } from '../auth/session/AuthProvider';
 import type { AuthSession } from '../auth/session/authSession';
 import type { NotificationsDeps } from './NotificationsContext';
-import { createNotificationsApi } from './notificationsApi';
+import { createNotificationsApi, type NotificationsApi } from './notificationsApi';
 import type { PushDeps } from './pushRegistration';
 
+// The API sends to this channel (ANDROID_CHANNEL in apps/api/src/flagman/notifications/expo.py).
 const androidChannel = 'default';
 
 async function ensureAndroidChannel(): Promise<void> {
@@ -24,10 +25,12 @@ function permission(response: Notifications.NotificationPermissionsStatus) {
   return { granted: response.granted, canAskAgain: response.canAskAgain };
 }
 
-export function createAppNotifications(session: AuthSession): NotificationsDeps {
-  const api = createNotificationsApi(
+export function createAppNotifications(
+  session: AuthSession,
+  api: NotificationsApi = createNotificationsApi(
     createApiClient({ baseUrl: appApiUrl(), getAccessToken: session.getAccessToken }),
-  );
+  ),
+): NotificationsDeps {
   const platform = Platform.OS === 'ios' || Platform.OS === 'android' ? Platform.OS : null;
   const push: PushDeps = {
     platform,
