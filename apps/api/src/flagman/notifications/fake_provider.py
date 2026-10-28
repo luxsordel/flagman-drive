@@ -20,6 +20,8 @@ class FakePushProvider:
     sent: list[PushMessage] = field(default_factory=list)
     # Tokens that answer as if the app was removed from the phone.
     unregistered_tokens: set[str] = field(default_factory=set)
+    # Tokens whose messages are refused for good, as for a message too big.
+    rejected_tokens: set[str] = field(default_factory=set)
     # Calls that take nothing, as if the provider were down.
     failures_left: int = 0
 
@@ -31,6 +33,9 @@ class FakePushProvider:
         for message in messages:
             if message.token in self.unregistered_tokens:
                 statuses.append(PushTicketStatus.DEVICE_NOT_REGISTERED)
+                continue
+            if message.token in self.rejected_tokens:
+                statuses.append(PushTicketStatus.REJECTED)
                 continue
             if self.record:
                 self.sent.append(message)

@@ -156,3 +156,14 @@ def test_optional_categories_switch_off_and_on() -> None:
 )
 def test_only_expo_tokens_are_accepted(token: str, valid: bool) -> None:
     assert (PUSH_TOKEN_RE.fullmatch(token) is not None) is valid
+
+
+def test_a_reservation_reminder_lives_until_the_reservation_ends() -> None:
+    expiring = Notification(NotificationEvent.RESERVATION_EXPIRING, RENTAL, {"minutes_left": 5})
+
+    assert expiring.lifetime == timedelta(minutes=5)
+
+
+def test_every_event_has_a_lifetime() -> None:
+    for notification in EXAMPLES:
+        assert notification.lifetime > timedelta(0)

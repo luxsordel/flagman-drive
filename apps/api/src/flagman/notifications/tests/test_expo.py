@@ -1,5 +1,6 @@
 import json
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx2
@@ -11,10 +12,11 @@ from flagman.notifications.expo import MAX_BATCH, ExpoPushProvider
 from flagman.notifications.ports import PushMessage, PushTicketStatus
 
 CONTENT = PushContent(title="Title", body="Body", data={"event": "trip_finished"})
+EXPIRES_AT = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
 
 
 def _message(n: int = 0) -> PushMessage:
-    return PushMessage(token=f"ExponentPushToken[token{n}]", content=CONTENT)
+    return PushMessage(token=f"ExponentPushToken[token{n}]", content=CONTENT, expires_at=EXPIRES_AT)
 
 
 def _provider(
@@ -48,6 +50,9 @@ async def test_sends_title_body_and_data_to_each_token() -> None:
                 "body": "Body",
                 "data": {"event": "trip_finished"},
                 "sound": "default",
+                "priority": "high",
+                "channelId": "default",
+                "expiration": int(EXPIRES_AT.timestamp()),
             }
             for n in (1, 2)
         ]

@@ -186,7 +186,11 @@ def _address(claimed: _Claimed) -> tuple[list[_Addressed], list[UUID]]:
             continue
         content = render(item.notification, claimed.languages.get(item.user_id, Language.RU))
         addressed += [
-            _Addressed(item, device, PushMessage(token=device.token, content=content))
+            _Addressed(
+                item,
+                device,
+                PushMessage(token=device.token, content=content, expires_at=item.expires_at),
+            )
             for device in devices
         ]
     return addressed, no_device
@@ -233,6 +237,9 @@ def _outcome(
 
 
 async def _claim(db: AsyncSession, now: datetime) -> _Claimed:
+    expired = await repository.expire_overdue(db, now)
+    if expired:
+        logger.info("notifications_expired", notifications=expired)
     items = await repository.claim_due(db, now, now + DISPATCH_LEASE, DISPATCH_BATCH)
     if not items:
         return _Claimed([], {}, {})

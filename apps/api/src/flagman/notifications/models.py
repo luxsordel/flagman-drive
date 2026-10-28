@@ -85,6 +85,8 @@ class OutboxNotification(Base):
     status: Mapped[str] = mapped_column(String(ENUM_LENGTH))
     attempts: Mapped[int] = mapped_column(SmallInteger)
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # Not sent after this (Notification.lifetime): still pending then means undelivered.
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     # Kept NOTIFICATIONS_RETENTION_DAYS from here, then deleted by the outbox cleanup.
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)

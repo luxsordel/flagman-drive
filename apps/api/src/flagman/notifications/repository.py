@@ -106,6 +106,7 @@ async def add_to_outbox(
             status=OutboxStatus.PENDING.value,
             attempts=0,
             next_attempt_at=now,
+            expires_at=now + notification.lifetime,
             created_at=now,
         )
         .on_conflict_do_nothing(index_elements=[OutboxNotification.dedup_key])
@@ -143,9 +144,24 @@ async def claim_due(
                     event=NotificationEvent(row.event), rental_id=row.rental_id, params=row.params
                 ),
                 attempts=row.attempts,
+                expires_at=row.expires_at,
             )
         )
     return items
+
+
+async def expire_overdue(db: AsyncSession, now: datetime) -> int:
+    """Gives up on pending notifications that are too late to be of use; returns how many."""
+    expired = await db.scalars(
+        update(OutboxNotification)
+        .where(
+            OutboxNotification.status == OutboxStatus.PENDING.value,
+            OutboxNotification.expires_at <= now,
+        )
+        .values(status=OutboxStatus.UNDELIVERED.value, finished_at=now)
+        .returning(OutboxNotification.id)
+    )
+    return len(expired.all())
 
 
 async def finish(

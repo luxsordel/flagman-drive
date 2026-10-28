@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from typing import Protocol
 
@@ -11,6 +12,8 @@ class PushMessage:
     # The device's push token: never logged.
     token: str
     content: PushContent
+    # The provider drops the message if it cannot reach the phone by then.
+    expires_at: datetime
 
 
 class PushTicketStatus(StrEnum):

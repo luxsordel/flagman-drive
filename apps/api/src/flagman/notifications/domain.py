@@ -3,7 +3,7 @@
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from enum import StrEnum
 from http import HTTPStatus
 from uuid import UUID
@@ -98,10 +98,25 @@ class Notification:
         return CATEGORY_OF[self.event]
 
     @property
+    def lifetime(self) -> timedelta:
+        """How long after the event the notification is still worth a buzz: news of a
+        reservation that is already over, delivered after a worker outage, only confuses."""
+        if self.event is NotificationEvent.RESERVATION_EXPIRING:
+            return timedelta(minutes=self.params["minutes_left"])
+        return _LIFETIMES[self.event]
+
+    @property
     def dedup_key(self) -> str:
         """Each event happens once per rental: a second call with the same key is dropped."""
         return f"{self.event}:{self.rental_id}"
 
+
+_LIFETIMES = {
+    NotificationEvent.RESERVATION_EXPIRED: timedelta(minutes=15),
+    NotificationEvent.TRIP_LOW_BATTERY: timedelta(minutes=30),
+    NotificationEvent.TRIP_FINISHED: timedelta(days=1),
+    NotificationEvent.PAYMENT_FAILED: timedelta(days=1),
+}
 
 _PARAMS: dict[NotificationEvent, frozenset[str]] = {
     NotificationEvent.RESERVATION_EXPIRING: frozenset({"minutes_left"}),
@@ -127,6 +142,7 @@ class OutboxItem:
     notification: Notification
     # Including the one about to be made.
     attempts: int
+    expires_at: datetime
 
 
 @dataclass(frozen=True)

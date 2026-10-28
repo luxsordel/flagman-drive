@@ -14,6 +14,8 @@ from flagman.notifications.ports import PushMessage, PushTicketStatus
 logger = structlog.get_logger(__name__)
 
 EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
+# The app creates it on Android (apps/mobile/src/features/notifications/appNotifications.ts).
+ANDROID_CHANNEL = "default"
 # Expo takes at most 100 messages in one request.
 MAX_BATCH = 100
 _DEVICE_NOT_REGISTERED = "DeviceNotRegistered"
@@ -45,6 +47,11 @@ class ExpoPushProvider:
                 "body": message.content.body,
                 "data": dict(message.content.data),
                 "sound": "default",
+                # Without it Android gets FCM's normal priority, which a dozing phone may hold
+                # back for minutes: too late for a reservation about to end.
+                "priority": "high",
+                "channelId": ANDROID_CHANNEL,
+                "expiration": int(message.expires_at.timestamp()),
             }
             for message in messages
         ]

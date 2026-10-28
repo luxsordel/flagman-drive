@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from flagman.core.config import Settings
 from flagman.identity import repository as identity_repository
 from flagman.identity.domain import Language
-from flagman.notifications import service
+from flagman.notifications import repository, service
 from flagman.notifications.domain import (
     MAX_ATTEMPTS,
     Notification,
@@ -268,6 +268,92 @@ async def test_a_phone_the_provider_missed_does_not_resend_to_the_others(
     assert len(_sent_to(provider, reached)) == 1
     [row] = await _outbox(sessions, notification)
     assert (row.status, row.attempts) == (OutboxStatus.SENT, 1)
+
+
+async def test_a_notification_too_late_to_help_is_not_sent(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    notification = _notification(NotificationEvent.RESERVATION_EXPIRING, minutes_left=5)
+    await _notify(sessions, caller, notification)
+    provider = FakePushProvider()
+
+    # The worker was down until the reservation was over.
+    await _dispatch(sessions, provider, datetime.now(UTC) + timedelta(minutes=6))
+
+    assert _sent_to(provider, token) == []
+    [row] = await _outbox(sessions, notification)
+    assert (row.status, row.attempts) == (OutboxStatus.UNDELIVERED, 0)
+
+
+async def test_the_provider_drops_a_message_it_cannot_deliver_in_time(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    await _notify(
+        sessions, caller, _notification(NotificationEvent.RESERVATION_EXPIRING, minutes_left=5)
+    )
+    provider = FakePushProvider()
+    before = datetime.now(UTC)
+
+    await _dispatch(sessions, provider)
+
+    [message] = [m for m in provider.sent if m.token == token]
+    assert (
+        before + timedelta(minutes=4)
+        < message.expires_at
+        <= datetime.now(UTC) + timedelta(minutes=5)
+    )
+
+
+async def test_a_refused_message_is_not_retried(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    notification = _notification()
+    await _notify(sessions, caller, notification)
+
+    await _dispatch(sessions, FakePushProvider(rejected_tokens={token}))
+
+    [row] = await _outbox(sessions, notification)
+    assert (row.status, row.attempts) == (OutboxStatus.UNDELIVERED, 1)
+
+
+async def test_a_notification_a_dead_worker_took_is_sent_after_the_lease(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    notification = _notification()
+    await _notify(sessions, caller, notification)
+    now = datetime.now(UTC)
+    # Taken for sending, and the worker dies before it settles anything.
+    async with sessions() as db, db.begin():
+        await repository.claim_due(db, now, now + service.DISPATCH_LEASE, service.DISPATCH_BATCH)
+    provider = FakePushProvider()
+
+    await _dispatch(sessions, provider, now + timedelta(minutes=1))
+    assert _sent_to(provider, token) == []
+
+    await _dispatch(sessions, provider, now + service.DISPATCH_LEASE)
+    assert len(_sent_to(provider, token)) == 1
+    [row] = await _outbox(sessions, notification)
+    assert (row.status, row.attempts) == (OutboxStatus.SENT, 2)
+
+
+async def test_more_than_a_batch_goes_out_in_one_run(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    count = service.DISPATCH_BATCH + 1
+    async with sessions() as db, db.begin():
+        for _ in range(count):
+            await service.notify_client(db, caller.id, _notification(), datetime.now(UTC))
+    provider = FakePushProvider()
+
+    result = await _dispatch(sessions, provider)
+
+    assert result.sent == count
+    assert len(_sent_to(provider, token)) == count
 
 
 async def test_an_unregistered_device_is_deleted(
