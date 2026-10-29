@@ -1,3 +1,4 @@
+import base64
 import uuid
 from datetime import UTC, datetime, timedelta
 from urllib.parse import parse_qs, urlsplit
@@ -20,6 +21,7 @@ from flagman.identity.domain import (
     StaffAccessClaims,
     StaffChallengeInvalidError,
     StaffRole,
+    TotpSecretPolicyError,
     check_password_policy,
     decrypt_totp_secret,
     dummy_password_hash,
@@ -31,6 +33,7 @@ from flagman.identity.domain import (
     issue_staff_challenge,
     match_totp,
     normalize_email,
+    normalize_totp_secret,
     password_needs_rehash,
     read_access_token,
     read_staff_access,
@@ -255,3 +258,30 @@ def test_staff_token_signed_with_another_secret_is_rejected() -> None:
 
     with pytest.raises(AccessTokenInvalidError):
         read_staff_access_token(token, SECRET)
+
+
+def test_preset_totp_secret_is_accepted_as_authenticator_apps_show_it() -> None:
+    secret = generate_totp_secret()
+    grouped = " ".join(secret[i : i + 4] for i in range(0, len(secret), 4)).lower()
+
+    assert normalize_totp_secret(grouped) == secret
+
+
+@pytest.mark.parametrize("length", [21, 32])
+def test_preset_totp_secret_needs_no_padding(length: int) -> None:
+    # 21 bytes are 34 base32 characters: not a multiple of 8, so the full form ends in "=".
+    secret = base64.b32encode(bytes(range(length))).decode()
+    unpadded = secret.rstrip("=")
+
+    assert normalize_totp_secret(unpadded) == unpadded
+    assert normalize_totp_secret(secret) == unpadded
+    assert pyotp.TOTP(unpadded).now()
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "not base32!", "JBSWY3DPEHPK3PXP"],  # the last one is 80 bits, a common docs example
+)
+def test_preset_totp_secret_must_be_base32_of_at_least_160_bits(value: str) -> None:
+    with pytest.raises(TotpSecretPolicyError):
+        normalize_totp_secret(value)

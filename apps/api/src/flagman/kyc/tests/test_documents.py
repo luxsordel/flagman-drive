@@ -16,11 +16,11 @@ from sqlalchemy import text
 from conftest import SettingsFactory
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.photos import MAX_UPLOAD_BYTES
 from flagman.core.ratelimit import Limit
 from flagman.kyc import service
 from flagman.kyc.api import get_document_storage
 from flagman.kyc.domain import REQUIRED_DOCUMENTS, DocumentKind, KycStatus
-from flagman.kyc.images import MAX_UPLOAD_BYTES
 from flagman.kyc.ports import DocumentStorage, create_document_storage
 from flagman.kyc.tests.conftest import (
     Person,

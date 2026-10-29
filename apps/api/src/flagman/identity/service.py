@@ -71,6 +71,7 @@ from flagman.identity.domain import (
     issue_staff_challenge,
     match_totp,
     normalize_email,
+    normalize_totp_secret,
     password_needs_rehash,
     read_staff_access,
     read_staff_challenge,
@@ -424,6 +425,15 @@ async def get_active_client_sessions(
     return await repository.get_active_client_sessions(db, session_ids, now)
 
 
+async def is_client_blocked(db: AsyncSession, user_id: UUID) -> bool:
+    """Whether an operator has blocked the client; an unknown id counts as not blocked.
+
+    Runs in the caller's transaction and holds the client's row until it ends, so a rental
+    checks the block and starts in one transaction, and a block waits for it.
+    """
+    return await repository.is_client_blocked(db, user_id)
+
+
 def _verify_password_or_dummy(password_hash: str | None, password: str) -> bool:
     # An unknown email still costs one argon2 run, so timing does not reveal who has an account.
     if password_hash is None:
@@ -758,6 +768,66 @@ async def create_staff(
             ),
         )
     return staff_id
+
+
+@dataclass(frozen=True)
+class StandStaff:
+    email: str
+    password: str
+    role: StaffRole
+    totp_secret: str
+
+
+@dataclass(frozen=True)
+class EnsuredStaff:
+    id: UUID
+    role: StaffRole
+    created: bool
+
+
+def check_stand_staff(account: StandStaff) -> str:
+    """The normalized 2FA secret; raises PasswordPolicyError, TotpSecretPolicyError."""
+    check_password_policy(account.password)
+    return normalize_totp_secret(account.totp_secret)
+
+
+async def ensure_staff(
+    db: AsyncSession, account: StandStaff, totp_key: bytes, now: datetime
+) -> EnsuredStaff:
+    """For the stand seed (#123): a staff member with 2FA already set up, safe to run again.
+
+    An existing account is left as it is, even with another role or password: changing them
+    would end the sessions of whoever is showing the stand. `set-password` and `reset-totp` do
+    that on purpose. Raises PasswordPolicyError, TotpSecretPolicyError, both checked first so a
+    broken seed fails on every run, not only on the first one.
+    """
+    secret = check_stand_staff(account)
+    email = normalize_email(account.email)
+    role = account.role
+    async with db.begin():
+        existing = await repository.get_staff_by_email(db, email)
+    if existing is not None:
+        return EnsuredStaff(existing.id, existing.role, created=False)
+    password_hash = await asyncio.to_thread(hash_password, account.password)
+    async with db.begin():
+        staff_id = await repository.create_staff(db, email, password_hash, role, now)
+        if staff_id is None:
+            # Another seed run created it in the meantime: the goal is reached either way.
+            raced = await _get_staff(db, email)
+            return EnsuredStaff(raced.id, raced.role, created=False)
+        ciphertext = encrypt_totp_secret(secret, totp_key, staff_id)
+        await repository.set_enrolled_totp_secret(db, staff_id, ciphertext, now)
+        await audit.record(
+            db,
+            AuditEntry(
+                SYSTEM,
+                AuditAction.STAFF_CREATED,
+                RequestOrigin(),
+                target=AuditTarget(AuditTargetType.STAFF_MEMBER, staff_id),
+                details={"role": role.value, "totp_preset": True},
+            ),
+        )
+    return EnsuredStaff(staff_id, role, created=True)
 
 
 async def reset_staff_totp(db: AsyncSession, email: str, now: datetime) -> UUID:

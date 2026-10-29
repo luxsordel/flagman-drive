@@ -1,0 +1,134 @@
+name: stand
+
+# The public demo stand (docs/adr/0021, docs/08-demo-stand.md). Never on every commit to main:
+# the stand is shown to management and must not change in the middle of a demo.
+#   Run workflow, tag empty     -> build this commit's images and deploy them
+#   Run workflow, tag <sha12>   -> deploy images built earlier: a rollback
+#   push a tag stand-v*         -> build and deploy that commit
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Image tag to deploy (12 hex chars from an earlier run). Empty: build this commit."
+        required: false
+        default: ""
+  push:
+    tags: ["stand-v*"]
+
+permissions:
+  contents: read
+
+# One deploy at a time; a second one waits instead of interrupting a half-done migration.
+concurrency:
+  group: stand
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and publish images
+    if: inputs.tag == ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
+    env:
+      STAND_DOMAIN: ${{ vars.STAND_DOMAIN }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - id: tag
+        run: |
+          test -n "$STAND_DOMAIN" || { echo "::error::Set the repository variable STAND_DOMAIN"; exit 1; }
+          echo "tag=${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          echo "registry=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+      - name: Log in to GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+      - name: Build and push
+        env:
+          REGISTRY: ${{ steps.tag.outputs.registry }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          # The source label links each package to this repository, so the deploy job's token can
+          # pull it without a personal access token.
+          source="org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY"
+          docker build --label "$source" -t "$REGISTRY/flagman-api:$TAG" apps/api
+          docker build --label "$source" -t "$REGISTRY/flagman-car-emulator:$TAG" services/car-emulator
+          docker build --label "$source" -t "$REGISTRY/flagman-web:$TAG" \
+            -f infra/stand/web/Dockerfile --build-arg STAND_DOMAIN="$STAND_DOMAIN" .
+          for image in flagman-api flagman-car-emulator flagman-web; do
+            docker push --quiet "$REGISTRY/$image:$TAG"
+          done
+      - if: always()
+        run: docker logout ghcr.io
+
+  deploy:
+    name: Deploy to the stand
+    needs: build
+    # Runs after a build, or alone for a rollback, when the build job is skipped.
+    if: always() && (needs.build.result == 'success' || (needs.build.result == 'skipped' && inputs.tag != ''))
+    runs-on: ubuntu-latest
+    # Who may deploy and the SSH secrets are set on this environment (docs/08-demo-stand.md).
+    environment:
+      name: stand
+      url: https://admin.${{ vars.STAND_DOMAIN }}
+    permissions:
+      contents: read
+      packages: read
+    env:
+      TAG: ${{ needs.build.outputs.tag || inputs.tag }}
+      STAND_DOMAIN: ${{ vars.STAND_DOMAIN }}
+      SSH_HOST: ${{ secrets.STAND_SSH_HOST }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # A rollback looks up the commit of its tag below.
+          fetch-depth: 0
+      - name: Check the tag
+        # The tag reaches a shell on the server, so only an image tag of this workflow passes.
+        run: |
+          [[ "$TAG" =~ ^[0-9a-f]{12}$ ]] || { echo "::error::Not an image tag: $TAG"; exit 1; }
+      - name: Take infra/ of the tag's commit
+        # Old images go with the compose files and scripts they were built with: newer ones may
+        # expect variables, services or commands the old images do not have.
+        run: git checkout --quiet "$TAG"
+      - name: Set up SSH
+        env:
+          SSH_KEY: ${{ secrets.STAND_SSH_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.STAND_SSH_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/stand
+          chmod 600 ~/.ssh/stand
+          # Pinned host key: a server answering with another key is not the stand.
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          printf 'Host stand\n  HostName %s\n  User deploy\n  IdentityFile ~/.ssh/stand\n  IdentitiesOnly yes\n' \
+            "$SSH_HOST" > ~/.ssh/config
+      - name: Copy infra/ to the server
+        # Replaced as a whole, so a file removed from the repository is gone on the server too.
+        run: |
+          tar -cz infra | ssh stand \
+            'set -e; cd /opt/flagman; rm -rf infra.new; mkdir infra.new; tar -xz -C infra.new;
+             rm -rf infra; mv infra.new/infra infra; rmdir infra.new'
+      - name: Deploy
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # The job token is valid only while this job runs; the server logs out right after.
+        run: |
+          # The actor and the checked tag are meant to expand here, before the command leaves.
+          # shellcheck disable=SC2029
+          echo "$TOKEN" | ssh stand "docker login ghcr.io -u '$GITHUB_ACTOR' --password-stdin >/dev/null \
+            && trap 'docker logout ghcr.io >/dev/null' EXIT \
+            && /opt/flagman/infra/stand/bin/deploy.sh '$TAG'"
+      - name: Check from outside
+        run: |
+          for _ in $(seq 1 30); do
+            if curl -fsS --max-time 5 "https://api.$STAND_DOMAIN/health"; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::https://api.$STAND_DOMAIN/health does not answer"
+          exit 1
+      - if: always()
+        run: rm -f ~/.ssh/stand

@@ -72,9 +72,12 @@ def test_sign_in_secrets_must_differ(make_settings: SettingsFactory) -> None:
         make_settings(api_jwt_secret="x" * 32, api_otp_pepper="x" * 32)
 
 
-def test_sms_codes_in_the_log_are_refused_in_prod(make_settings: SettingsFactory) -> None:
+@pytest.mark.parametrize("api_env", ["stand", "prod"])
+def test_sms_codes_in_the_log_are_refused_on_a_public_server(
+    make_settings: SettingsFactory, api_env: str
+) -> None:
     with pytest.raises(ValidationError, match="SMS_BACKEND=log"):
-        make_settings(api_env="prod", sms_backend="log")
+        make_settings(api_env=api_env, sms_backend="log")
 
 
 FIXED_PHONES = ["+375291111111", "+375442222222"]
@@ -198,12 +201,15 @@ def test_storage_urls_are_scheme_and_host_only(make_settings: SettingsFactory, u
         make_settings(s3_public_url=url)
 
 
-def test_document_links_must_be_https_in_prod(make_settings: SettingsFactory) -> None:
+@pytest.mark.parametrize("api_env", ["stand", "prod"])
+def test_document_links_must_be_https_on_the_internet(
+    make_settings: SettingsFactory, api_env: str
+) -> None:
     keys = {"s3_access_key": "key", "s3_secret_key": "secret"}
 
     with pytest.raises(ValidationError, match="must be https"):
-        make_settings(api_env="prod", s3_public_url="http://files.example.com", **keys)
-    settings = make_settings(api_env="prod", s3_public_url="https://files.example.com", **keys)
+        make_settings(api_env=api_env, s3_public_url="http://files.example.com", **keys)
+    settings = make_settings(api_env=api_env, s3_public_url="https://files.example.com", **keys)
     assert settings.storage_public_url == "https://files.example.com"
     # Without keys there are no links, so a prod server without storage still starts.
     assert not make_settings(api_env="prod").storage_configured
@@ -342,6 +348,15 @@ def test_payments_provider_needs_its_secrets(make_settings: SettingsFactory, mis
 def test_fake_payments_are_refused_in_production(make_settings: SettingsFactory) -> None:
     with pytest.raises(ValidationError, match="PAYMENTS_PROVIDER=fake"):
         make_settings(**_PAYMENTS, api_env="prod")
+
+
+def test_the_demo_stand_is_public_but_runs_on_test_payments(make_settings: SettingsFactory) -> None:
+    # The stand (#123) is shown with test cards and no money, on the open internet.
+    settings = make_settings(**_PAYMENTS, api_env="stand")
+
+    assert settings.payments_provider == "fake"
+    assert settings.is_public
+    assert not settings.is_prod
 
 
 def test_payments_webhook_secret_must_be_long(make_settings: SettingsFactory) -> None:

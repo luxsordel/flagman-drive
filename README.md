@@ -33,6 +33,7 @@
 6. [Архитектурные решения (ADR)](docs/adr/)
 7. [Онбординг нового участника](docs/06-onboarding.md) — или [готовый промпт для Claude Code](docs/onboarding-prompt.md)
 8. [Дизайн-система](docs/07-design-system.md) — на основе стиля FLAGMAN GROUP
+9. [Демо-стенд](docs/08-demo-stand.md) — выкладка, откат, резервные копии, сборки для телефонов
 
 ## Для Claude Code
 

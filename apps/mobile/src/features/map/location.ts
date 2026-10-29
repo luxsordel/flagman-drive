@@ -1,5 +1,6 @@
 import {
   Accuracy,
+  getCurrentPositionAsync,
   PermissionStatus,
   requestForegroundPermissionsAsync,
   watchPositionAsync,
@@ -62,4 +63,33 @@ export function useClientLocation(): ClientLocation {
   }, []);
 
   return state;
+}
+
+export const fixTimeoutMs = 15_000;
+
+export type LocationFix =
+  | { kind: 'located'; location: LatLon }
+  | { kind: 'denied' }
+  /** Location services off or no fix in time. */
+  | { kind: 'unavailable' };
+
+/**
+ * One precise fix for a command to the car: the server checks the distance to it, so the coarse
+ * fix of the map could leave a client standing next to the car "too far". Never stored or logged.
+ */
+export async function locateOnce(): Promise<LocationFix> {
+  try {
+    const { status } = await requestForegroundPermissionsAsync();
+    if (status !== PermissionStatus.GRANTED) return { kind: 'denied' };
+    const position = await Promise.race([
+      getCurrentPositionAsync({ accuracy: Accuracy.High }),
+      // Indoors a precise fix may never come; the buttons of the screen wait for it meanwhile.
+      new Promise<null>((resolve) => setTimeout(resolve, fixTimeoutMs, null)),
+    ]);
+    if (position === null) return { kind: 'unavailable' };
+    const { coords } = position;
+    return { kind: 'located', location: { lat: coords.latitude, lon: coords.longitude } };
+  } catch {
+    return { kind: 'unavailable' };
+  }
 }

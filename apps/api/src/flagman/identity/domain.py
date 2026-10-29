@@ -3,6 +3,8 @@
 No I/O here.
 """
 
+import base64
+import binascii
 import hashlib
 import hmac
 import secrets
@@ -262,6 +264,7 @@ TOTP_INTERVAL_SECONDS = 30
 TOTP_VALID_WINDOW = 1
 TOTP_ISSUER = "FLAGMAN Drive"
 _TOTP_NONCE_BYTES = 12
+_TOTP_SECRET_MIN_BYTES = 20
 
 # RFC 9106 low-memory profile (argon2id, 64 MiB, 3 passes): the library default, chosen so that
 # hashing stays well under a second on a small VPS.
@@ -322,6 +325,10 @@ class StaffEmailTakenError(ValueError):
     pass
 
 
+class TotpSecretPolicyError(ValueError):
+    pass
+
+
 class StaffNotFoundError(LookupError):
     pass
 
@@ -368,6 +375,23 @@ def dummy_password_hash() -> str:
 
 def generate_totp_secret() -> str:
     return pyotp.random_base32()  # 160 bits, as RFC 4226 recommends
+
+
+def normalize_totp_secret(value: str) -> str:
+    """A preset secret for a stand account (#123), as authenticator apps show it.
+
+    At least 160 bits, like the generated ones: a shorter secret is easier to guess offline from a
+    few observed codes.
+    """
+    secret = "".join(value.split()).upper().rstrip("=")
+    try:
+        # Authenticator apps and pyotp drop the padding; b32decode insists on it.
+        raw = base64.b32decode(secret + "=" * (-len(secret) % 8))
+    except binascii.Error as exc:
+        raise TotpSecretPolicyError("the 2FA secret is not base32") from exc
+    if len(raw) < _TOTP_SECRET_MIN_BYTES:
+        raise TotpSecretPolicyError("the 2FA secret is shorter than 160 bits")
+    return secret
 
 
 def totp_provisioning_uri(secret: str, email: str) -> str:

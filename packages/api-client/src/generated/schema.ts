@@ -682,6 +682,188 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/rentals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Reserve a car from the map
+     * @description The first minutes are free, then the waiting is paid until `expires_at`, when the reservation is cancelled unless the car has been opened.
+     */
+    post: operations['reserve_rentals_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/current': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The client's active rental, to come back to it after a restart */
+    get: operations['get_current_rental_rentals_current_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One of the client's rentals */
+    get: operations['get_rental_rentals__rental_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/cancel': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Cancel the reservation
+     * @description Cancelling a cancelled reservation returns it as it is.
+     */
+    post: operations['cancel_reservation_rentals__rental_id__cancel_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/commands': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Open or close the car of the rental
+     * @description Only within reach of the car, after the inspection. The first opening starts the trip. Waits for the car; a failed command leaves the rental as it was.
+     */
+    post: operations['send_command_rentals__rental_id__commands_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/inspections/{stage}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The inspection of the car so far */
+    get: operations['get_inspection_rentals__rental_id__inspections__stage__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/inspections/{stage}/damages': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Mark a damage of the car in the inspection */
+    post: operations['add_inspection_damage_rentals__rental_id__inspections__stage__damages_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/inspections/{stage}/photos': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Add a photo of the car to the inspection
+     * @description Photos are evidence: they cannot be deleted or replaced once uploaded.
+     */
+    post: operations['add_inspection_photo_rentals__rental_id__inspections__stage__photos_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/inspections/{stage}/photos/{photo_id}/url': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A short-lived link to a photo of the inspection */
+    get: operations['get_inspection_photo_url_rentals__rental_id__inspections__stage__photos__photo_id__url_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/inspections/{stage}/submit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Finish the inspection; nothing can be added to it after */
+    post: operations['submit_inspection_rentals__rental_id__inspections__stage__submit_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/staff/auth/logout': {
     parameters: {
       query?: never;
@@ -906,6 +1088,12 @@ export interface components {
     AuditTargetType:
       'staff_member' | 'kyc_application' | 'zone' | 'tariff' | 'payment_operation' | 'car';
     /**
+     * CancelReason
+     * @description Why a reservation ended without a trip; values are stored as is.
+     * @enum {string}
+     */
+    CancelReason: 'client' | 'expired';
+    /**
      * CarCommand
      * @description What staff may ask a car to do; values are stored in the audit log as is.
      * @enum {string}
@@ -1071,6 +1259,52 @@ export interface components {
       last_name?: string;
     };
     /**
+     * CommandIn
+     * @description Where the client is right now, for the distance to the car; never logged or stored.
+     */
+    CommandIn: {
+      command: components['schemas']['RentalCommand'];
+      /** Lat */
+      lat: number;
+      /** Lon */
+      lon: number;
+    };
+    /** CurrentRentalOut */
+    CurrentRentalOut: {
+      /** @description Null when the client has no active rental. */
+      rental: components['schemas']['RentalOut'] | null;
+    };
+    /** DamageIn */
+    DamageIn: {
+      /**
+       * Comment
+       * @example Scratch on the rear bumper
+       */
+      comment: string;
+      side: components['schemas']['DamageSide'];
+    };
+    /** DamageOut */
+    DamageOut: {
+      /** Comment */
+      comment: string;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      side: components['schemas']['DamageSide'];
+    };
+    /**
+     * DamageSide
+     * @enum {string}
+     */
+    DamageSide: 'front' | 'rear' | 'left' | 'right' | 'roof' | 'interior';
+    /**
      * DeclineReason
      * @enum {string}
      */
@@ -1120,6 +1354,48 @@ export interface components {
        */
       telemetry_max_age_seconds: number;
     };
+    /**
+     * InspectionOut
+     * @description No links here: the client asks for one only when it shows the photo.
+     */
+    InspectionOut: {
+      /** Damages */
+      damages: components['schemas']['DamageOut'][];
+      /**
+       * Max Photos
+       * @example 8
+       */
+      max_photos: number;
+      /**
+       * Min Photos
+       * @example 4
+       */
+      min_photos: number;
+      /** Photos */
+      photos: components['schemas']['InspectionPhotoOut'][];
+      stage: components['schemas']['InspectionStage'];
+      /** Submitted At */
+      submitted_at: string | null;
+    };
+    /** InspectionPhotoOut */
+    InspectionPhotoOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Uploaded At
+       * Format: date-time
+       */
+      uploaded_at: string;
+    };
+    /**
+     * InspectionStage
+     * @description Values are stored as is: before the first opening and after the trip (#111).
+     * @enum {string}
+     */
+    InspectionStage: 'before' | 'after';
     /**
      * KycApplicationOut
      * @description No links here: the client asks for one only when it shows the photo.
@@ -1466,6 +1742,20 @@ export interface components {
       /** Last4 */
       last4: string;
     };
+    /** PhotoUrlOut */
+    PhotoUrlOut: {
+      /**
+       * Expires In
+       * @description Seconds the link keeps working.
+       * @example 300
+       */
+      expires_in: number;
+      /**
+       * Url
+       * @description Opens the photo without a token; do not store or share it.
+       */
+      url: string;
+    };
     /**
      * PolygonGeometry
      * @description A GeoJSON `Polygon` (RFC 7946): `[lon, lat]` pairs, the first point repeated at the end.
@@ -1557,6 +1847,120 @@ export interface components {
        * @description Left out by the web client, which sends the cookie instead.
        */
       refresh_token?: string | null;
+    };
+    /**
+     * RentalCarOut
+     * @description The reserved car as the client needs it to find it: the plate is shown from now on.
+     */
+    RentalCarOut: {
+      /** Battery Pct */
+      battery_pct: number | null;
+      /** Brand */
+      brand: string;
+      /** Doors Locked */
+      doors_locked: boolean | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Lat
+       * @description Where the car last reported itself; null if unknown.
+       */
+      lat: number | null;
+      /** Lon */
+      lon: number | null;
+      /** Model */
+      model: string;
+      /** Photo Url */
+      photo_url: string | null;
+      /** Plate */
+      plate: string;
+      /**
+       * Range Km
+       * @description Estimated from the charge, rounded down.
+       */
+      range_km: number | null;
+    };
+    /**
+     * RentalCommand
+     * @enum {string}
+     */
+    RentalCommand: 'open' | 'close';
+    /** RentalOut */
+    RentalOut: {
+      /**
+       * As Of
+       * Format: date-time
+       * @description Server time: count the deadlines down from it.
+       */
+      as_of: string;
+      cancel_reason: components['schemas']['CancelReason'] | null;
+      car: components['schemas']['RentalCarOut'];
+      /** Ended At */
+      ended_at: string | null;
+      /**
+       * Expires At
+       * Format: date-time
+       * @description Then the reservation is cancelled unless the car has been opened.
+       */
+      expires_at: string;
+      /**
+       * Free Wait Until
+       * Format: date-time
+       * @description The reservation is free until then.
+       */
+      free_wait_until: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Inspection Submitted
+       * @description The inspection before the trip is done: the car may be opened.
+       */
+      inspection_submitted: boolean;
+      /**
+       * Reserved At
+       * Format: date-time
+       */
+      reserved_at: string;
+      status: components['schemas']['RentalStatus'];
+      tariff: components['schemas']['RentalTariffOut'];
+      /** Trip Started At */
+      trip_started_at: string | null;
+    };
+    /**
+     * RentalStatus
+     * @description Values are stored as is: renaming one needs a migration.
+     * @enum {string}
+     */
+    RentalStatus:
+      'reserved' | 'in_trip' | 'parked' | 'finished' | 'cancelled' | 'paid' | 'payment_failed';
+    /**
+     * RentalTariffOut
+     * @description Prices of the tariff version fixed at the reservation, in kopecks of BYN.
+     */
+    RentalTariffOut: {
+      /** Driving Per Minute */
+      driving_per_minute: number;
+      /** Parked Per Minute */
+      parked_per_minute: number;
+      /**
+       * Waiting Per Minute
+       * @description The paid wait, after the free minutes.
+       */
+      waiting_per_minute: number;
+    };
+    /** ReserveIn */
+    ReserveIn: {
+      /**
+       * Car Id
+       * Format: uuid
+       */
+      car_id: string;
     };
     /** StaffAccessToken */
     StaffAccessToken: {
@@ -4742,6 +5146,777 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ReadinessResponse'];
+        };
+      };
+    };
+  };
+  reserve_rentals_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ReserveIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-not-approved`: the documents are not approved yet; `client-blocked`: an operator has blocked the client. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:car-not-found`: the car cannot be rented now, the reason is not told. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:active-rental-exists`: finish or cancel the current one first. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_current_rental_rentals_current_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CurrentRentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_rental_rentals__rental_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  cancel_reservation_rentals__rental_id__cancel_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-transition-not-allowed`: the trip has started; `rental-command-in-progress`: the car is answering a command, try again. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  send_command_rentals__rental_id__commands_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CommandIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:kyc-not-approved`: the documents are not approved yet; `client-blocked`: an operator has blocked the client. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:inspection-required`; `too-far-from-car`; `car-location-unknown`: no fresh telemetry from the car; `rental-command-in-progress`; `rental-transition-not-allowed`: the rental is over; `car-command-rejected`: the car refused, `detail` is its reason; `urn:flagman:problem:reservation-expired`: the reservation has been cancelled. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:telematics-unavailable`: nothing was done, try again. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:telematics-timeout`: the car may or may not have done it. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_inspection_rentals__rental_id__inspections__stage__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+        stage: components['schemas']['InspectionStage'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['InspectionOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  add_inspection_damage_rentals__rental_id__inspections__stage__damages_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+        stage: components['schemas']['InspectionStage'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['DamageIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['InspectionOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:inspection-closed`: submitted already or not at this stage of the rental; `inspection-photo-limit`, `inspection-damage-limit`, `inspection-incomplete`; `urn:flagman:problem:reservation-expired`: the reservation has been cancelled. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  add_inspection_photo_rentals__rental_id__inspections__stage__photos_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+        stage: components['schemas']['InspectionStage'];
+      };
+      cookie?: never;
+    };
+    /** @description The photo of the car, at most 10 MB. The type is detected from the content; the stored copy is a JPEG without metadata. */
+    requestBody: {
+      content: {
+        'image/jpeg': string;
+        'image/png': string;
+        'image/webp': string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['InspectionOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:inspection-closed`: submitted already or not at this stage of the rental; `inspection-photo-limit`, `inspection-damage-limit`, `inspection-incomplete`; `urn:flagman:problem:reservation-expired`: the reservation has been cancelled. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:inspection-photo-too-large`. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:inspection-photo-type-unsupported`: not a photo. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:photo-storage-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_inspection_photo_url_rentals__rental_id__inspections__stage__photos__photo_id__url_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        photo_id: string;
+        rental_id: string;
+        stage: components['schemas']['InspectionStage'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PhotoUrlOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, `inspection-photo-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:photo-storage-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  submit_inspection_rentals__rental_id__inspections__stage__submit_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+        stage: components['schemas']['InspectionStage'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['InspectionOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:inspection-closed`: submitted already or not at this stage of the rental; `inspection-photo-limit`, `inspection-damage-limit`, `inspection-incomplete`; `urn:flagman:problem:reservation-expired`: the reservation has been cancelled. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
         };
       };
     };

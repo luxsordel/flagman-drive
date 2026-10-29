@@ -39,6 +39,8 @@ class User(Base):
     # Not unique: a contact address, not a way to sign in.
     email: Mapped[str | None] = mapped_column(String(EMAIL_LENGTH))
     language: Mapped[str] = mapped_column(String(LANGUAGE_LENGTH), server_default="ru")
+    # Set by an operator (#112); a blocked client may not reserve or open cars.
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class PendingOtp(Base):

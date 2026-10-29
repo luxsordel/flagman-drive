@@ -1,7 +1,7 @@
 """add notifications
 
 Revision ID: e5b7c2d9a4f1
-Revises: c4d9e2a1f6b3
+Revises: b4c8e2a61f37
 Create Date: 2026-10-27 12:00:00.000000
 """
 
@@ -12,7 +12,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "e5b7c2d9a4f1"
-down_revision: str | Sequence[str] | None = "c4d9e2a1f6b3"
+down_revision: str | Sequence[str] | None = "b4c8e2a61f37"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

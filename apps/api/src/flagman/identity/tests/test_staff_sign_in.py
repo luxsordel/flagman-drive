@@ -14,17 +14,19 @@ import pytest
 from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy import Row, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
-from flagman.identity import cli, service
+from flagman.identity import cli, repository, service
 from flagman.identity.domain import (
     REFRESH_REUSE_GRACE,
     TOTP_INTERVAL_SECONDS,
     StaffRole,
     hash_refresh_token,
 )
+from flagman.identity.repository import StaffRecord
 
 pytestmark = pytest.mark.integration
 
@@ -790,3 +792,106 @@ def test_commands_report_an_unknown_email(command_env: None, command: list[str])
     code, _ = _run_command(*command, "--email", email, stdin=PASSWORD)
 
     assert code == cli.EXIT_FAILED
+
+
+# The stand seed (#123)
+
+
+def _ensure(
+    email: str, secret: str, role: str = "operator", password: str = PASSWORD
+) -> tuple[int, str]:
+    stdin = f"{password}\n{secret}\n"
+    return _run_command("ensure", "--email", email, "--role", role, stdin=stdin)
+
+
+def _staff_by_email(settings: Settings, email: str) -> list[Row[Any]]:
+    return _query(settings, "SELECT id, role FROM staff_members WHERE email = :e", e=email)
+
+
+def test_ensure_creates_staff_who_sign_in_with_the_preset_2fa(
+    command_env: None, client: TestClient, integration_settings: Settings
+) -> None:
+    email = f"stand-{secrets.token_hex(6)}@flagman.by"
+    secret = pyotp.random_base32()
+
+    code, output = _ensure(email, secret)
+
+    assert code == cli.EXIT_OK
+    assert PASSWORD not in output
+    assert secret not in output
+    [staff] = _staff_by_email(integration_settings, email)
+    challenge = _challenge(client, Staff(staff.id, email))
+    # No QR code step: whoever shows the stand already has the secret in an authenticator.
+    assert challenge["next_step"] == "totp"
+    response = _totp(client, challenge["challenge_token"], _code(secret))
+    assert response.status_code == HTTPStatus.OK, response.text
+
+
+def test_ensure_again_changes_nothing_and_keeps_sessions(
+    command_env: None, client: TestClient, integration_settings: Settings
+) -> None:
+    email = f"stand-{secrets.token_hex(6)}@flagman.by"
+    secret = pyotp.random_base32()
+    assert _ensure(email, secret)[0] == cli.EXIT_OK
+    [staff] = _staff_by_email(integration_settings, email)
+    challenge = _challenge(client, Staff(staff.id, email))["challenge_token"]
+    assert _totp(client, challenge, _code(secret)).status_code == HTTPStatus.OK
+
+    code, output = _ensure(
+        email, pyotp.random_base32(), role="admin", password="another passphrase"
+    )
+
+    assert code == cli.EXIT_OK
+    assert "nothing changed" in output
+    assert "operator" in output
+    [after] = _staff_by_email(integration_settings, email)
+    assert after.role == "operator"
+    assert _refresh(client).status_code == HTTPStatus.OK
+    assert _password(client, email).status_code == HTTPStatus.OK
+    assert _system_events(integration_settings, staff.id) == ["staff.created"]
+
+
+@pytest.mark.parametrize(
+    ("password", "secret"),
+    [("short", pyotp.random_base32()), (PASSWORD, "JBSWY3DPEHPK3PXP"), (PASSWORD, "")],
+)
+def test_ensure_refuses_a_weak_password_or_2fa_secret(
+    command_env: None, integration_settings: Settings, password: str, secret: str
+) -> None:
+    email = f"stand-{secrets.token_hex(6)}@flagman.by"
+
+    code, _ = _ensure(email, secret, password=password)
+
+    assert code == cli.EXIT_FAILED
+    assert _staff_by_email(integration_settings, email) == []
+
+
+def test_ensure_takes_an_account_created_by_a_parallel_run(
+    integration_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    email = f"stand-{secrets.token_hex(6)}@flagman.by"
+    staff_id = _create_staff(integration_settings, email, StaffRole.ADMIN)
+    # The other run inserts between this run's lookup and its insert: the first lookup misses.
+    lookups: list[StaffRecord | None] = [None]
+    get_staff = repository.get_staff_by_email
+
+    async def stale_lookup(db: AsyncSession, email: str) -> StaffRecord | None:
+        return lookups.pop() if lookups else await get_staff(db, email)
+
+    monkeypatch.setattr(repository, "get_staff_by_email", stale_lookup)
+    account = service.StandStaff(email, PASSWORD, StaffRole.OPERATOR, pyotp.random_base32())
+
+    async def run() -> service.EnsuredStaff:
+        engine = create_engine(integration_settings)
+        try:
+            async with create_session_factory(engine)() as db:
+                return await service.ensure_staff(
+                    db, account, integration_settings.totp_encryption_key, datetime.now(UTC)
+                )
+        finally:
+            await engine.dispose()
+
+    ensured = asyncio.run(run())
+
+    assert ensured == service.EnsuredStaff(staff_id, StaffRole.ADMIN, created=False)
+    assert _system_events(integration_settings, staff_id) == ["staff.created"]

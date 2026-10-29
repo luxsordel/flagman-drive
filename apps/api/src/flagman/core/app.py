@@ -36,6 +36,7 @@ from flagman.payments.api import router as payments_router
 from flagman.payments.api import webhook_router as payments_webhook_router
 from flagman.payments.fake_pages import router as fake_provider_router
 from flagman.pricing.api import router as pricing_router
+from flagman.rentals.api import router as rentals_router
 
 logger = structlog.get_logger(__name__)
 
@@ -46,11 +47,12 @@ SWAGGER_OAUTH_REDIRECT_URL = "/docs/oauth2-redirect"
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or load_settings()
     configure_logging(settings.api_log_level)
-    # Every protection that only prod turns on goes here, so the warning below never misses one.
-    prod_protections = {"hsts": settings.is_prod, "hidden_api_docs": settings.is_prod}
+    # Every protection that only a public server turns on goes here, so the warning below never
+    # misses one.
+    prod_protections = {"hsts": settings.is_public, "hidden_api_docs": settings.is_public}
     disabled = [name for name, enabled in prod_protections.items() if not enabled]
     if disabled:
-        # Loud on purpose: a server started without API_ENV=prod works, but without these.
+        # Loud on purpose: a server started without API_ENV=prod or stand works, but without these.
         logger.warning(
             "api_not_in_prod_mode", api_env=settings.api_env, disabled_protections=disabled
         )
@@ -122,6 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(map_cars_router)
     app.include_router(geo_router)
     app.include_router(map_zones_router)
+    app.include_router(rentals_router)
     app.include_router(pricing_router)
     app.include_router(notifications_router)
     app.include_router(payments_router)

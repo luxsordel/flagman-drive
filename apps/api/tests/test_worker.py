@@ -64,10 +64,6 @@ async def _code_exists(engine: AsyncEngine, phone: str) -> bool:
     return bool(found)
 
 
-async def _idle_job(*args: object) -> None:
-    return None
-
-
 @pytest.mark.integration
 async def test_cleanup_job_deletes_and_releases_the_lock(integration_settings: Settings) -> None:
     engine = create_engine(integration_settings)
@@ -127,6 +123,66 @@ async def test_cleanup_job_is_skipped_while_another_worker_holds_it(
         await engine.dispose()
 
 
+async def _idle_job(*args: object) -> None:
+    return None
+
+
+async def test_each_job_keeps_its_own_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    stop = asyncio.Event()
+    runs: list[str] = []
+
+    def job(name: str) -> object:
+        async def run(*args: object) -> None:
+            runs.append(name)
+            if runs.count(worker.RESERVATION_EXPIRY) == 3:
+                stop.set()
+
+        return run
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", job(worker.AUTH_CLEANUP))
+    monkeypatch.setattr(worker, "run_reservation_expiry", job(worker.RESERVATION_EXPIRY))
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    intervals = {
+        worker.AUTH_CLEANUP: timedelta(hours=1),
+        worker.RESERVATION_EXPIRY: timedelta(milliseconds=50),
+        worker.OUTBOX_CLEANUP: timedelta(hours=1),
+    }
+
+    await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=intervals), 5)
+
+    assert runs.count(worker.AUTH_CLEANUP) == 1
+    assert runs.count(worker.RESERVATION_EXPIRY) == 3
+
+
+@pytest.mark.integration
+async def test_reservation_expiry_is_skipped_while_another_worker_holds_it(
+    integration_settings: Settings,
+) -> None:
+    engine = create_engine(integration_settings)
+    try:
+        factory = create_session_factory(engine)
+        settings = _worker_settings(integration_settings)
+        assert (
+            await worker.run_reservation_expiry(engine, factory, settings, datetime.now(UTC)) == 0
+        )
+        async with engine.connect() as other_worker:
+            await other_worker.execute(
+                text("SELECT pg_advisory_lock(:key)"), {"key": worker.RESERVATION_EXPIRY_LOCK}
+            )
+            await other_worker.commit()
+
+            result = await worker.run_reservation_expiry(
+                engine, factory, settings, datetime.now(UTC)
+            )
+
+            await other_worker.execute(
+                text("SELECT pg_advisory_unlock(:key)"), {"key": worker.RESERVATION_EXPIRY_LOCK}
+            )
+        assert result is None
+    finally:
+        await engine.dispose()
+
+
 async def test_a_failed_run_is_retried_sooner_and_does_not_stop_the_worker(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -143,12 +199,12 @@ async def test_a_failed_run_is_retried_sooner_and_does_not_stop_the_worker(
         return None
 
     monkeypatch.setattr(worker, "run_auth_cleanup", job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
 
     # An hour between runs: only the short retry lets the second run happen in time.
-    run = worker.run(
-        _offline_settings(), stop, interval=timedelta(hours=1), retry_after=timedelta(seconds=0)
-    )
+    hourly = dict.fromkeys(worker.INTERVALS, timedelta(hours=1))
+    run = worker.run(_offline_settings(), stop, intervals=hourly, retry_after=timedelta(seconds=0))
     await asyncio.wait_for(run, 5)
 
     assert calls == 2
@@ -164,6 +220,7 @@ async def test_worker_stops_without_waiting_for_the_next_run(
         return None
 
     monkeypatch.setattr(worker, "run_auth_cleanup", job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
 
     # The interval is an hour: the run must end on the stop, not on the timer.
@@ -198,12 +255,7 @@ async def test_notifications_go_out_on_their_own_short_interval(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stop = asyncio.Event()
-    cleanups = 0
     dispatches = 0
-
-    async def cleanup(*args: object) -> None:
-        nonlocal cleanups
-        cleanups += 1
 
     async def dispatch(*args: object) -> None:
         nonlocal dispatches
@@ -211,31 +263,32 @@ async def test_notifications_go_out_on_their_own_short_interval(
         if dispatches == 3:
             stop.set()
 
-    monkeypatch.setattr(worker, "run_auth_cleanup", cleanup)
-    monkeypatch.setattr(worker, "run_outbox_cleanup", cleanup)
+    monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
     settings = _offline_settings().model_copy(
         update={"notifications_provider": "fake", "notifications_dispatch_interval_seconds": 0.01}
     )
+    hourly = dict.fromkeys(worker.INTERVALS, timedelta(hours=1))
 
-    await asyncio.wait_for(worker.run(settings, stop), 5)
+    await asyncio.wait_for(worker.run(settings, stop, intervals=hourly), 5)
 
-    # Both cleanups once in the hour, the dispatch every 10 ms.
-    assert cleanups == 2
     assert dispatches == 3
 
 
 async def test_without_a_provider_nothing_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
     stop = asyncio.Event()
 
-    async def cleanup(*args: object) -> None:
+    async def idle_then_stop(*args: object) -> None:
         stop.set()
 
     async def dispatch(*args: object) -> None:
         raise AssertionError("must not run")
 
-    monkeypatch.setattr(worker, "run_auth_cleanup", cleanup)
-    monkeypatch.setattr(worker, "run_outbox_cleanup", cleanup)
+    monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
