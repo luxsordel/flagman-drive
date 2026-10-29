@@ -75,8 +75,73 @@ class DatabaseSettings(BaseSettings):
         )
 
 
-class WorkerSettings(DatabaseSettings):
-    """`flagman-worker` gets none of the API secrets: it does not sign or check anything."""
+class PaymentsSettings(DatabaseSettings):
+    """Card payments, for the API and for the worker that retries a declined charge
+    (docs/adr/0019, docs/adr/0024)."""
+
+    # Card payments, see docs/adr/0019. "fake" is the test provider inside the API: its own card
+    # page and test card numbers, no money moves. Unset: the API runs, but cards cannot be bound
+    # and payments answer 503.
+    payments_provider: Literal["fake"] | None = None
+    # Checks the provider's webhooks (HMAC + timestamp); the fake provider signs with it too.
+    payments_webhook_secret: SecretStr | None = None
+    payments_webhook_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
+    # Encrypts the provider's card tokens in the database, so a dump alone cannot charge a card.
+    # 32 bytes in standard base64, like API_TOTP_ENCRYPTION_KEY but a different one.
+    payments_token_encryption_key: SecretStr | None = None
+
+    @field_validator("payments_webhook_secret")
+    @classmethod
+    def _validate_payments_webhook_secret(cls, secret: SecretStr | None) -> SecretStr | None:
+        if secret is not None and len(secret.get_secret_value()) < MIN_SECRET_LENGTH:
+            raise ValueError(f"PAYMENTS_WEBHOOK_SECRET must be at least {MIN_SECRET_LENGTH} chars")
+        return secret
+
+    @field_validator("payments_token_encryption_key")
+    @classmethod
+    def _validate_payments_token_key(cls, key: SecretStr | None) -> SecretStr | None:
+        if key is not None and len(_decode_key(key)) != PAYMENTS_TOKEN_KEY_BYTES:
+            raise ValueError(
+                f"PAYMENTS_TOKEN_ENCRYPTION_KEY must be {PAYMENTS_TOKEN_KEY_BYTES} bytes in base64 "
+                "(openssl rand -base64 32)"
+            )
+        return key
+
+    @model_validator(mode="after")
+    def _validate_payments(self) -> Self:
+        if self.payments_provider is None:
+            return self
+        if self.is_prod and self.payments_provider == "fake":
+            # Any test card would bind and every hold would pass without money.
+            raise ValueError("PAYMENTS_PROVIDER=fake is not allowed when API_ENV=prod")
+        if self.payments_webhook_secret is None or self.payments_token_encryption_key is None:
+            raise ValueError(
+                "PAYMENTS_PROVIDER needs PAYMENTS_WEBHOOK_SECRET and PAYMENTS_TOKEN_ENCRYPTION_KEY"
+            )
+        return self
+
+    @property
+    def payments_token_key(self) -> bytes | None:
+        key = self.payments_token_encryption_key
+        return _decode_key(key) if key is not None else None
+
+
+class TripSettings(PaymentsSettings):
+    """What the API shows on the trip screen and the worker watches during a trip (#111)."""
+
+    # Below this the trip screen warns and the client gets one push per trip; must be under
+    # FLEET_MIN_BATTERY_PCT, so every trip starts above it and the push means a crossing.
+    rental_low_battery_pct: int = Field(default=15, ge=1, le=100)
+    # The trip screen warns that the range may not last below this many kilometres.
+    rental_low_range_km: int = Field(default=30, ge=1, le=1000)
+    # A declined debt is tried again this often, this many times (docs/adr/0024).
+    rental_charge_retry_interval_seconds: int = Field(default=3600, ge=60)
+    rental_charge_max_attempts: int = Field(default=5, ge=0, le=50)
+
+
+class WorkerSettings(TripSettings):
+    """`flagman-worker` gets the payment settings to retry charges (docs/adr/0024) and none of
+    the other API secrets: it does not sign or check anything."""
 
     # Ended sessions and their refresh tokens are kept this long before the periodic cleanup
     # deletes them (#46). Not a security knob: a replayed token of an ended session revokes
@@ -105,7 +170,7 @@ class WorkerSettings(DatabaseSettings):
         return self
 
 
-class Settings(DatabaseSettings):
+class Settings(TripSettings):
     api_cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
 
     redis_host: str = "localhost"
@@ -174,16 +239,9 @@ class Settings(DatabaseSettings):
     rental_max_reservation_minutes: int = Field(default=45, ge=1, le=240)
     # How close the client must be to open or close the car (docs/03-security.md).
     rental_command_max_distance_m: float = Field(default=50.0, gt=0, le=1000)
-    # Card payments, see docs/adr/0019. "fake" is the test provider inside the API: its own card
-    # page and test card numbers, no money moves. Unset: the API runs, but cards cannot be bound
-    # and payments answer 503.
-    payments_provider: Literal["fake"] | None = None
-    # Checks the provider's webhooks (HMAC + timestamp); the fake provider signs with it too.
-    payments_webhook_secret: SecretStr | None = None
-    payments_webhook_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
-    # Encrypts the provider's card tokens in the database, so a dump alone cannot charge a card.
-    # 32 bytes in standard base64, like API_TOTP_ENCRYPTION_KEY but a different one.
-    payments_token_encryption_key: SecretStr | None = None
+    # The rental ends by a snapshot this recent: the car must be in the zone now, not when it
+    # last reported five minutes ago (docs/adr/0024).
+    rental_finish_max_state_age_seconds: int = Field(default=60, ge=5, le=600)
 
     @field_validator("api_cors_origins", "sms_fixed_phones", mode="before")
     @classmethod
@@ -230,35 +288,10 @@ class Settings(DatabaseSettings):
             raise ValueError(f"{name} must be at least {MIN_SECRET_LENGTH} chars")
         return secret
 
-    @field_validator("payments_webhook_secret")
-    @classmethod
-    def _validate_payments_webhook_secret(cls, secret: SecretStr | None) -> SecretStr | None:
-        if secret is not None and len(secret.get_secret_value()) < MIN_SECRET_LENGTH:
-            raise ValueError(f"PAYMENTS_WEBHOOK_SECRET must be at least {MIN_SECRET_LENGTH} chars")
-        return secret
-
-    @field_validator("payments_token_encryption_key")
-    @classmethod
-    def _validate_payments_token_key(cls, key: SecretStr | None) -> SecretStr | None:
-        if key is not None and len(_decode_key(key)) != PAYMENTS_TOKEN_KEY_BYTES:
-            raise ValueError(
-                f"PAYMENTS_TOKEN_ENCRYPTION_KEY must be {PAYMENTS_TOKEN_KEY_BYTES} bytes in base64 "
-                "(openssl rand -base64 32)"
-            )
-        return key
-
     @model_validator(mode="after")
-    def _validate_payments(self) -> Self:
-        if self.payments_provider is None:
-            return self
-        if self.is_prod and self.payments_provider == "fake":
-            # Any test card would bind and every hold would pass without money.
-            raise ValueError("PAYMENTS_PROVIDER=fake is not allowed when API_ENV=prod")
-        if self.payments_webhook_secret is None or self.payments_token_encryption_key is None:
-            raise ValueError(
-                "PAYMENTS_PROVIDER needs PAYMENTS_WEBHOOK_SECRET and PAYMENTS_TOKEN_ENCRYPTION_KEY"
-            )
-        if self.payments_token_encryption_key.get_secret_value() == (
+    def _validate_payments_key_differs(self) -> Self:
+        key = self.payments_token_encryption_key
+        if key is not None and key.get_secret_value() == (
             self.api_totp_encryption_key.get_secret_value()
         ):
             raise ValueError(
@@ -311,6 +344,14 @@ class Settings(DatabaseSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_trip_battery(self) -> Self:
+        # Every trip starts above the rentable charge, so the low battery push means a crossing
+        # and comes once (docs/adr/0024). The worker reads the same environment.
+        if self.rental_low_battery_pct >= self.fleet_min_battery_pct:
+            raise ValueError("RENTAL_LOW_BATTERY_PCT must be below FLEET_MIN_BATTERY_PCT")
+        return self
+
+    @model_validator(mode="after")
     def _validate_secrets(self) -> Self:
         if self.api_jwt_secret.get_secret_value() == self.api_otp_pepper.get_secret_value():
             raise ValueError("API_JWT_SECRET and API_OTP_PEPPER must be different")
@@ -341,11 +382,6 @@ class Settings(DatabaseSettings):
     @property
     def totp_encryption_key(self) -> bytes:
         return base64.b64decode(self.api_totp_encryption_key.get_secret_value())
-
-    @property
-    def payments_token_key(self) -> bytes | None:
-        key = self.payments_token_encryption_key
-        return _decode_key(key) if key is not None else None
 
     @property
     def storage_configured(self) -> bool:

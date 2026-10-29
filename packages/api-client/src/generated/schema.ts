@@ -967,6 +967,23 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/rentals/debts': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** What the client owes for earlier rentals */
+    get: operations['get_debts_rentals_debts_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/rentals/{rental_id}': {
     parameters: {
       query?: never;
@@ -995,7 +1012,7 @@ export interface paths {
     put?: never;
     /**
      * Cancel the reservation
-     * @description Cancelling a cancelled reservation returns it as it is.
+     * @description Cancelling a cancelled reservation returns it as it is. A paid wait is charged: `charge_status` and `receipt` tell how it went.
      */
     post: operations['cancel_reservation_rentals__rental_id__cancel_post'];
     delete?: never;
@@ -1015,9 +1032,29 @@ export interface paths {
     put?: never;
     /**
      * Open or close the car of the rental
-     * @description Only within reach of the car, after the inspection. The first opening starts the trip. Waits for the car; a failed command leaves the rental as it was.
+     * @description Only within reach of the car, after the inspection. The first opening holds the tariff's amount on the card and starts the trip. Waits for the car; a failed command leaves the rental as it was.
      */
     post: operations['send_command_rentals__rental_id__commands_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/finish': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Finish the trip: check and lock the car, issue the receipt and pay
+     * @description Needs the inspection after the trip. Checks the car's fresh telemetry, locks it, then takes the cost from the hold and charges the rest. A repeat after the end checks nothing again and never charges twice: it answers the rental with its receipt.
+     */
+    post: operations['finish_rentals__rental_id__finish_post'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1106,6 +1143,83 @@ export interface paths {
     put?: never;
     /** Finish the inspection; nothing can be added to it after */
     post: operations['submit_inspection_rentals__rental_id__inspections__stage__submit_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/park': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Park during the trip, at the parked price
+     * @description Needs fresh telemetry of a car with its ignition off: the parked price is for a car that stands. Parking a parked rental returns it as it is.
+     */
+    post: operations['park_rentals__rental_id__park_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/pay': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Try to pay the debt of the rental again
+     * @description For a client who has bound another card; the worker retries a debt by itself too. A rental without a debt is returned as it is.
+     */
+    post: operations['pay_debt_rentals__rental_id__pay_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/receipt': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The receipt of an ended rental */
+    get: operations['get_receipt_rentals__rental_id__receipt_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/rentals/{rental_id}/resume': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Drive on after parking, at the driving price
+     * @description Resuming a rental on the road returns it as it is.
+     */
+    post: operations['resume_rentals__rental_id__resume_post'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1601,6 +1715,15 @@ export interface components {
      */
     CardBrand: 'visa' | 'mastercard' | 'mir' | 'belcard' | 'other';
     /**
+     * ChargeStatus
+     * @description Where the money of a rental stands; values are stored as is (docs/adr/0024).
+     *
+     *     A rental with nothing to charge has none. `failed` is a debt whatever the rental's status:
+     *     a cancelled reservation whose paid wait was declined owes as much as a finished trip.
+     * @enum {string}
+     */
+    ChargeStatus: 'pending' | 'paid' | 'failed';
+    /**
      * CheckStatus
      * @enum {string}
      */
@@ -1732,6 +1855,34 @@ export interface components {
      * @enum {string}
      */
     ConversationStatus: 'open' | 'closed';
+    /**
+     * CostLineOut
+     * @description Amounts in kopecks of BYN.
+     */
+    CostLineOut: {
+      /** Amount */
+      amount: number;
+      /** Free Minutes */
+      free_minutes: number;
+      kind: components['schemas']['IntervalKind'];
+      /**
+       * Minutes
+       * @description Billed minutes, after the free ones; a started one counts.
+       */
+      minutes: number;
+      /** Per Minute */
+      per_minute: number;
+    };
+    /**
+     * CostOut
+     * @description Counted by the server only; the client shows it and never sends it back.
+     */
+    CostOut: {
+      /** Lines */
+      lines: components['schemas']['CostLineOut'][];
+      /** Total */
+      total: number;
+    };
     /** CurrentRentalOut */
     CurrentRentalOut: {
       /** @description Null when the client has no active rental. */
@@ -1767,6 +1918,29 @@ export interface components {
      * @enum {string}
      */
     DamageSide: 'front' | 'rear' | 'left' | 'right' | 'roof' | 'interior';
+    /** DebtOut */
+    DebtOut: {
+      /**
+       * Amount
+       * @description Still owed, in kopecks of BYN.
+       */
+      amount: number;
+      /** Ended At */
+      ended_at: string | null;
+      /**
+       * Rental Id
+       * Format: uuid
+       */
+      rental_id: string;
+    };
+    /** DebtsOut */
+    DebtsOut: {
+      /**
+       * Debts
+       * @description Empty when the client owes nothing.
+       */
+      debts: components['schemas']['DebtOut'][];
+    };
     /**
      * DeclineReason
      * @enum {string}
@@ -1952,6 +2126,12 @@ export interface components {
      * @enum {string}
      */
     InspectionStage: 'before' | 'after';
+    /**
+     * IntervalKind
+     * @description Values are stored as is: renaming one needs a migration. Also the order of receipt lines.
+     * @enum {string}
+     */
+    IntervalKind: 'waiting' | 'driving' | 'parked';
     /**
      * KycApplicationOut
      * @description No links here: the client asks for one only when it shows the photo.
@@ -2468,6 +2648,35 @@ export interface components {
       };
       status: components['schemas']['CheckStatus'];
     };
+    /**
+     * ReceiptOut
+     * @description Issued once, when the rental ends; it never changes afterwards.
+     */
+    ReceiptOut: {
+      /** Card Brand */
+      card_brand: string | null;
+      /**
+       * Card Last4
+       * @description The card the money went to, as «•••• 4242».
+       */
+      card_last4: string | null;
+      cost: components['schemas']['CostOut'];
+      /**
+       * Issued At
+       * Format: date-time
+       */
+      issued_at: string;
+      /**
+       * Rental Id
+       * Format: uuid
+       */
+      rental_id: string;
+      /**
+       * Tariff Version Id
+       * Format: uuid
+       */
+      tariff_version_id: string;
+    };
     /** RefreshRequest */
     RefreshRequest: {
       /**
@@ -2519,6 +2728,11 @@ export interface components {
     /** RentalOut */
     RentalOut: {
       /**
+       * After Inspection Submitted
+       * @description The inspection after the trip is done: the rental may be finished.
+       */
+      after_inspection_submitted: boolean;
+      /**
        * As Of
        * Format: date-time
        * @description Server time: count the deadlines down from it.
@@ -2526,6 +2740,10 @@ export interface components {
       as_of: string;
       cancel_reason: components['schemas']['CancelReason'] | null;
       car: components['schemas']['RentalCarOut'];
+      /** @description `pending`: being paid; `paid`; `failed`: a debt. Null: nothing to pay. */
+      charge_status: components['schemas']['ChargeStatus'] | null;
+      /** @description So far, by the server's clock; the receipt's once ended. */
+      cost: components['schemas']['CostOut'];
       /** Ended At */
       ended_at: string | null;
       /**
@@ -2550,6 +2768,7 @@ export interface components {
        * @description The inspection before the trip is done: the car may be opened.
        */
       inspection_submitted: boolean;
+      receipt: components['schemas']['ReceiptOut'] | null;
       /**
        * Reserved At
        * Format: date-time
@@ -2559,6 +2778,11 @@ export interface components {
       tariff: components['schemas']['RentalTariffOut'];
       /** Trip Started At */
       trip_started_at: string | null;
+      /**
+       * Warnings
+       * @description `low_battery`, `low_range`: the range may not last; only during a trip.
+       */
+      warnings: components['schemas']['TripWarning'][];
     };
     /**
      * RentalStatus
@@ -3013,6 +3237,11 @@ export interface components {
        */
       token_type: 'Bearer';
     };
+    /**
+     * TripWarning
+     * @enum {string}
+     */
+    TripWarning: 'low_battery' | 'low_range';
     /** UnreadOut */
     UnreadOut: {
       /**
@@ -7065,7 +7294,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:active-rental-exists`: finish or cancel the current one first. */
+      /** @description `urn:flagman:problem:active-rental-exists`: finish or cancel the current one first; `card-required`: bind a card; `outstanding-debt`: an earlier rental is not paid. */
       409: {
         headers: {
           [name: string]: unknown;
@@ -7121,6 +7350,62 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['CurrentRentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_debts_rentals_debts_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DebtsOut'];
         };
       };
       /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
@@ -7319,6 +7604,15 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
+      /** @description `urn:flagman:problem:payment-hold-declined`: the car stays closed; change the card. */
+      402: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
       /** @description `urn:flagman:problem:kyc-not-approved`: the documents are not approved yet; `client-blocked`: an operator has blocked the client. */
       403: {
         headers: {
@@ -7337,7 +7631,103 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:inspection-required`; `too-far-from-car`; `car-location-unknown`: no fresh telemetry from the car; `rental-command-in-progress`; `rental-transition-not-allowed`: the rental is over; `car-command-rejected`: the car refused, `detail` is its reason; `urn:flagman:problem:reservation-expired`: the reservation has been cancelled. */
+      /** @description `urn:flagman:problem:inspection-required`; `too-far-from-car`; `car-location-unknown`: no fresh telemetry from the car; `rental-command-in-progress`; `rental-transition-not-allowed`: the rental is over; `car-command-rejected`: the car refused, `detail` is its reason; `card-required`: no usable card for the hold; `urn:flagman:problem:reservation-expired`: the reservation has been cancelled. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:telematics-unavailable`: nothing was done, try again; `urn:flagman:problem:payment-outcome-unknown`: the provider did not answer, try again; `payments-unavailable`: payments are not configured. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:telematics-timeout`: the car may or may not have done it. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  finish_rentals__rental_id__finish_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description One reason at a time: `urn:flagman:problem:inspection-required`; `car-state-stale`: no fresh telemetry, try again; `outside-end-zone`; `ignition-on`; `doors-open`; `car-lock-failed`: `detail` is the car's reason; `rental-command-in-progress`; `rental-transition-not-allowed`: not on a trip. */
       409: {
         headers: {
           [name: string]: unknown;
@@ -7384,7 +7774,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:telematics-timeout`: the car may or may not have done it. */
+      /** @description `urn:flagman:problem:telematics-timeout`: the car may have locked, try again. */
       504: {
         headers: {
           [name: string]: unknown;
@@ -7770,6 +8160,298 @@ export interface operations {
       /** @description Unprocessable Entity */
       422: {
         headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  park_rentals__rental_id__park_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description One reason at a time: `urn:flagman:problem:rental-transition-not-allowed`: not on a trip; `rental-command-in-progress`; `car-state-stale`: no fresh telemetry, try again; `ignition-on`. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  pay_debt_rentals__rental_id__pay_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:payment-outcome-unknown`: the provider did not answer, try again; `payments-unavailable`: payments are not configured. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_receipt_rentals__rental_id__receipt_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ReceiptOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:receipt-not-found`: still running, or nothing was billed. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  resume_rentals__rental_id__resume_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['RentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-transition-not-allowed`: not on a trip; `rental-command-in-progress`. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
           [name: string]: unknown;
         };
         content: {

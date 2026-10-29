@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from redis import Redis
 
+from conftest import SettingsFactory
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.ratelimit import KEY_PREFIX, Limit
@@ -20,8 +21,17 @@ from flagman.rentals.tests.conftest import (
     opened_state,
     query,
     reset_limits,
+    with_payments,
 )
 from flagman.support import api
+
+
+@pytest.fixture
+def integration_settings(
+    integration_env: dict[str, str], migrated_database: None, make_settings: SettingsFactory
+) -> Settings:
+    # A trip the tests open takes a hold, so the rentals' payment provider is needed here too.
+    return with_payments(integration_env, make_settings)
 
 
 @pytest.fixture

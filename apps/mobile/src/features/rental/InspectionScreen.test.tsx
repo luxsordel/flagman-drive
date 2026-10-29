@@ -111,7 +111,7 @@ describe('InspectionScreen', () => {
     await fireEvent.changeText(screen.getByLabelText('Что не так'), '  Царапина ');
     await fireEvent.press(screen.getByRole('button', { name: 'Добавить повреждение' }));
 
-    expect(api.addDamage).toHaveBeenCalledWith('rental-1', 'rear', 'Царапина');
+    expect(api.addDamage).toHaveBeenCalledWith('rental-1', 'before', 'rear', 'Царапина');
     expect(screen.getByText('Сзади: Царапина')).toBeOnTheScreen();
   });
 
@@ -121,7 +121,7 @@ describe('InspectionScreen', () => {
 
     await fireEvent.press(screen.getByRole('button', { name: 'Завершить осмотр' }));
 
-    expect(api.submitInspection).toHaveBeenCalledWith('rental-1');
+    expect(api.submitInspection).toHaveBeenCalledWith('rental-1', 'before');
     expect(mockRouter.dismissTo).toHaveBeenCalledWith('/rental');
   });
 

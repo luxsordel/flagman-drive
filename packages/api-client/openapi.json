@@ -378,6 +378,12 @@
         "title": "CardBrand",
         "type": "string"
       },
+      "ChargeStatus": {
+        "description": "Where the money of a rental stands; values are stored as is (docs/adr/0024).\n\nA rental with nothing to charge has none. `failed` is a debt whatever the rental's status:\na cancelled reservation whose paid wait was declined owes as much as a finished trip.",
+        "enum": ["pending", "paid", "failed"],
+        "title": "ChargeStatus",
+        "type": "string"
+      },
       "CheckStatus": {
         "enum": ["ok", "fail"],
         "title": "CheckStatus",
@@ -678,6 +684,53 @@
         "title": "ConversationStatus",
         "type": "string"
       },
+      "CostLineOut": {
+        "description": "Amounts in kopecks of BYN.",
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "integer"
+          },
+          "free_minutes": {
+            "title": "Free Minutes",
+            "type": "integer"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/IntervalKind"
+          },
+          "minutes": {
+            "description": "Billed minutes, after the free ones; a started one counts.",
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "per_minute": {
+            "title": "Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": ["kind", "minutes", "free_minutes", "per_minute", "amount"],
+        "title": "CostLineOut",
+        "type": "object"
+      },
+      "CostOut": {
+        "description": "Counted by the server only; the client shows it and never sends it back.",
+        "properties": {
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/CostLineOut"
+            },
+            "title": "Lines",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": ["lines", "total"],
+        "title": "CostOut",
+        "type": "object"
+      },
       "CurrentRentalOut": {
         "properties": {
           "rental": {
@@ -741,6 +794,50 @@
         "enum": ["front", "rear", "left", "right", "roof", "interior"],
         "title": "DamageSide",
         "type": "string"
+      },
+      "DebtOut": {
+        "properties": {
+          "amount": {
+            "description": "Still owed, in kopecks of BYN.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "rental_id": {
+            "format": "uuid",
+            "title": "Rental Id",
+            "type": "string"
+          }
+        },
+        "required": ["rental_id", "amount", "ended_at"],
+        "title": "DebtOut",
+        "type": "object"
+      },
+      "DebtsOut": {
+        "properties": {
+          "debts": {
+            "description": "Empty when the client owes nothing.",
+            "items": {
+              "$ref": "#/components/schemas/DebtOut"
+            },
+            "title": "Debts",
+            "type": "array"
+          }
+        },
+        "required": ["debts"],
+        "title": "DebtsOut",
+        "type": "object"
       },
       "DeclineReason": {
         "enum": ["declined", "insufficient_funds"],
@@ -1110,6 +1207,12 @@
         "description": "Values are stored as is: before the first opening and after the trip (#111).",
         "enum": ["before", "after"],
         "title": "InspectionStage",
+        "type": "string"
+      },
+      "IntervalKind": {
+        "description": "Values are stored as is: renaming one needs a migration. Also the order of receipt lines.",
+        "enum": ["waiting", "driving", "parked"],
+        "title": "IntervalKind",
         "type": "string"
       },
       "KycApplicationOut": {
@@ -2156,6 +2259,62 @@
         "title": "ReadinessResponse",
         "type": "object"
       },
+      "ReceiptOut": {
+        "description": "Issued once, when the rental ends; it never changes afterwards.",
+        "properties": {
+          "card_brand": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Brand"
+          },
+          "card_last4": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The card the money went to, as «•••• 4242».",
+            "title": "Card Last4"
+          },
+          "cost": {
+            "$ref": "#/components/schemas/CostOut"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "title": "Issued At",
+            "type": "string"
+          },
+          "rental_id": {
+            "format": "uuid",
+            "title": "Rental Id",
+            "type": "string"
+          },
+          "tariff_version_id": {
+            "format": "uuid",
+            "title": "Tariff Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "rental_id",
+          "tariff_version_id",
+          "cost",
+          "card_brand",
+          "card_last4",
+          "issued_at"
+        ],
+        "title": "ReceiptOut",
+        "type": "object"
+      },
       "RefreshRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2289,6 +2448,11 @@
       },
       "RentalOut": {
         "properties": {
+          "after_inspection_submitted": {
+            "description": "The inspection after the trip is done: the rental may be finished.",
+            "title": "After Inspection Submitted",
+            "type": "boolean"
+          },
           "as_of": {
             "description": "Server time: count the deadlines down from it.",
             "format": "date-time",
@@ -2307,6 +2471,21 @@
           },
           "car": {
             "$ref": "#/components/schemas/RentalCarOut"
+          },
+          "charge_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChargeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`pending`: being paid; `paid`; `failed`: a debt. Null: nothing to pay."
+          },
+          "cost": {
+            "$ref": "#/components/schemas/CostOut",
+            "description": "So far, by the server's clock; the receipt's once ended."
           },
           "ended_at": {
             "anyOf": [
@@ -2342,6 +2521,16 @@
             "title": "Inspection Submitted",
             "type": "boolean"
           },
+          "receipt": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReceiptOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "reserved_at": {
             "format": "date-time",
             "title": "Reserved At",
@@ -2364,6 +2553,14 @@
               }
             ],
             "title": "Trip Started At"
+          },
+          "warnings": {
+            "description": "`low_battery`, `low_range`: the range may not last; only during a trip.",
+            "items": {
+              "$ref": "#/components/schemas/TripWarning"
+            },
+            "title": "Warnings",
+            "type": "array"
           }
         },
         "required": [
@@ -2378,6 +2575,11 @@
           "ended_at",
           "cancel_reason",
           "inspection_submitted",
+          "after_inspection_submitted",
+          "cost",
+          "warnings",
+          "charge_status",
+          "receipt",
           "as_of"
         ],
         "title": "RentalOut",
@@ -3254,6 +3456,11 @@
         "required": ["access_token", "expires_in"],
         "title": "TokenPair",
         "type": "object"
+      },
+      "TripWarning": {
+        "enum": ["low_battery", "low_range"],
+        "title": "TripWarning",
+        "type": "string"
       },
       "UnreadOut": {
         "properties": {
@@ -8789,7 +8996,7 @@
                 }
               }
             },
-            "description": "`urn:flagman:problem:active-rental-exists`: finish or cancel the current one first."
+            "description": "`urn:flagman:problem:active-rental-exists`: finish or cancel the current one first; `card-required`: bind a card; `outstanding-debt`: an earlier rental is not paid."
           },
           "422": {
             "content": {
@@ -8904,6 +9111,70 @@
         "tags": ["rentals"]
       }
     },
+    "/rentals/debts": {
+      "get": {
+        "operationId": "get_debts_rentals_debts_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebtsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`, also for another client's."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "What the client owes for earlier rentals",
+        "tags": ["rentals"]
+      }
+    },
     "/rentals/{rental_id}": {
       "get": {
         "operationId": "get_rental_rentals__rental_id__get",
@@ -8982,7 +9253,7 @@
     },
     "/rentals/{rental_id}/cancel": {
       "post": {
-        "description": "Cancelling a cancelled reservation returns it as it is.",
+        "description": "Cancelling a cancelled reservation returns it as it is. A paid wait is charged: `charge_status` and `receipt` tell how it went.",
         "operationId": "cancel_reservation_rentals__rental_id__cancel_post",
         "parameters": [
           {
@@ -9069,7 +9340,7 @@
     },
     "/rentals/{rental_id}/commands": {
       "post": {
-        "description": "Only within reach of the car, after the inspection. The first opening starts the trip. Waits for the car; a failed command leaves the rental as it was.",
+        "description": "Only within reach of the car, after the inspection. The first opening holds the tariff's amount on the card and starts the trip. Waits for the car; a failed command leaves the rental as it was.",
         "operationId": "send_command_rentals__rental_id__commands_post",
         "parameters": [
           {
@@ -9114,6 +9385,16 @@
             },
             "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
           },
+          "402": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:payment-hold-declined`: the car stays closed; change the card."
+          },
           "403": {
             "content": {
               "application/problem+json": {
@@ -9142,7 +9423,133 @@
                 }
               }
             },
-            "description": "`urn:flagman:problem:inspection-required`; `too-far-from-car`; `car-location-unknown`: no fresh telemetry from the car; `rental-command-in-progress`; `rental-transition-not-allowed`: the rental is over; `car-command-rejected`: the car refused, `detail` is its reason; `urn:flagman:problem:reservation-expired`: the reservation has been cancelled."
+            "description": "`urn:flagman:problem:inspection-required`; `too-far-from-car`; `car-location-unknown`: no fresh telemetry from the car; `rental-command-in-progress`; `rental-transition-not-allowed`: the rental is over; `car-command-rejected`: the car refused, `detail` is its reason; `card-required`: no usable card for the hold; `urn:flagman:problem:reservation-expired`: the reservation has been cancelled."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:telematics-unavailable`: nothing was done, try again; `urn:flagman:problem:payment-outcome-unknown`: the provider did not answer, try again; `payments-unavailable`: payments are not configured."
+          },
+          "504": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:telematics-timeout`: the car may or may not have done it."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Open or close the car of the rental",
+        "tags": ["rentals"]
+      }
+    },
+    "/rentals/{rental_id}/finish": {
+      "post": {
+        "description": "Needs the inspection after the trip. Checks the car's fresh telemetry, locks it, then takes the cost from the hold and charges the rest. A repeat after the end checks nothing again and never charges twice: it answers the rental with its receipt.",
+        "operationId": "finish_rentals__rental_id__finish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RentalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`, also for another client's."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "One reason at a time: `urn:flagman:problem:inspection-required`; `car-state-stale`: no fresh telemetry, try again; `outside-end-zone`; `ignition-on`; `doors-open`; `car-lock-failed`: `detail` is the car's reason; `rental-command-in-progress`; `rental-transition-not-allowed`: not on a trip."
           },
           "422": {
             "content": {
@@ -9201,7 +9608,7 @@
                 }
               }
             },
-            "description": "`urn:flagman:problem:telematics-timeout`: the car may or may not have done it."
+            "description": "`urn:flagman:problem:telematics-timeout`: the car may have locked, try again."
           }
         },
         "security": [
@@ -9209,7 +9616,7 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Open or close the car of the rental",
+        "summary": "Finish the trip: check and lock the car, issue the receipt and pay",
         "tags": ["rentals"]
       }
     },
@@ -9783,6 +10190,400 @@
           }
         ],
         "summary": "Finish the inspection; nothing can be added to it after",
+        "tags": ["rentals"]
+      }
+    },
+    "/rentals/{rental_id}/park": {
+      "post": {
+        "description": "Needs fresh telemetry of a car with its ignition off: the parked price is for a car that stands. Parking a parked rental returns it as it is.",
+        "operationId": "park_rentals__rental_id__park_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RentalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`, also for another client's."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "One reason at a time: `urn:flagman:problem:rental-transition-not-allowed`: not on a trip; `rental-command-in-progress`; `car-state-stale`: no fresh telemetry, try again; `ignition-on`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Park during the trip, at the parked price",
+        "tags": ["rentals"]
+      }
+    },
+    "/rentals/{rental_id}/pay": {
+      "post": {
+        "description": "For a client who has bound another card; the worker retries a debt by itself too. A rental without a debt is returned as it is.",
+        "operationId": "pay_debt_rentals__rental_id__pay_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RentalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`, also for another client's."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:payment-outcome-unknown`: the provider did not answer, try again; `payments-unavailable`: payments are not configured."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Try to pay the debt of the rental again",
+        "tags": ["rentals"]
+      }
+    },
+    "/rentals/{rental_id}/receipt": {
+      "get": {
+        "operationId": "get_receipt_rentals__rental_id__receipt_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:receipt-not-found`: still running, or nothing was billed."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The receipt of an ended rental",
+        "tags": ["rentals"]
+      }
+    },
+    "/rentals/{rental_id}/resume": {
+      "post": {
+        "description": "Resuming a rental on the road returns it as it is.",
+        "operationId": "resume_rentals__rental_id__resume_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RentalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`, also for another client's."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-transition-not-allowed`: not on a trip; `rental-command-in-progress`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Drive on after parking, at the driving price",
         "tags": ["rentals"]
       }
     },

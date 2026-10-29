@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -14,6 +15,7 @@ from flagman.core.db import create_engine, create_session_factory
 from flagman.identity.service import AuthCleanupResult
 from flagman.notifications.expo import ExpoPushProvider
 from flagman.notifications.fake_provider import FakePushProvider
+from flagman.payments import service as payments
 
 
 def _worker_settings(settings: Settings) -> WorkerSettings:
@@ -142,10 +144,12 @@ async def test_each_job_keeps_its_own_interval(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(worker, "run_auth_cleanup", job(worker.AUTH_CLEANUP))
     monkeypatch.setattr(worker, "run_reservation_expiry", job(worker.RESERVATION_EXPIRY))
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
     intervals = {
         worker.AUTH_CLEANUP: timedelta(hours=1),
         worker.RESERVATION_EXPIRY: timedelta(milliseconds=50),
         worker.OUTBOX_CLEANUP: timedelta(hours=1),
+        worker.TRIP_WATCH: timedelta(hours=1),
     }
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=intervals), 5)
@@ -368,3 +372,87 @@ async def test_provider_follows_the_setting() -> None:
         assert expo_provider.access_token == "t"
         assert isinstance(worker.push_provider(fake, http), FakePushProvider)
         assert worker.push_provider(_offline_settings(), http) is None
+
+
+def _with_payments(settings: WorkerSettings) -> WorkerSettings:
+    return settings.model_copy(
+        update={
+            "payments_provider": "fake",
+            "payments_webhook_secret": SecretStr(secrets.token_hex(32)),
+            "payments_token_encryption_key": SecretStr(
+                base64.b64encode(secrets.token_bytes(32)).decode()
+            ),
+        }
+    )
+
+
+async def test_rental_charges_are_retried_with_a_payment_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+    gateways: list[object] = []
+
+    async def charge(*args: object) -> None:
+        gateways.append(args[2])
+        stop.set()
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
+    monkeypatch.setattr(worker, "run_rental_charges", charge)
+
+    await asyncio.wait_for(worker.run(_with_payments(_offline_settings()), stop), 5)
+
+    [gateway] = gateways
+    assert isinstance(gateway, payments.Gateway)
+
+
+async def test_without_a_payment_provider_no_charge_is_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+
+    async def idle_then_stop(*args: object) -> None:
+        stop.set()
+
+    async def charge(*args: object) -> None:
+        raise AssertionError("must not run")
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
+    monkeypatch.setattr(worker, "run_rental_charges", charge)
+
+    await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("lock", [worker.TRIP_WATCH_LOCK, worker.RENTAL_CHARGES_LOCK])
+async def test_trip_jobs_are_skipped_while_another_worker_holds_them(
+    integration_settings: Settings, lock: int
+) -> None:
+    engine = create_engine(integration_settings)
+    try:
+        factory = create_session_factory(engine)
+        settings = _with_payments(_worker_settings(integration_settings))
+        gateway = payments.gateway(settings)
+
+        async def run_job() -> int | None:
+            now = datetime.now(UTC)
+            if lock == worker.RENTAL_CHARGES_LOCK:
+                return await worker.run_rental_charges(engine, factory, gateway, settings, now)
+            return await worker.run_trip_watch(engine, factory, settings, now)
+
+        assert await run_job() is not None
+        async with engine.connect() as other_worker:
+            await other_worker.execute(text("SELECT pg_advisory_lock(:key)"), {"key": lock})
+            await other_worker.commit()
+
+            result = await run_job()
+
+            await other_worker.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": lock})
+        assert result is None
+    finally:
+        await engine.dispose()

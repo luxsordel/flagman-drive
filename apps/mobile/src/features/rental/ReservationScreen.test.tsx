@@ -115,9 +115,8 @@ describe('ReservationScreen', () => {
     await fireEvent.press(screen.getByRole('button', { name: 'Открыть машину' }));
 
     expect(api.command).toHaveBeenCalledWith('rental-1', 'open', nearCar);
-    expect(
-      screen.getByText('Поездка началась. Таймер и стоимость поездки появятся в следующей версии'),
-    ).toBeOnTheScreen();
+    expect(screen.getByText('Поездка')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Завершить аренду' })).toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Отменить бронь' })).toBeNull();
   });
 

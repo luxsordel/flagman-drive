@@ -1,7 +1,7 @@
 """add push tickets
 
 Revision ID: a7d3f1c8e2b6
-Revises: d7e3a9c4b152
+Revises: d7a3f9c1e2b8
 Create Date: 2026-10-29 12:00:00.000000
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a7d3f1c8e2b6"
-down_revision: str | Sequence[str] | None = "d7e3a9c4b152"
+down_revision: str | Sequence[str] | None = "d7a3f9c1e2b8"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

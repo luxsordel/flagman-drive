@@ -17,6 +17,8 @@ _COORDINATE_DIGITS = 6
 _SECONDS_PER_HOUR = 3600
 # A shorter hop would look like a car standing still with its ignition on.
 MIN_TRIP_KM = 1.0
+# A client's hop starts at least this far: a shorter one is a car rolling out of its spot.
+MIN_CLIENT_TRIP_KM = 0.3
 
 # Car ids are a contract with the API seed (apps/api, flagman.fleet): it derives the same ids from
 # EMULATOR_SEED and EMULATOR_CAR_COUNT, so telemetry lands on the cars the API knows. Changing the
@@ -62,6 +64,10 @@ class Car:
     updated_at: datetime
     mode: CarMode = CarMode.PARKED
     destination: Destination | None = None
+    # The current drive is a client's, in a rented car: it ends with the doors left open.
+    driven_by_client: bool = False
+    # A rented car stands until then: the client gets in, stops for a coffee, finishes.
+    rest_until: datetime | None = None
 
     @property
     def battery_pct(self) -> int:
@@ -80,17 +86,22 @@ class SimulationParams:
     charge_below_pct: float
     charge_until_pct: float
     charge_rate_pct_per_h: float
+    # A rented car drives short hops around where it is, with a pause before each.
+    rental_trip_km: float = 1.5
+    rental_rest: timedelta = timedelta(minutes=2)
 
 
 def apply_command(car: Car, command: CommandType, now: datetime) -> None:
     match command:
         case CommandType.OPEN:
             car.doors_locked = False
+            car.rest_until = None
         case CommandType.CLOSE:
             # Locking a running car would strand the driver outside it.
             if car.ignition_on:
                 raise CommandRejectedError("ignition_on")
             car.doors_locked = True
+            car.rest_until = None
         case CommandType.LOCK_ENGINE:
             # Like real immobilizers, this blocks the next start instead of stopping a moving car.
             car.engine_locked = True
@@ -172,6 +183,45 @@ def drive_toward(
     return arrived or car.charge_pct <= 0
 
 
+def pick_nearby(car: Car, rng: random.Random, max_km: float) -> Destination:
+    """A point a short hop away, so a rented car stays in the part of town it was taken in."""
+    km = rng.uniform(MIN_CLIENT_TRIP_KM, max(MIN_CLIENT_TRIP_KM, max_km))
+    bearing = rng.uniform(0, 2 * math.pi)
+    d_lat = math.degrees(km * math.cos(bearing) / _EARTH_RADIUS_KM)
+    d_lon = math.degrees(km * math.sin(bearing) / _EARTH_RADIUS_KM) / math.cos(
+        math.radians(car.lat)
+    )
+    lat, lon = _in_minsk(car.lat + d_lat, car.lon + d_lon)
+    return Destination(lat=lat, lon=lon)
+
+
+def is_rented(car: Car) -> bool:
+    """Opened and free to start: a client has it. The emulator knows nothing else of rentals."""
+    return not car.doors_locked and not car.engine_locked
+
+
+def stop_for_client(car: Car, rest: timedelta, now: datetime) -> None:
+    """Ends a client's drive where the car is: ignition off, the doors still open."""
+    car.mode = CarMode.PARKED
+    car.destination = None
+    car.ignition_on = False
+    car.driven_by_client = False
+    car.rest_until = now + rest
+    car.updated_at = now
+
+
+def _drive_rented(car: Car, params: SimulationParams, rng: random.Random, now: datetime) -> None:
+    if not is_rented(car) or car.mode is not CarMode.PARKED:
+        return
+    if car.rest_until is None:
+        # Just opened: the client takes a seat and looks around first.
+        car.rest_until = now + params.rental_rest
+    elif now >= car.rest_until and car.charge_pct > 0:
+        start_trip(car, pick_nearby(car, rng, params.rental_trip_km), now)
+        car.driven_by_client = True
+        car.rest_until = None
+
+
 def can_start_trip(car: Car, params: SimulationParams) -> bool:
     # Someone opened or immobilized this car and waits for it to stay put; a low car would strand.
     return (
@@ -211,7 +261,10 @@ def step_car(car: Car, elapsed: timedelta, params: SimulationParams, now: dateti
         case CarMode.DRIVING if car.destination is not None:
             max_km = params.speed_kmh * hours
             if drive_toward(car, car.destination, max_km, params.drive_drain_pct_per_km):
-                _park(car)
+                if car.driven_by_client:
+                    stop_for_client(car, params.rental_rest, now)
+                else:
+                    _park(car)
         case CarMode.CHARGING:
             gained = car.charge_pct + params.charge_rate_pct_per_h * hours
             car.charge_pct = min(gained, params.charge_until_pct, 100.0)
@@ -219,7 +272,12 @@ def step_car(car: Car, elapsed: timedelta, params: SimulationParams, now: dateti
                 car.mode = CarMode.PARKED
         case _:
             car.charge_pct = max(0.0, car.charge_pct - params.idle_drain_pct_per_h * hours)
-    if car.mode is CarMode.PARKED and car.charge_pct < params.charge_below_pct:
+    # A rented car is the client's to charge or to finish with; it never leaves for a charger.
+    if (
+        car.mode is CarMode.PARKED
+        and car.charge_pct < params.charge_below_pct
+        and not is_rented(car)
+    ):
         car.mode = CarMode.CHARGING
     # Like a tracker: the time moves only when something a client or the API sees has changed.
     if _visible_state(car) != before:
@@ -238,6 +296,7 @@ def step_fleet(
         return
     for car in cars:
         step_car(car, elapsed, params, now)
+        _drive_rented(car, params, rng, now)
     driving = sum(car.mode is CarMode.DRIVING for car in cars)
     free_slots = max(0, math.floor(params.trip_share * len(cars)) - driving)
     candidates = [car for car in cars if can_start_trip(car, params)]
