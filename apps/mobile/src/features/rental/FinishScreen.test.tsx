@@ -51,7 +51,8 @@ async function renderScreen(
 }
 
 function check(name: string) {
-  return screen.getByLabelText(new RegExp(`^${name}: `));
+  // The line reads «✓ name — state»; the name alone tells the checks apart.
+  return screen.getByText(name, { exact: false });
 }
 
 describe('checkStates', () => {
