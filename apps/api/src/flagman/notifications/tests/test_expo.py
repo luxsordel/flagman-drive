@@ -8,8 +8,14 @@ import pytest
 import structlog
 
 from flagman.notifications.domain import PushContent
-from flagman.notifications.expo import MAX_BATCH, ExpoPushProvider
-from flagman.notifications.ports import PushMessage, PushTicketStatus
+from flagman.notifications.expo import MAX_BATCH, MAX_RECEIPTS_BATCH, ExpoPushProvider
+from flagman.notifications.ports import (
+    PushMessage,
+    PushReceipt,
+    PushReceiptStatus,
+    PushTicket,
+    PushTicketStatus,
+)
 
 CONTENT = PushContent(title="Title", body="Body", data={"event": "trip_finished"})
 EXPIRES_AT = datetime(2026, 10, 27, 12, 0, tzinfo=UTC)
@@ -28,7 +34,9 @@ def _provider(
 
 def _ok(request: httpx2.Request) -> httpx2.Response:
     sent = json.loads(request.content)
-    return httpx2.Response(200, json={"data": [{"status": "ok", "id": "x"} for _ in sent]})
+    return httpx2.Response(
+        200, json={"data": [{"status": "ok", "id": f"ticket{n}"} for n in range(len(sent))]}
+    )
 
 
 async def test_sends_title_body_and_data_to_each_token() -> None:
@@ -39,9 +47,12 @@ async def test_sends_title_body_and_data_to_each_token() -> None:
         assert "Authorization" not in request.headers
         return _ok(request)
 
-    statuses = await _provider(handler).send([_message(1), _message(2)])
+    tickets = await _provider(handler).send([_message(1), _message(2)])
 
-    assert statuses == [PushTicketStatus.OK, PushTicketStatus.OK]
+    assert tickets == [
+        PushTicket(PushTicketStatus.OK, "ticket0"),
+        PushTicket(PushTicketStatus.OK, "ticket1"),
+    ]
     assert requests == [
         [
             {
@@ -74,10 +85,10 @@ async def test_large_batches_are_split() -> None:
         sizes.append(len(json.loads(request.content)))
         return _ok(request)
 
-    statuses = await _provider(handler).send([_message(n) for n in range(MAX_BATCH + 1)])
+    tickets = await _provider(handler).send([_message(n) for n in range(MAX_BATCH + 1)])
 
     assert sizes == [MAX_BATCH, 1]
-    assert len(statuses) == MAX_BATCH + 1
+    assert len(tickets) == MAX_BATCH + 1
 
 
 async def test_ticket_errors_are_told_apart() -> None:
@@ -101,14 +112,17 @@ async def test_ticket_errors_are_told_apart() -> None:
         )
 
     with structlog.testing.capture_logs() as logs:
-        statuses = await _provider(handler).send([_message(0), _message(1)])
+        tickets = await _provider(handler).send([_message(0), _message(1)])
 
-    assert statuses == [PushTicketStatus.DEVICE_NOT_REGISTERED, PushTicketStatus.REJECTED]
+    assert tickets == [
+        PushTicket(PushTicketStatus.DEVICE_NOT_REGISTERED),
+        PushTicket(PushTicketStatus.REJECTED),
+    ]
     # Expo's message quotes the token: only the error code is logged.
     assert "ExponentPushToken" not in repr(logs)
 
 
-NOT_SENT = [PushTicketStatus.NOT_SENT]
+NOT_SENT = [PushTicket(PushTicketStatus.NOT_SENT)]
 
 
 @pytest.mark.parametrize("status", [401, 429, 500, 503])
@@ -145,10 +159,12 @@ async def test_a_failed_request_leaves_the_earlier_ones_delivered() -> None:
         requests += 1
         return _ok(request) if requests == 1 else httpx2.Response(429)
 
-    statuses = await _provider(handler).send([_message(n) for n in range(MAX_BATCH + 1)])
+    tickets = await _provider(handler).send([_message(n) for n in range(MAX_BATCH + 1)])
 
     # Only the second request is to be tried again, not the hundred already delivered.
-    assert statuses == [PushTicketStatus.OK] * MAX_BATCH + NOT_SENT
+    assert [ticket.status for ticket in tickets] == [PushTicketStatus.OK] * MAX_BATCH + [
+        PushTicketStatus.NOT_SENT
+    ]
 
 
 async def test_the_configured_timeout_holds_for_each_phase() -> None:
@@ -157,4 +173,106 @@ async def test_the_configured_timeout_holds_for_each_phase() -> None:
         assert request.extensions["timeout"]["read"] == 5
         return _ok(request)
 
-    assert await _provider(handler).send([_message()]) == [PushTicketStatus.OK]
+    assert await _provider(handler).send([_message()]) == [
+        PushTicket(PushTicketStatus.OK, "ticket0")
+    ]
+
+
+async def test_an_ok_ticket_without_an_id_has_no_receipt_to_ask_for() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        return httpx2.Response(200, json={"data": [{"status": "ok"}]})
+
+    assert await _provider(handler).send([_message()]) == [PushTicket(PushTicketStatus.OK)]
+
+
+def _receipts(
+    answer: dict[str, Any], seen: list[Any] | None = None
+) -> Callable[[httpx2.Request], httpx2.Response]:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.url == "https://exp.host/--/api/v2/push/getReceipts"
+        if seen is not None:
+            seen.append(json.loads(request.content))
+        return httpx2.Response(200, json={"data": answer})
+
+    return handler
+
+
+async def test_asks_for_the_receipts_of_the_tickets() -> None:
+    seen: list[Any] = []
+
+    receipts = await _provider(_receipts({"a": {"status": "ok"}}, seen)).get_receipts(["a", "b"])
+
+    assert seen == [{"ids": ["a", "b"]}]
+    # "b" is not ready yet: it is simply not in the answer.
+    assert receipts == {"a": PushReceipt(PushReceiptStatus.OK)}
+
+
+async def test_receipt_errors_are_told_apart() -> None:
+    answer = {
+        "a": {
+            "status": "error",
+            "message": "ExponentPushToken[token0] is not a registered push token",
+            "details": {"error": "DeviceNotRegistered"},
+        },
+        "b": {
+            "status": "error",
+            "message": "slow down",
+            "details": {"error": "MessageRateExceeded"},
+        },
+        "c": {"status": "error", "message": "something"},
+    }
+
+    with structlog.testing.capture_logs() as logs:
+        receipts = await _provider(_receipts(answer)).get_receipts(["a", "b", "c"])
+
+    assert receipts == {
+        "a": PushReceipt(PushReceiptStatus.DEVICE_NOT_REGISTERED),
+        "b": PushReceipt(PushReceiptStatus.FAILED, "MessageRateExceeded"),
+        "c": PushReceipt(PushReceiptStatus.FAILED),
+    }
+    assert "ExponentPushToken" not in repr(logs)
+
+
+async def test_receipts_are_asked_for_a_thousand_at_a_time() -> None:
+    sizes: list[int] = []
+
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        ids = json.loads(request.content)["ids"]
+        sizes.append(len(ids))
+        return httpx2.Response(200, json={"data": {i: {"status": "ok"} for i in ids}})
+
+    ids = [f"t{n}" for n in range(MAX_RECEIPTS_BATCH + 1)]
+    receipts = await _provider(handler).get_receipts(ids)
+
+    assert sizes == [MAX_RECEIPTS_BATCH, 1]
+    assert receipts.keys() == set(ids)
+
+
+async def test_receipts_ask_with_the_access_token() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.headers["Authorization"] == "Bearer secret-token"
+        assert request.extensions["timeout"]["read"] == 5
+        return httpx2.Response(200, json={"data": {}})
+
+    assert await _provider(handler, access_token="secret-token").get_receipts(["a"]) == {}
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx2.Response(429),
+        httpx2.Response(500),
+        httpx2.Response(200, content=b"not json"),
+        httpx2.Response(200, json={"data": []}),
+        httpx2.Response(200, json={"errors": [{"code": "X"}]}),
+    ],
+)
+async def test_no_usable_answer_leaves_every_receipt_for_later(response: httpx2.Response) -> None:
+    assert await _provider(lambda request: response).get_receipts(["a"]) == {}
+
+
+async def test_an_unreachable_expo_leaves_every_receipt_for_later() -> None:
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        raise httpx2.ConnectError("down", request=request)
+
+    assert await _provider(handler).get_receipts(["a"]) == {}

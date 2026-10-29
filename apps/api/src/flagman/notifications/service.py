@@ -162,7 +162,8 @@ async def _dispatch_batch(
         return DispatchResult(0, 0, 0), 0
 
     addressed, no_device = _address(claimed)
-    statuses = await provider.send([a.message for a in addressed]) if addressed else []
+    tickets = await provider.send([a.message for a in addressed]) if addressed else []
+    statuses = [ticket.status for ticket in tickets]
     outcome = _outcome(addressed, no_device, statuses, now)
 
     async with session_factory() as db, db.begin():

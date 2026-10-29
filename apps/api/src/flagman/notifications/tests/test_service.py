@@ -21,7 +21,7 @@ from flagman.notifications.domain import (
 )
 from flagman.notifications.fake_provider import FakePushProvider
 from flagman.notifications.models import OutboxNotification, PushDevice
-from flagman.notifications.ports import PushMessage, PushTicketStatus
+from flagman.notifications.ports import PushMessage, PushTicket, PushTicketStatus
 from flagman.notifications.tests.conftest import Caller, push_token, sign_in
 
 pytestmark = pytest.mark.integration
@@ -242,11 +242,12 @@ class _OnePhoneDown(FakePushProvider):
         super().__init__()
         self.down = down
 
-    async def send(self, messages: Sequence[PushMessage]) -> list[PushTicketStatus]:
+    async def send(self, messages: Sequence[PushMessage]) -> list[PushTicket]:
         up = [m for m in messages if m.token != self.down]
         delivered = iter(await super().send(up))
         return [
-            PushTicketStatus.NOT_SENT if m.token == self.down else next(delivered) for m in messages
+            PushTicket(PushTicketStatus.NOT_SENT) if m.token == self.down else next(delivered)
+            for m in messages
         ]
 
 
