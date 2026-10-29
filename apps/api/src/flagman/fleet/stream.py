@@ -340,7 +340,13 @@ class StaffStream:
         finally:
             for task in tasks:
                 task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            # Not gather: cancelled meanwhile from outside, gather raises a child's CancelledError
+            # instead of ours, and the canceller (uvicorn, anyio scopes) no longer knows it.
+            await asyncio.wait(tasks)
+            # Read every outcome, or asyncio logs the errors of the other tasks as never retrieved.
+            for task in tasks:
+                if not task.cancelled():
+                    task.exception()
         finished = done.pop()
         error = finished.exception()
         if isinstance(error, _RefusedError):
