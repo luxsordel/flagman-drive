@@ -7,7 +7,7 @@ rental is marked busy instead (docs/adr/0022).
 """
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -175,6 +175,34 @@ async def expire_reservations(db: AsyncSession, now: datetime) -> int:
         expired += len(rentals)
         if len(rentals) < _EXPIRY_BATCH:
             return expired
+
+
+async def get_client_rental(db: AsyncSession, user_id: UUID, rental_id: UUID) -> Rental | None:
+    """For the support module: the client's own rental, None for another client's or a missing one.
+
+    Runs in the caller's transaction.
+    """
+    return await repository.get_rental(db, rental_id, user_id)
+
+
+async def get_client_active_rental(db: AsyncSession, user_id: UUID, now: datetime) -> Rental | None:
+    """For the support module: the client's current rental, if any; in the caller's transaction.
+
+    A reservation past its end is cancelled here, as on any other access (docs/adr/0022): an
+    incident must not get a car the client no longer holds.
+    """
+    rental = await repository.get_active_rental(db, user_id, for_update=True)
+    if rental is None:
+        return None
+    rental = await _expire_if_due(db, rental, now)
+    return rental if rental.is_active else None
+
+
+async def get_rentals(db: AsyncSession, rental_ids: Collection[UUID]) -> dict[UUID, Rental]:
+    """For the support module: the rentals a page of conversations is about, in one query."""
+    if not rental_ids:
+        return {}
+    return {rental.id: rental for rental in await repository.get_rentals(db, rental_ids)}
 
 
 async def remind_expiring_reservations(db: AsyncSession, now: datetime, ahead: timedelta) -> int:

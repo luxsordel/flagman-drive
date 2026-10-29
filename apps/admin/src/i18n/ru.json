@@ -114,6 +114,7 @@
       "staffTotpReset": "2FA сброшена",
       "staffPasswordChanged": "Пароль сотрудника изменён",
       "staffDisabled": "Сотрудник отключён",
+      "staffNameChanged": "Изменено имя сотрудника",
       "kycApproved": "Документы одобрены",
       "kycRejected": "Документы отклонены",
       "kycDocumentViewed": "Просмотр фото документа",
@@ -125,7 +126,16 @@
       "tariffUpdated": "Тариф изменён",
       "paymentSucceeded": "Платёж прошёл",
       "paymentDeclined": "Платёж отклонён",
-      "paymentFailed": "Платёж без ответа провайдера"
+      "paymentFailed": "Платёж без ответа провайдера",
+      "supportConversationTaken": "Диалог взят в работу",
+      "supportMessageSent": "Ответ в чате поддержки",
+      "supportConversationClosed": "Диалог закрыт",
+      "supportPhotoViewed": "Просмотр фото из чата",
+      "incidentTaken": "Инцидент взят в работу",
+      "incidentResolved": "Инцидент решён",
+      "incidentRejected": "Инцидент отклонён",
+      "incidentCarSentToService": "Машина отправлена в сервис по инциденту",
+      "incidentPhotoViewed": "Просмотр фото инцидента"
     },
     "targets": {
       "staffMember": "Сотрудник",
@@ -133,7 +143,9 @@
       "zone": "Зона",
       "car": "Машина",
       "tariff": "Тариф",
-      "paymentOperation": "Платёжная операция"
+      "paymentOperation": "Платёжная операция",
+      "supportConversation": "Диалог поддержки",
+      "incident": "Инцидент"
     },
     "noTarget": "нет",
     "loading": "Загружаем журнал…",
