@@ -37,6 +37,14 @@ class Settings(BaseSettings):
     charge_below_pct: float = Field(default=25.0, ge=0, le=100)
     charge_until_pct: float = Field(default=90.0, ge=0, le=100)
     charge_rate_pct_per_h: float = Field(default=40.0, gt=0, le=1000)
+    # A rented car (opened, engine free) drives hops up to this long, resting between them.
+    rental_trip_km: float = Field(default=1.5, gt=0, le=20)
+    rental_rest_s: float = Field(default=120.0, ge=0, le=3600)
+
+    # POST /demo/cars/{id}/park stops a rented car for a demo of the rental's end; off by default.
+    demo_endpoints: bool = False
+    # How long a car stopped that way stays put before the next hop.
+    demo_park_rest_s: float = Field(default=600.0, ge=0, le=86400)
 
     @field_validator("command_secret", "telemetry_secret")
     @classmethod
