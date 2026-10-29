@@ -1,6 +1,6 @@
 import { spacing } from '@flagman/design-tokens';
-import { useRouter } from 'expo-router';
-import { Suspense, useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppState, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -105,6 +105,13 @@ function LiveMap() {
       store.clearSelection();
     };
   }, [store]);
+
+  // Back from a receipt or a cancel: a debt the worker has paid meanwhile leaves the banner.
+  useFocusEffect(
+    useCallback(() => {
+      void rentalStore.loadDebts();
+    }, [rentalStore]),
+  );
 
   const notice = mapNotice(state, status === 'denied');
   const selectedCar = state.selected?.car ?? null;

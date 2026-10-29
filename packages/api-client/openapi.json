@@ -10195,7 +10195,7 @@
     },
     "/rentals/{rental_id}/park": {
       "post": {
-        "description": "Parking a parked rental returns it as it is.",
+        "description": "Needs fresh telemetry of a car with its ignition off: the parked price is for a car that stands. Parking a parked rental returns it as it is.",
         "operationId": "park_rentals__rental_id__park_post",
         "parameters": [
           {
@@ -10248,7 +10248,7 @@
                 }
               }
             },
-            "description": "`urn:flagman:problem:rental-transition-not-allowed`: not on a trip."
+            "description": "One reason at a time: `urn:flagman:problem:rental-transition-not-allowed`: not on a trip; `rental-command-in-progress`; `car-state-stale`: no fresh telemetry, try again; `ignition-on`."
           },
           "422": {
             "content": {
@@ -10259,6 +10259,25 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {
@@ -10517,7 +10536,7 @@
                 }
               }
             },
-            "description": "`urn:flagman:problem:rental-transition-not-allowed`: not on a trip."
+            "description": "`urn:flagman:problem:rental-transition-not-allowed`: not on a trip; `rental-command-in-progress`."
           },
           "422": {
             "content": {
@@ -10528,6 +10547,25 @@
               }
             },
             "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
           },
           "500": {
             "content": {

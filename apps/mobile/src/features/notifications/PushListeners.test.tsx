@@ -31,6 +31,7 @@ function tapped(identifier: string, data: unknown) {
 const emptyRentalState: RentalState = {
   restored: true,
   rental: null,
+  viewed: null,
   offsetMs: 0,
   inspection: null,
   debts: [],

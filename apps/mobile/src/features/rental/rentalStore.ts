@@ -21,6 +21,8 @@ export interface RentalState {
   restored: boolean;
   /** The active rental, or the one that has just ended, until the client dismisses it. */
   rental: Rental | null;
+  /** An earlier rental opened by its id while another one is active, e.g. from a notification. */
+  viewed: Rental | null;
   /** Server clock minus the phone's, for the countdowns (see clockOffsetMs). */
   offsetMs: number;
   /** The inspection of the rental's stage, before or after the trip; loaded by its screen. */
@@ -38,6 +40,7 @@ export interface RentalState {
 const initialState: RentalState = {
   restored: false,
   rental: null,
+  viewed: null,
   offsetMs: 0,
   inspection: null,
   debts: [],
@@ -95,7 +98,10 @@ export class RentalStore {
     }
   }
 
-  /** Shows a rental by its id, e.g. the one a tapped notification is about. */
+  /**
+   * Shows a rental by its id, e.g. the one a tapped notification is about. An active rental stays
+   * in place: an old notification must not take the client's reservation off the map.
+   */
   async open(id: string): Promise<void> {
     if (this.state.rental?.id === id) {
       await this.refresh();
@@ -104,7 +110,7 @@ export class RentalStore {
     const generation = this.generation;
     const result = await this.api.get(id);
     if (generation !== this.generation) return;
-    if (result.ok) this.acceptRental(result.value);
+    if (result.ok) this.acceptOpened(result.value);
     else if (result.error !== null) this.setState({ ...this.state, error: result.error });
   }
 
@@ -138,16 +144,19 @@ export class RentalStore {
     );
   }
 
-  cancel(): Promise<RentalError | null> {
+  async cancel(): Promise<RentalError | null> {
     const rental = this.state.rental;
-    if (rental === null) return Promise.resolve(null);
-    return this.run(
+    if (rental === null) return null;
+    const error = await this.run(
       'cancel',
       () => this.api.cancel(rental.id),
       (cancelled) => {
         this.acceptRental(cancelled);
       },
     );
+    // A paid wait whose charge was declined is a debt the map has to show.
+    if (error === null) await this.loadDebts();
+    return error;
   }
 
   async loadInspection(): Promise<void> {
@@ -230,8 +239,17 @@ export class RentalStore {
     return error;
   }
 
+  /** Pays the rental on the receipt screen: the one opened by its id, or the current one. */
   async payDebt(): Promise<RentalError | null> {
-    const error = await this.change('pay', (id) => this.api.payDebt(id));
+    const target = this.state.viewed ?? this.state.rental;
+    if (target === null) return null;
+    const error = await this.run(
+      'pay',
+      () => this.api.payDebt(target.id),
+      (paid) => {
+        this.acceptOpened(paid);
+      },
+    );
     await this.loadDebts();
     return error;
   }
@@ -264,8 +282,11 @@ export class RentalStore {
   /** Puts away a rental that has ended, back to the map. */
   dismiss(): void {
     const rental = this.state.rental;
-    if (rental !== null && isActive(rental)) return;
-    this.setState({ ...this.state, rental: null, inspection: null, error: null });
+    if (rental !== null && isActive(rental)) {
+      this.setState({ ...this.state, viewed: null, error: null });
+      return;
+    }
+    this.setState({ ...this.state, rental: null, viewed: null, inspection: null, error: null });
   }
 
   /** Forgets everything at sign-out, so the next client never sees it. */
@@ -309,6 +330,15 @@ export class RentalStore {
     // Expired or started meanwhile, or the car may have done it: show what the server has now.
     if (isStale(error)) await this.refresh();
     return error;
+  }
+
+  private acceptOpened(rental: Rental): void {
+    const active = this.state.rental;
+    if (active !== null && active.id !== rental.id && isActive(active)) {
+      this.setState({ ...this.state, viewed: rental, error: null });
+    } else {
+      this.acceptRental(rental);
+    }
   }
 
   private acceptRental(rental: Rental): void {

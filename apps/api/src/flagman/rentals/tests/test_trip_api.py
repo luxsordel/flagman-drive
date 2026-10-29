@@ -20,6 +20,7 @@ from flagman.notifications.domain import PushPlatform
 from flagman.notifications.fake_provider import FakePushProvider
 from flagman.notifications.tests.conftest import push_token, sign_in
 from flagman.payments import service as payments
+from flagman.payments.domain import DeclineReason, OperationStatus
 from flagman.payments.fake_provider import FakeProvider
 from flagman.payments.ports import OperationRequest, OperationResult, PaymentProviderError
 from flagman.rentals import service
@@ -239,6 +240,114 @@ def test_a_free_cancel_charges_nothing(
     assert _operations(integration_settings, rental_id) == []
 
 
+def _hold_and_fail_to_open(person: Person, gateway: FakeGateway, rental_id: str) -> None:
+    """The money is held, then the car refuses to open: the reservation goes on with the hold."""
+    person.inspect(rental_id)
+    gateway.outcome = CarCommandRejectedError("engine_fault")
+    assert person.command(rental_id, "open").status_code != 200
+    assert person.get(rental_id).json()["status"] == "reserved"
+
+
+def _kinds(settings: Settings, rental_id: str) -> list[tuple[str, str]]:
+    return [(op.kind, op.status) for op in _operations(settings, rental_id)]
+
+
+def test_a_cancel_after_a_failed_opening_releases_the_hold(
+    integration_settings: Settings, person: Person, gateway: FakeGateway, car: str
+) -> None:
+    rental_id = str(person.reserve(car).json()["id"])
+    _hold_and_fail_to_open(person, gateway, rental_id)
+
+    body = person.cancel(rental_id).json()
+
+    assert (body["status"], body["charge_status"], body["receipt"]) == ("cancelled", "paid", None)
+    assert _kinds(integration_settings, rental_id) == [
+        ("hold", "succeeded"),
+        ("void", "succeeded"),
+    ]
+
+
+def test_an_expired_reservation_releases_the_hold_of_a_failed_opening(
+    integration_settings: Settings, person: Person, gateway: FakeGateway, car: str
+) -> None:
+    rental_id = str(person.reserve(car).json()["id"])
+    _hold_and_fail_to_open(person, gateway, rental_id)
+    _shift(integration_settings, rental_id, 60)
+
+    assert person.get(rental_id).json()["status"] == "cancelled"
+    assert _rental_row(integration_settings, rental_id).charge_status == "pending"
+    assert _retry_charges(integration_settings, datetime.now(UTC)) == 1
+
+    assert _rental_row(integration_settings, rental_id).charge_status == "paid"
+    assert _kinds(integration_settings, rental_id) == [
+        ("hold", "succeeded"),
+        ("void", "succeeded"),
+    ]
+
+
+def test_a_cancel_in_the_paid_wait_takes_it_from_the_hold(
+    integration_settings: Settings, person: Person, gateway: FakeGateway, car: str
+) -> None:
+    rental_id = str(person.reserve(car).json()["id"])
+    _shift(integration_settings, rental_id, 20)
+    _hold_and_fail_to_open(person, gateway, rental_id)
+
+    body = person.cancel(rental_id).json()
+
+    assert body["charge_status"] == "paid"
+    total = body["receipt"]["cost"]["total"]
+    assert total > 0
+    operations = _operations(integration_settings, rental_id)
+    assert [(op.kind, op.amount) for op in operations] == [("hold", DEMO_HOLD), ("capture", total)]
+
+
+@pytest.fixture
+def lost_hold(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The provider holds the money but its answer to the first hold is lost."""
+    original = FakeProvider.hold
+    failures = [1]
+
+    async def hold(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        result = await original(self, request)
+        if failures[0]:
+            failures[0] -= 1
+            raise PaymentProviderError("timeout")
+        return result
+
+    monkeypatch.setattr(FakeProvider, "hold", hold)
+
+
+def test_a_cancel_after_an_unknown_hold_releases_it(
+    integration_settings: Settings, person: Person, car: str, lost_hold: None
+) -> None:
+    rental_id = str(person.reserve(car).json()["id"])
+    person.inspect(rental_id)
+    response = person.command(rental_id, "open")
+    assert problem_type(response) == "payment-outcome-unknown"
+
+    body = person.cancel(rental_id).json()
+
+    assert (body["status"], body["charge_status"]) == ("cancelled", "paid")
+    # The same key asked again finds the hold the provider made, and it is released.
+    operations = _operations(integration_settings, rental_id)
+    assert [(op.idempotency_key, op.kind, op.status) for op in operations] == [
+        (f"rental:{rental_id}:hold:1", "hold", "succeeded"),
+        (f"rental:{rental_id}:void", "void", "succeeded"),
+    ]
+
+
+def test_an_unknown_hold_is_asked_again_by_the_next_opening(
+    integration_settings: Settings, person: Person, car: str, lost_hold: None
+) -> None:
+    rental_id = str(person.reserve(car).json()["id"])
+    person.inspect(rental_id)
+    assert problem_type(person.command(rental_id, "open")) == "payment-outcome-unknown"
+
+    assert person.command(rental_id, "open").json()["status"] == "in_trip"
+
+    assert _kinds(integration_settings, rental_id) == [("hold", "succeeded")]
+
+
 # The trip
 
 
@@ -275,6 +384,35 @@ def test_parking_is_for_a_trip_only(person: Person, car: str) -> None:
 
     assert response.status_code == 409
     assert problem_type(response) == "rental-transition-not-allowed"
+
+
+@pytest.mark.parametrize(
+    ("change", "reason"),
+    [
+        (
+            "UPDATE cars SET state_at = now() - interval '5 minutes' WHERE id = :car",
+            "car-state-stale",
+        ),
+        ("UPDATE cars SET ignition_on = true WHERE id = :car", "ignition-on"),
+    ],
+)
+def test_a_car_on_the_move_does_not_get_the_parked_price(
+    integration_settings: Settings, person: Person, car: str, change: str, reason: str
+) -> None:
+    rental_id = _start(person, car)
+    execute(integration_settings, change, car=uuid.UUID(car))
+
+    response = _post(person, rental_id, "park")
+
+    assert response.status_code == 409
+    assert problem_type(response) == reason
+    assert person.get(rental_id).json()["status"] == "in_trip"
+    kinds = query(
+        integration_settings,
+        "SELECT kind FROM rental_intervals WHERE rental_id = :id",
+        id=uuid.UUID(rental_id),
+    )
+    assert [row.kind for row in kinds] == ["driving"]
 
 
 def test_the_trip_warns_about_low_charge(
@@ -461,6 +599,57 @@ def test_an_unknown_outcome_is_retried_with_the_same_key(
     assert [(op.idempotency_key, op.status) for op in captures] == [
         (f"rental:{rental_id}:capture", "succeeded")
     ]
+
+
+@pytest.fixture
+def declined_capture(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def capture(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        return OperationResult(OperationStatus.DECLINED, decline_reason=DeclineReason.DECLINED)
+
+    monkeypatch.setattr(FakeProvider, "capture", capture)
+
+
+def test_a_declined_capture_releases_the_hold_before_the_debt(
+    integration_settings: Settings, person: Person, car: str, declined_capture: None
+) -> None:
+    rental_id = _start(person, car)
+    _shift(integration_settings, rental_id, 10)
+    _inspect_after(person, rental_id)
+
+    body = _post(person, rental_id, "finish").json()
+
+    assert (body["status"], body["charge_status"]) == ("payment_failed", "failed")
+    assert _kinds(integration_settings, rental_id) == [
+        ("hold", "succeeded"),
+        ("capture", "declined"),
+        ("void", "succeeded"),
+    ]
+    debts = person.client.get("/rentals/debts", headers=person.headers).json()["debts"]
+    assert [debt["amount"] for debt in debts] == [body["receipt"]["cost"]["total"]]
+
+
+def test_a_rental_the_charge_job_fails_on_waits_like_a_debt(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    flaky_capture: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _start(person, car)
+    _inspect_after(person, rental_id)
+    assert _post(person, rental_id, "finish").json()["charge_status"] == "pending"
+    at = _rental_row(integration_settings, rental_id).charge_next_at
+
+    async def broken(*_: object) -> None:
+        raise RuntimeError("a bug")
+
+    monkeypatch.setattr(service, "settle", broken)
+    assert _retry_charges(integration_settings, at) == 1
+
+    row = _rental_row(integration_settings, rental_id)
+    assert row.charge_status == "pending"
+    retry = service.settlement_rules(integration_settings).retry.interval
+    assert row.charge_next_at == at + retry
 
 
 def test_the_finish_needs_the_inspection_after(person: Person, car: str) -> None:

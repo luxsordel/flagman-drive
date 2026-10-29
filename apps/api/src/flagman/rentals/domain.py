@@ -552,15 +552,43 @@ def ensure_finish_allowed(
         raise IgnitionOnError
 
 
-# The emulator's reason, the one a real provider's adapter maps its own to.
+@dataclass(frozen=True)
+class ParkCheck:
+    """What the car told in its last snapshot when the client asks for the parked price."""
+
+    recorded_at: datetime | None
+    ignition_on: bool
+
+
+def ensure_toggle_allowed(
+    rental: Rental,
+    transition: RentalTransition,
+    check: ParkCheck,
+    rules: FinishRules,
+    now: datetime,
+) -> None:
+    """Parking is the cheaper price, so the car must be standing with its ignition off: otherwise
+    the client would set it and drive on. Driving on again needs nothing but a free rental."""
+    if rental.is_busy(now):
+        raise RentalBusyError
+    if transition is not RentalTransition.PARK:
+        return
+    if check.recorded_at is None or now - check.recorded_at > rules.max_state_age:
+        raise CarStateStaleError
+    if check.ignition_on:
+        raise IgnitionOnError
+
+
+# The emulator's reasons, the ones a real provider's adapter maps its own to.
 _DOORS_OPEN_REASON = "doors_open"
+_IGNITION_ON_REASON = "ignition_on"
 
 
 def lock_refusal(reason: str) -> AppError:
     """The client-facing error for a car that refused to lock at the end of the trip."""
     if reason == _DOORS_OPEN_REASON:
         return DoorsOpenError()
-    if reason == "ignition_on":
+    if reason == _IGNITION_ON_REASON:
         return IgnitionOnError()
     return CarLockFailedError(reason)
 

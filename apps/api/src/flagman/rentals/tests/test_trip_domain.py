@@ -15,10 +15,12 @@ from flagman.rentals.domain import (
     IgnitionOnError,
     InspectionRequiredError,
     OutsideEndZoneError,
+    ParkCheck,
     PlannedPayment,
     Rental,
     RentalBusyError,
     RentalStatus,
+    RentalTransition,
     RentalTransitionNotAllowedError,
     SettlementStep,
     TripInterval,
@@ -26,6 +28,7 @@ from flagman.rentals.domain import (
     TripWarningRules,
     debt_key,
     ensure_finish_allowed,
+    ensure_toggle_allowed,
     hold_key,
     lock_refusal,
     next_charge_attempt,
@@ -175,6 +178,37 @@ def test_a_trip_passing_every_check_may_finish(status: RentalStatus) -> None:
     ensure_finish_allowed(
         _rental(status), True, FinishCheck(NOW - timedelta(seconds=60), False, True), RULES, NOW
     )
+
+
+STANDING = ParkCheck(recorded_at=NOW - timedelta(seconds=10), ignition_on=False)
+
+
+@pytest.mark.parametrize(
+    ("rental", "check", "error"),
+    [
+        (_rental(command_until=NOW + MINUTE), STANDING, RentalBusyError),
+        (_rental(), ParkCheck(recorded_at=None, ignition_on=False), CarStateStaleError),
+        (_rental(), ParkCheck(NOW - timedelta(seconds=61), ignition_on=False), CarStateStaleError),
+        (_rental(), ParkCheck(NOW, ignition_on=True), IgnitionOnError),
+    ],
+)
+def test_parking_needs_a_standing_car(
+    rental: Rental, check: ParkCheck, error: type[Exception]
+) -> None:
+    with pytest.raises(error):
+        ensure_toggle_allowed(rental, RentalTransition.PARK, check, RULES, NOW)
+
+
+def test_a_standing_car_may_park() -> None:
+    ensure_toggle_allowed(_rental(), RentalTransition.PARK, STANDING, RULES, NOW)
+
+
+def test_driving_on_does_not_look_at_the_car_but_waits_for_a_command() -> None:
+    moving = ParkCheck(recorded_at=None, ignition_on=True)
+    ensure_toggle_allowed(_rental(RentalStatus.PARKED), RentalTransition.RESUME, moving, RULES, NOW)
+    busy = _rental(RentalStatus.PARKED, command_until=NOW + MINUTE)
+    with pytest.raises(RentalBusyError):
+        ensure_toggle_allowed(busy, RentalTransition.RESUME, moving, RULES, NOW)
 
 
 @pytest.mark.parametrize(

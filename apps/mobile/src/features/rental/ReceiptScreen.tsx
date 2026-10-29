@@ -18,7 +18,7 @@ export function ReceiptScreen() {
   const router = useRouter();
   const store = useRentalStore();
   const { id } = useLocalSearchParams<{ id: string }>();
-  const { rental, pending, error } = useRentalState();
+  const { rental, viewed, pending, error } = useRentalState();
 
   useEffect(() => {
     if (id) void store.open(id);
@@ -28,7 +28,7 @@ export function ReceiptScreen() {
     store.dismiss();
     router.dismissTo('/');
   };
-  const shown = rental !== null && rental.id === id ? rental : null;
+  const shown = [viewed, rental].find((candidate) => candidate?.id === id) ?? null;
   return (
     <Screen>
       <AppText variant="title">{t('rental.receipt.title')}</AppText>

@@ -129,7 +129,7 @@ class PaymentsSettings(DatabaseSettings):
 class TripSettings(PaymentsSettings):
     """What the API shows on the trip screen and the worker watches during a trip (#111)."""
 
-    # Below this the trip screen warns and the client gets one push per trip; kept under
+    # Below this the trip screen warns and the client gets one push per trip; must be under
     # FLEET_MIN_BATTERY_PCT, so every trip starts above it and the push means a crossing.
     rental_low_battery_pct: int = Field(default=15, ge=1, le=100)
     # The trip screen warns that the range may not last below this many kilometres.
@@ -341,6 +341,14 @@ class Settings(TripSettings):
             and not self.storage_public_url.startswith("https://")
         ):
             raise ValueError("S3_PUBLIC_URL must be https when API_ENV is stand or prod")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_trip_battery(self) -> Self:
+        # Every trip starts above the rentable charge, so the low battery push means a crossing
+        # and comes once (docs/adr/0024). The worker reads the same environment.
+        if self.rental_low_battery_pct >= self.fleet_min_battery_pct:
+            raise ValueError("RENTAL_LOW_BATTERY_PCT must be below FLEET_MIN_BATTERY_PCT")
         return self
 
     @model_validator(mode="after")

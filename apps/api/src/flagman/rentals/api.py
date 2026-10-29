@@ -198,11 +198,17 @@ _PAYMENT_UNKNOWN = (
 @router.post(
     "/{rental_id}/park",
     summary="Park during the trip, at the parked price",
-    description="Parking a parked rental returns it as it is.",
+    description=(
+        "Needs fresh telemetry of a car with its ignition off: the parked price is for a car "
+        "that stands. Parking a parked rental returns it as it is."
+    ),
     responses={
         HTTPStatus.CONFLICT: _problem(
-            "`urn:flagman:problem:rental-transition-not-allowed`: not on a trip."
+            "One reason at a time: `urn:flagman:problem:rental-transition-not-allowed`: not on "
+            "a trip; `rental-command-in-progress`; `car-state-stale`: no fresh telemetry, try "
+            "again; `ignition-on`."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
 async def park(client: Client, rental_id: UUID, service: Service) -> RentalOut:
@@ -216,8 +222,10 @@ async def park(client: Client, rental_id: UUID, service: Service) -> RentalOut:
     description="Resuming a rental on the road returns it as it is.",
     responses={
         HTTPStatus.CONFLICT: _problem(
-            "`urn:flagman:problem:rental-transition-not-allowed`: not on a trip."
+            "`urn:flagman:problem:rental-transition-not-allowed`: not on a trip; "
+            "`rental-command-in-progress`."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
 async def resume(client: Client, rental_id: UUID, service: Service) -> RentalOut:

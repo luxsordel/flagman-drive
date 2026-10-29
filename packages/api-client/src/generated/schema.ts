@@ -1160,7 +1160,7 @@ export interface paths {
     put?: never;
     /**
      * Park during the trip, at the parked price
-     * @description Parking a parked rental returns it as it is.
+     * @description Needs fresh telemetry of a car with its ignition off: the parked price is for a car that stands. Parking a parked rental returns it as it is.
      */
     post: operations['park_rentals__rental_id__park_post'];
     delete?: never;
@@ -8215,7 +8215,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:rental-transition-not-allowed`: not on a trip. */
+      /** @description One reason at a time: `urn:flagman:problem:rental-transition-not-allowed`: not on a trip; `rental-command-in-progress`; `car-state-stale`: no fresh telemetry, try again; `ignition-on`. */
       409: {
         headers: {
           [name: string]: unknown;
@@ -8227,6 +8227,17 @@ export interface operations {
       /** @description Unprocessable Entity */
       422: {
         headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
           [name: string]: unknown;
         };
         content: {
@@ -8418,7 +8429,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:rental-transition-not-allowed`: not on a trip. */
+      /** @description `urn:flagman:problem:rental-transition-not-allowed`: not on a trip; `rental-command-in-progress`. */
       409: {
         headers: {
           [name: string]: unknown;
@@ -8430,6 +8441,17 @@ export interface operations {
       /** @description Unprocessable Entity */
       422: {
         headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
           [name: string]: unknown;
         };
         content: {

@@ -78,6 +78,7 @@ from flagman.rentals.domain import (
     InspectionStage,
     KycNotApprovedError,
     OutstandingDebtError,
+    ParkCheck,
     PaymentHoldDeclinedError,
     PaymentOutcomeUnknownError,
     PlannedPayment,
@@ -101,6 +102,7 @@ from flagman.rentals.domain import (
     ensure_command_allowed,
     ensure_finish_allowed,
     ensure_near_car,
+    ensure_toggle_allowed,
     hold_key,
     lock_refusal,
     minutes_left,
@@ -379,15 +381,36 @@ async def _pay(
         return None
 
 
+async def _known_hold(
+    db: AsyncSession, gw: payments.Gateway, rental: Rental, now: datetime
+) -> PaymentOperation | None:
+    """The opening's hold, asked again while its outcome is unknown: the client may have cancelled
+    after a 503, and a hold the provider did make must still be released."""
+    if rental.hold_id is None:
+        return None
+    hold = await payments.get_operation(db, rental.hold_id)
+    if hold.is_final:
+        return hold
+    # The same key: a hold the provider made is found, never made twice.
+    again = payments.Payment(hold.amount, hold.idempotency_key)
+    return await payments.hold(db, gw, hold.user_id, again, now)
+
+
 async def _settle_first(
     db: AsyncSession, gw: payments.Gateway, rental: Rental, total: int, now: datetime
 ) -> _Settled:
-    hold = await payments.get_operation(db, rental.hold_id) if rental.hold_id else None
+    hold = await _known_hold(db, gw, rental, now)
+    if hold is not None and not hold.is_final:
+        return _Settled(ChargeStatus.PENDING, rental.charge_attempts, total, unknown=True)
+    held = hold.amount if hold is not None and hold.status is OperationStatus.SUCCEEDED else None
     taken = 0
-    for planned in plan_settlement(total, hold.amount if hold else None):
+    for planned in plan_settlement(total, held):
         operation = await _pay(db, gw, rental, planned, now)
         taken += _taken(operation)
         if operation is None or operation.status is OperationStatus.DECLINED:
+            if planned.step is SettlementStep.CAPTURE:
+                # The debt is charged to the card in full, so the hold must not stay on it too.
+                await _pay(db, gw, rental, PlannedPayment(SettlementStep.VOID, None), now)
             return _Settled(ChargeStatus.FAILED, rental.charge_attempts, total - taken)
         if not operation.is_final:
             return _Settled(
@@ -497,9 +520,22 @@ async def retry_charges(
         try:
             await settle(db, gw, rental.id, rules, now)
         except Exception:
-            # One rental the provider chokes on must not hold up the others.
+            # One rental the provider chokes on must not hold up the others. It is a bug or an
+            # outage, not an answer, so it waits as long as a declined debt instead of every run.
             logger.exception("rental_charge_retry_failed", rental_id=str(rental.id))
+            await _postpone(db, rental.id, now + rules.retry.interval, now)
     return len(due)
+
+
+async def _postpone(db: AsyncSession, rental_id: UUID, next_at: datetime, now: datetime) -> None:
+    async with db.begin():
+        rental = await repository.get_rental_by_id(db, rental_id, for_update=True)
+        if rental is not None and rental.charge_status in (
+            ChargeStatus.PENDING,
+            ChargeStatus.FAILED,
+        ):
+            state = ChargeState(rental.charge_status, rental.charge_attempts, next_at)
+            await repository.set_charge(db, rental.id, state, now)
 
 
 async def owed(db: AsyncSession, rental: Rental) -> int:
@@ -837,7 +873,7 @@ class RentalService:
             rental_id=rental.id,
         )
         try:
-            if request.command is RentalCommand.OPEN and rental.hold_id is None:
+            if request.command is RentalCommand.OPEN:
                 await self._hold(rental, now)
             await commander.send(car_request, now)
         except Exception:
@@ -873,8 +909,13 @@ class RentalService:
         """Holds the trip's money before the car opens; raises when it is not held.
 
         A declined hold is final for its key, so a retry after the client changed the card takes
-        the next key; an unknown outcome is retried with the same one.
+        the next key; an unknown outcome is retried with the same one. A hold already taken by
+        an opening that then failed is kept for the next one.
         """
+        if rental.hold_id is not None:
+            taken = await payments.get_operation(self.db, rental.hold_id)
+            if taken.status is OperationStatus.SUCCEEDED:
+                return
         gw = self._gateway()
         tariff = await pricing.get_version(self.db, rental.tariff_version_id)
         attempt = 1
@@ -889,10 +930,12 @@ class RentalService:
             raise CardRequiredError from error
         if operation.status is OperationStatus.DECLINED:
             raise PaymentHoldDeclinedError
+        async with self.db.begin():
+            # Kept while unknown too: a cancel or the expiry then settles it, and releases a hold
+            # the provider did make.
+            await repository.set_hold(self.db, rental.id, operation.id, self.clock())
         if operation.status is not OperationStatus.SUCCEEDED:
             raise PaymentOutcomeUnknownError
-        async with self.db.begin():
-            await repository.set_hold(self.db, rental.id, operation.id, self.clock())
         logger.info("rental_hold_taken", rental_id=str(rental.id))
 
     async def park(self, user_id: UUID, rental_id: UUID, now: datetime) -> RentalView:
@@ -906,10 +949,18 @@ class RentalService:
     ) -> RentalView:
         """Parked time costs the parked price from now on; a repeat answers the rental as it is."""
         wanted, kind = _TOGGLES[transition]
+        # Each switch adds an interval row, so it is limited like the car commands.
+        await self.limiter.hit(COMMAND_LIMIT, str(user_id))
         async with self.db.begin():
             rental = await self._lock(user_id, rental_id, now)
             if rental.status is not wanted:
                 status = apply_transition(rental.status, transition)
+                state = (await fleet.get_car(self.db, rental.car_id)).state
+                check = ParkCheck(
+                    recorded_at=state.recorded_at if state else None,
+                    ignition_on=state.ignition_on if state else False,
+                )
+                ensure_toggle_allowed(rental, transition, check, self.rules.finish, now)
                 await repository.close_interval(self.db, rental.id, now)
                 await repository.open_interval(self.db, rental.id, kind, now)
                 await repository.set_status(self.db, rental.id, status, now)
