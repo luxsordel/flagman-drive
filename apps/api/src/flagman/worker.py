@@ -37,12 +37,17 @@ RESERVATION_EXPIRY = "reservation_expiry"
 OUTBOX_CLEANUP = "outbox_cleanup"
 # Scheduled only with NOTIFICATIONS_PROVIDER set, every NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS.
 NOTIFICATIONS_DISPATCH = "notifications_dispatch"
+# Also only with NOTIFICATIONS_PROVIDER set.
+NOTIFICATIONS_RECEIPTS = "notifications_receipts"
 INTERVALS: Mapping[str, timedelta] = {
     AUTH_CLEANUP: timedelta(hours=1),
     # A reservation is cancelled within a minute of its end even if nobody asks for it, so the
     # car is back on the map (docs/adr/0022).
     RESERVATION_EXPIRY: timedelta(minutes=1),
     OUTBOX_CLEANUP: timedelta(hours=1),
+    # Receipts are asked for 15 minutes after sending at the earliest; a few more minutes for a
+    # dead token to linger cost nothing.
+    NOTIFICATIONS_RECEIPTS: timedelta(minutes=5),
 }
 # Sooner after a failure: on a fresh database the first run comes before the migrations, and
 # waiting a whole hour after them would look like the worker does nothing.
@@ -52,6 +57,7 @@ AUTH_CLEANUP_LOCK = 4_600_001
 RESERVATION_EXPIRY_LOCK = 4_600_002
 NOTIFICATIONS_DISPATCH_LOCK = 4_600_003
 OUTBOX_CLEANUP_LOCK = 4_600_004
+NOTIFICATIONS_RECEIPTS_LOCK = 4_600_005
 
 
 async def _with_lock[T](
@@ -160,6 +166,20 @@ async def run_notifications_dispatch(
     return await _with_lock(engine, NOTIFICATIONS_DISPATCH_LOCK, NOTIFICATIONS_DISPATCH, dispatch)
 
 
+async def run_notifications_receipts(
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    provider: PushProvider,
+    now: datetime,
+) -> notifications.ReceiptsResult | None:
+    """Returns None when another copy of the worker holds the job."""
+
+    async def check() -> notifications.ReceiptsResult:
+        return await notifications.check_receipts(session_factory, provider, now)
+
+    return await _with_lock(engine, NOTIFICATIONS_RECEIPTS_LOCK, NOTIFICATIONS_RECEIPTS, check)
+
+
 def push_provider(settings: WorkerSettings, http: httpx2.AsyncClient) -> PushProvider | None:
     match settings.notifications_provider:
         case "expo":
@@ -200,6 +220,7 @@ def _schedule(
         logger.warning("notifications_not_sent", reason="NOTIFICATIONS_PROVIDER is not set")
     else:
         dispatch = run_notifications_dispatch
+        receipts = run_notifications_receipts
 
         async def send(
             engine: AsyncEngine,
@@ -209,7 +230,16 @@ def _schedule(
         ) -> object:
             return await dispatch(engine, session_factory, provider, now)
 
+        async def check(
+            engine: AsyncEngine,
+            session_factory: async_sessionmaker[AsyncSession],
+            settings: WorkerSettings,
+            now: datetime,
+        ) -> object:
+            return await receipts(engine, session_factory, provider, now)
+
         jobs[NOTIFICATIONS_DISPATCH] = send
+        jobs[NOTIFICATIONS_RECEIPTS] = check
     return [_Scheduled(name, intervals[name], job) for name, job in jobs.items()]
 
 

@@ -9,6 +9,7 @@ from typing import Any
 import httpx2
 import structlog
 
+from flagman.notifications.domain import PUSH_TICKET_ID_MAX_LENGTH
 from flagman.notifications.ports import (
     PushMessage,
     PushReceipt,
@@ -131,7 +132,8 @@ def _not_sent(messages: Sequence[PushMessage]) -> list[PushTicket]:
 def _ticket(ticket: Any) -> PushTicket:
     if isinstance(ticket, dict) and ticket.get("status") == "ok":
         ticket_id = ticket.get("id")
-        return PushTicket(PushTicketStatus.OK, ticket_id if isinstance(ticket_id, str) else None)
+        usable = isinstance(ticket_id, str) and 0 < len(ticket_id) <= PUSH_TICKET_ID_MAX_LENGTH
+        return PushTicket(PushTicketStatus.OK, ticket_id if usable else None)
     error = _error(ticket)
     if error == _DEVICE_NOT_REGISTERED:
         return PushTicket(PushTicketStatus.DEVICE_NOT_REGISTERED)

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
 from flagman.notifications.domain import (
+    PUSH_TICKET_ID_MAX_LENGTH,
     PUSH_TOKEN_MAX_LENGTH,
     NotificationCategory,
     NotificationEvent,
@@ -41,6 +42,20 @@ class PushDevice(Base):
     platform: Mapped[str] = mapped_column(String(ENUM_LENGTH))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PushTicket(Base):
+    """A message the provider took, until its receipt tells whether the phone got it."""
+
+    __tablename__ = "push_tickets"
+
+    # The provider's ticket id; the token is not kept here, the device holds it.
+    id: Mapped[str] = mapped_column(String(PUSH_TICKET_ID_MAX_LENGTH), primary_key=True)
+    # A deleted device has no receipt worth asking for.
+    device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("push_devices.id", ondelete="CASCADE"), index=True
+    )
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
 
 
 class NotificationOptOut(Base):

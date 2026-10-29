@@ -15,6 +15,11 @@ from flagman.identity.domain import Language
 # `ExpoPushToken[...]`. Anything else is not something Expo can deliver to.
 PUSH_TOKEN_RE = re.compile(r"Expo(nent)?PushToken\[[A-Za-z0-9_-]{1,200}\]")
 PUSH_TOKEN_MAX_LENGTH = 255
+# Expo's ticket ids are UUIDs; a longer one is not kept, and its receipt is never asked for.
+PUSH_TICKET_ID_MAX_LENGTH = 64
+# Expo has a receipt ready within about 15 minutes of sending, and keeps it for a day.
+RECEIPT_DELAY = timedelta(minutes=15)
+RECEIPT_LIFETIME = timedelta(hours=24)
 
 # A failed delivery is tried again after 30 s, 1 min, 2 min, 4 min: a provider outage of a few
 # minutes still gets through, while a reminder that comes an hour late is no use to anyone.
@@ -133,6 +138,15 @@ class PushDevice:
     user_id: UUID
     session_id: UUID
     token: str
+
+
+@dataclass(frozen=True)
+class SentTicket:
+    """A message the provider took for a device, its receipt not asked for yet."""
+
+    id: str
+    device_id: UUID
+    sent_at: datetime
 
 
 @dataclass(frozen=True)
