@@ -144,12 +144,12 @@ async def test_each_job_keeps_its_own_interval(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(worker, "run_auth_cleanup", job(worker.AUTH_CLEANUP))
     monkeypatch.setattr(worker, "run_reservation_expiry", job(worker.RESERVATION_EXPIRY))
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
-    monkeypatch.setattr(worker, "run_trip_battery_watch", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
     intervals = {
         worker.AUTH_CLEANUP: timedelta(hours=1),
         worker.RESERVATION_EXPIRY: timedelta(milliseconds=50),
         worker.OUTBOX_CLEANUP: timedelta(hours=1),
-        worker.TRIP_BATTERY_WATCH: timedelta(hours=1),
+        worker.TRIP_WATCH: timedelta(hours=1),
     }
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=intervals), 5)
@@ -337,7 +337,7 @@ async def test_rental_charges_are_retried_with_a_payment_provider(
     monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
-    monkeypatch.setattr(worker, "run_trip_battery_watch", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
     monkeypatch.setattr(worker, "run_rental_charges", charge)
 
     await asyncio.wait_for(worker.run(_with_payments(_offline_settings()), stop), 5)
@@ -360,14 +360,14 @@ async def test_without_a_payment_provider_no_charge_is_retried(
     monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
-    monkeypatch.setattr(worker, "run_trip_battery_watch", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
     monkeypatch.setattr(worker, "run_rental_charges", charge)
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("lock", [worker.TRIP_BATTERY_WATCH_LOCK, worker.RENTAL_CHARGES_LOCK])
+@pytest.mark.parametrize("lock", [worker.TRIP_WATCH_LOCK, worker.RENTAL_CHARGES_LOCK])
 async def test_trip_jobs_are_skipped_while_another_worker_holds_them(
     integration_settings: Settings, lock: int
 ) -> None:
@@ -381,7 +381,7 @@ async def test_trip_jobs_are_skipped_while_another_worker_holds_them(
             now = datetime.now(UTC)
             if lock == worker.RENTAL_CHARGES_LOCK:
                 return await worker.run_rental_charges(engine, factory, gateway, settings, now)
-            return await worker.run_trip_battery_watch(engine, factory, settings, now)
+            return await worker.run_trip_watch(engine, factory, settings, now)
 
         assert await run_job() is not None
         async with engine.connect() as other_worker:

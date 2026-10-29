@@ -381,6 +381,18 @@ async def get_trips(db: AsyncSession) -> list[Rental]:
     return [_to_rental(row) for row in await db.scalars(query)]
 
 
+async def lock_parked_trips(db: AsyncSession, limit: int) -> list[Rental]:
+    """SKIP LOCKED: a rental the client switches right now is left to that request."""
+    query = (
+        select(RentalRow)
+        .where(RentalRow.status == RentalStatus.PARKED)
+        .order_by(RentalRow.id)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    return [_to_rental(row) for row in await db.scalars(query)]
+
+
 async def open_interval(
     db: AsyncSession, rental_id: UUID, kind: IntervalKind, now: datetime
 ) -> None:

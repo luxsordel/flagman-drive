@@ -142,6 +142,7 @@ _PAYMENT_HOLD_MARGIN = timedelta(seconds=15)
 # An unknown payment outcome is tried again this soon, with the same keys (docs/adr/0024).
 _PENDING_RETRY = timedelta(minutes=1)
 _CHARGE_BATCH = 50
+_PARKED_BATCH = 200
 _EXPIRY_BATCH = 100
 # A reminder still waiting for a retry must not reach a client whose reservation is over.
 _RESERVATION_REMINDERS = (NotificationEvent.RESERVATION_EXPIRING,)
@@ -408,6 +409,11 @@ async def _settle_first(
         operation = await _pay(db, gw, rental, planned, now)
         taken += _taken(operation)
         if operation is None or operation.status is OperationStatus.DECLINED:
+            if planned.step is SettlementStep.VOID:
+                # Nothing is owed: the provider lets the hold lapse by itself, and a debt of zero
+                # would only block the client's next reservation.
+                logger.warning("rental_hold_not_released", rental_id=str(rental.id))
+                return _Settled(ChargeStatus.PAID, rental.charge_attempts, 0)
             if planned.step is SettlementStep.CAPTURE:
                 # The debt is charged to the card in full, so the hold must not stay on it too.
                 await _pay(db, gw, rental, PlannedPayment(SettlementStep.VOID, None), now)
@@ -485,15 +491,26 @@ async def _record(
     logger.info("rental_charge_settled", rental_id=str(rental_id), charge_status=settled.status)
 
 
-async def settle(
-    db: AsyncSession, gw: payments.Gateway, rental_id: UUID, rules: SettlementRules, now: datetime
+async def settle(  # noqa: PLR0913 - `debt` only tells the callers apart
+    db: AsyncSession,
+    gw: payments.Gateway,
+    rental_id: UUID,
+    rules: SettlementRules,
+    now: datetime,
+    *,
+    debt: bool = True,
 ) -> None:
     """Takes what the rental owes: the first settlement with its fixed keys while its outcome is
-    not known, then one more debt try once it was declined. Does nothing for a paid rental."""
+    not known, then one more debt try once it was declined. Does nothing for a paid rental.
+
+    Without `debt` a declined rental is left alone: a repeated finish must not be a way around
+    the limit of the debt payments, nor spend the job's tries.
+    """
     async with db.begin():
         rental = await repository.get_rental_by_id(db, rental_id)
         receipt = await repository.get_receipt(db, rental_id)
-    if rental is None or rental.charge_status not in (ChargeStatus.PENDING, ChargeStatus.FAILED):
+    owing = (ChargeStatus.PENDING, ChargeStatus.FAILED) if debt else (ChargeStatus.PENDING,)
+    if rental is None or rental.charge_status not in owing:
         return
     total = receipt.quote.total if receipt else 0
     if rental.charge_status is ChargeStatus.PENDING:
@@ -543,6 +560,24 @@ async def owed(db: AsyncSession, rental: Rental) -> int:
         receipt = await repository.get_receipt(db, rental.id)
     total = receipt.quote.total if receipt else 0
     return max(0, total - await _taken_before(db, rental, rental.charge_attempts))
+
+
+async def resume_driven_off(db: AsyncSession, now: datetime) -> int:
+    """Puts back on the driving price the parked trips whose car has its ignition on: parking
+    checks the car only when it is switched on (docs/adr/0024). Returns how many it resumed."""
+    resumed = 0
+    async with db.begin():
+        for trip in await repository.lock_parked_trips(db, _PARKED_BATCH):
+            state = (await fleet.get_car(db, trip.car_id)).state
+            if state is None or not state.ignition_on:
+                continue
+            status = apply_transition(trip.status, RentalTransition.RESUME)
+            await repository.close_interval(db, trip.id, now)
+            await repository.open_interval(db, trip.id, IntervalKind.DRIVING, now)
+            await repository.set_status(db, trip.id, status, now)
+            logger.info("rental_trip_resumed_by_car", rental_id=str(trip.id))
+            resumed += 1
+    return resumed
 
 
 async def watch_trip_battery(db: AsyncSession, low_battery_pct: int, now: datetime) -> int:
@@ -651,7 +686,9 @@ class RentalService:
     async def _settle(self, rental_id: UUID) -> None:
         """Right away when payments are configured; the charge job does it otherwise."""
         if self.gateway is not None:
-            await settle(self.db, self.gateway, rental_id, self.rules.settlement, self.clock())
+            await settle(
+                self.db, self.gateway, rental_id, self.rules.settlement, self.clock(), debt=False
+            )
 
     async def reserve(self, user_id: UUID, car_id: UUID, now: datetime) -> RentalView:
         await self.limiter.hit(RESERVE_LIMIT, str(user_id))

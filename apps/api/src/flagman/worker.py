@@ -37,7 +37,7 @@ logger = structlog.get_logger(__name__)
 AUTH_CLEANUP = "auth_cleanup"
 RESERVATION_EXPIRY = "reservation_expiry"
 OUTBOX_CLEANUP = "outbox_cleanup"
-TRIP_BATTERY_WATCH = "trip_battery_watch"
+TRIP_WATCH = "trip_watch"
 # Scheduled only with PAYMENTS_PROVIDER set (docs/adr/0024).
 RENTAL_CHARGES = "rental_charges"
 # Scheduled only with NOTIFICATIONS_PROVIDER set, every NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS.
@@ -48,8 +48,9 @@ INTERVALS: Mapping[str, timedelta] = {
     # car is back on the map (docs/adr/0022).
     RESERVATION_EXPIRY: timedelta(minutes=1),
     OUTBOX_CLEANUP: timedelta(hours=1),
-    # «Low battery» reaches the client within a minute of the snapshot that showed it.
-    TRIP_BATTERY_WATCH: timedelta(minutes=1),
+    # «Low battery» reaches the client, and a parked car that drives off pays the driving price,
+    # within a minute of the snapshot that showed it.
+    TRIP_WATCH: timedelta(minutes=1),
     # An unknown outcome is retried after a minute; a declined debt by its own retry time.
     RENTAL_CHARGES: timedelta(minutes=1),
 }
@@ -62,7 +63,7 @@ RESERVATION_EXPIRY_LOCK = 4_600_002
 NOTIFICATIONS_DISPATCH_LOCK = 4_600_003
 OUTBOX_CLEANUP_LOCK = 4_600_004
 RENTAL_CHARGES_LOCK = 4_600_005
-TRIP_BATTERY_WATCH_LOCK = 4_600_006
+TRIP_WATCH_LOCK = 4_600_006
 
 
 async def _with_lock[T](
@@ -137,19 +138,22 @@ async def run_reservation_expiry(
     return expired
 
 
-async def run_trip_battery_watch(
+async def run_trip_watch(
     engine: AsyncEngine,
     session_factory: async_sessionmaker[AsyncSession],
     settings: WorkerSettings,
     now: datetime,
 ) -> int | None:
-    """Returns how many trips are below the threshold, None when another copy holds the job."""
+    """Returns how many trips it warned or resumed, None when another copy holds the job."""
 
     async def watch() -> int:
         async with session_factory() as db:
-            return await rentals.watch_trip_battery(db, settings.rental_low_battery_pct, now)
+            resumed = await rentals.resume_driven_off(db, now)
+            return resumed + await rentals.watch_trip_battery(
+                db, settings.rental_low_battery_pct, now
+            )
 
-    return await _with_lock(engine, TRIP_BATTERY_WATCH_LOCK, TRIP_BATTERY_WATCH, watch)
+    return await _with_lock(engine, TRIP_WATCH_LOCK, TRIP_WATCH, watch)
 
 
 async def run_rental_charges(
@@ -249,7 +253,7 @@ def _schedule(
         AUTH_CLEANUP: run_auth_cleanup,
         RESERVATION_EXPIRY: run_reservation_expiry,
         OUTBOX_CLEANUP: run_outbox_cleanup,
-        TRIP_BATTERY_WATCH: run_trip_battery_watch,
+        TRIP_WATCH: run_trip_watch,
     }
     if gateway is None:
         logger.warning("rental_charges_not_retried", reason="PAYMENTS_PROVIDER is not set")

@@ -65,6 +65,11 @@ export function FinishScreen() {
   useEffect(() => {
     if (done) router.dismissTo('/rental');
   }, [done, router]);
+  // The checks are told by the finish itself: an error of the trip screen, e.g. a refused
+  // parking, would mark them as if the server had checked them already.
+  useEffect(() => {
+    store.clearError();
+  }, [store]);
   if (rental === null || done) return null;
 
   const states = checkStates(rental, error);

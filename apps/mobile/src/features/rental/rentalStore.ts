@@ -279,6 +279,11 @@ export class RentalStore {
     );
   }
 
+  /** Forgets why the last action failed, e.g. a refused parking when the finish screen opens. */
+  clearError(): void {
+    if (this.state.error !== null) this.setState({ ...this.state, error: null });
+  }
+
   /** Puts away a rental that has ended, back to the map. */
   dismiss(): void {
     const rental = this.state.rental;

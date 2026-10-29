@@ -28,7 +28,10 @@ const trip = rental({
   trip_started_at: '2026-10-26T11:50:00Z',
 });
 
-async function renderScreen(current = trip) {
+async function renderScreen(
+  current = trip,
+  before?: (api: ReturnType<typeof fakeRentalApi>['api'], store: RentalStore) => Promise<unknown>,
+) {
   const fake = fakeRentalApi();
   fake.api.current.mockResolvedValue(ok(current));
   fake.api.get.mockResolvedValue(ok(current));
@@ -38,6 +41,7 @@ async function renderScreen(current = trip) {
     () => Date.parse(serverNow),
   );
   await store.restore();
+  if (before) await before(fake.api, store);
   await render(
     <RentalProvider store={store}>
       <FinishScreen />
@@ -88,6 +92,16 @@ describe('FinishScreen', () => {
     expect(screen.getByRole('button', { name: 'Завершить' })).toBeDisabled();
     await fireEvent.press(screen.getByRole('button', { name: 'Сфотографировать машину' }));
     expect(mockRouter.push).toHaveBeenCalledWith('/rental/inspection');
+  });
+
+  it('does not take a refused parking for a failed check', async () => {
+    await renderScreen(trip, (api, store) => {
+      api.park.mockResolvedValue({ ok: false, error: { kind: 'ignitionOn' } });
+      return store.park();
+    });
+
+    expect(check('Зажигание выключено')).toHaveTextContent(/проверим/);
+    expect(check('Свежие данные от машины')).toHaveTextContent(/проверим/);
   });
 
   it('shows the zones on the map when the car is outside them', async () => {

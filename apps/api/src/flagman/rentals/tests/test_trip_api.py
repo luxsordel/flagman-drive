@@ -301,6 +301,27 @@ def test_a_cancel_in_the_paid_wait_takes_it_from_the_hold(
     assert [(op.kind, op.amount) for op in operations] == [("hold", DEMO_HOLD), ("capture", total)]
 
 
+def test_a_declined_release_of_the_hold_is_no_debt(
+    integration_settings: Settings,
+    person: Person,
+    gateway: FakeGateway,
+    car: str,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def void(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        return OperationResult(OperationStatus.DECLINED, decline_reason=DeclineReason.DECLINED)
+
+    monkeypatch.setattr(FakeProvider, "void", void)
+    rental_id = str(person.reserve(car).json()["id"])
+    _hold_and_fail_to_open(person, gateway, rental_id)
+
+    body = person.cancel(rental_id).json()
+
+    assert body["charge_status"] == "paid"
+    assert ("payment_failed", {"amount": 0}) not in _queued(integration_settings, rental_id)
+    assert person.client.get("/rentals/debts", headers=person.headers).json()["debts"] == []
+
+
 @pytest.fixture
 def lost_hold(monkeypatch: pytest.MonkeyPatch) -> None:
     """The provider holds the money but its answer to the first hold is lost."""
@@ -415,6 +436,35 @@ def test_a_car_on_the_move_does_not_get_the_parked_price(
     assert [row.kind for row in kinds] == ["driving"]
 
 
+def test_a_parked_car_that_drives_off_is_back_on_the_driving_price(
+    integration_settings: Settings, person: Person, car: str
+) -> None:
+    rental_id = _start(person, car)
+    assert _post(person, rental_id, "park").json()["status"] == "parked"
+    standing = _run(
+        integration_settings, lambda db: service.resume_driven_off(db, datetime.now(UTC))
+    )
+    assert person.get(rental_id).json()["status"] == "parked"
+
+    execute(
+        integration_settings,
+        "UPDATE cars SET ignition_on = true WHERE id = :car",
+        car=uuid.UUID(car),
+    )
+    resumed = _run(
+        integration_settings, lambda db: service.resume_driven_off(db, datetime.now(UTC))
+    )
+
+    assert (standing, resumed) == (0, 1)
+    assert person.get(rental_id).json()["status"] == "in_trip"
+    kinds = query(
+        integration_settings,
+        "SELECT kind FROM rental_intervals WHERE rental_id = :id ORDER BY started_at",
+        id=uuid.UUID(rental_id),
+    )
+    assert [row.kind for row in kinds] == ["driving", "parked", "driving"]
+
+
 def test_the_trip_warns_about_low_charge(
     integration_settings: Settings, person: Person, car: str
 ) -> None:
@@ -493,6 +543,27 @@ def test_a_repeated_finish_charges_nothing_more(
     assert again.status_code == 200
     assert again.json()["receipt"] == first["receipt"]
     assert len(_operations(integration_settings, rental_id)) == 2
+
+
+def test_a_repeated_finish_leaves_a_debt_to_the_debt_payments(
+    integration_settings: Settings, person: Person, car: str
+) -> None:
+    rental_id = _start(person, car)
+    _shift(integration_settings, rental_id, 120)
+    _inspect_after(person, rental_id)
+    person.bind_card(DECLINED_CARD)
+    _make_default(person, "9995")
+    assert _post(person, rental_id, "finish").json()["status"] == "payment_failed"
+    operations = len(_operations(integration_settings, rental_id))
+
+    again = _post(person, rental_id, "finish")
+
+    assert again.json()["status"] == "payment_failed"
+    assert len(_operations(integration_settings, rental_id)) == operations
+    assert _rental_row(integration_settings, rental_id).charge_attempts == 0
+    # Paid here, so the charge job of the other tests finds no debt of this one.
+    _make_default(person, "4242")
+    assert _post(person, rental_id, "pay").json()["status"] == "paid"
 
 
 def test_above_the_hold_the_rest_is_charged(
