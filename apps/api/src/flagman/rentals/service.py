@@ -37,6 +37,8 @@ from flagman.geo import service as geo
 from flagman.identity import service as identity
 from flagman.kyc import service as kyc
 from flagman.kyc.domain import KycStatus
+from flagman.notifications import service as notifications
+from flagman.notifications.domain import Notification, NotificationEvent
 from flagman.pricing import service as pricing
 from flagman.pricing.domain import TariffNotFoundError, TariffPrices, TariffVersion
 from flagman.rentals import repository
@@ -64,6 +66,7 @@ from flagman.rentals.domain import (
     apply_transition,
     ensure_command_allowed,
     ensure_near_car,
+    minutes_left,
     normalize_damage_comment,
     reservation_deadlines,
 )
@@ -146,6 +149,9 @@ async def _expire(db: AsyncSession, rental: Rental, now: datetime) -> Rental:
     await repository.cancel(db, rental.id, status, CancelReason.EXPIRED, now)
     await fleet.change_status(db, rental.car_id, CarTransition.CANCEL_RESERVATION, now)
     logger.info("rental_reservation_expired", rental_id=str(rental.id))
+    await notifications.notify_client(
+        db, rental.user_id, Notification(NotificationEvent.RESERVATION_EXPIRED, rental.id, {}), now
+    )
     return replace(rental, status=status, cancel_reason=CancelReason.EXPIRED, ended_at=now)
 
 
@@ -166,6 +172,22 @@ async def expire_reservations(db: AsyncSession, now: datetime) -> int:
         expired += len(rentals)
         if len(rentals) < _EXPIRY_BATCH:
             return expired
+
+
+async def remind_expiring_reservations(db: AsyncSession, now: datetime, ahead: timedelta) -> int:
+    """Queues «the reservation ends soon» for every reservation ending within `ahead`; runs every
+    minute in the worker. A reservation is reminded once however often this runs (the dedup key).
+    Returns how many reservations it looked at."""
+    async with db.begin():
+        rentals = await repository.get_reservations_ending(db, now, now + ahead)
+        for rental in rentals:
+            notification = Notification(
+                NotificationEvent.RESERVATION_EXPIRING,
+                rental.id,
+                {"minutes_left": minutes_left(rental.expires_at, now)},
+            )
+            await notifications.notify_client(db, rental.user_id, notification, now)
+    return len(rentals)
 
 
 def _was_expired(rental: Rental) -> bool:

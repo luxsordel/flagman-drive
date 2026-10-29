@@ -131,6 +131,16 @@ async def lock_expired_reservations(db: AsyncSession, now: datetime, limit: int)
     return [_to_rental(row) for row in await db.scalars(query)]
 
 
+async def get_reservations_ending(db: AsyncSession, now: datetime, until: datetime) -> list[Rental]:
+    """Reservations still running whose end comes by `until`."""
+    query = select(RentalRow).where(
+        RentalRow.status == RentalStatus.RESERVED,
+        RentalRow.expires_at > now,
+        RentalRow.expires_at <= until,
+    )
+    return [_to_rental(row) for row in await db.scalars(query)]
+
+
 async def cancel(
     db: AsyncSession, rental_id: UUID, status: RentalStatus, reason: CancelReason, now: datetime
 ) -> None:

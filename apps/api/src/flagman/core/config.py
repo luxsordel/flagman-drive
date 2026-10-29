@@ -83,6 +83,9 @@ class WorkerSettings(DatabaseSettings):
     # nothing either way (docs/adr/0009).
     auth_cleanup_retention_days: int = Field(default=7, ge=1)
 
+    # «The reservation ends in N minutes» goes out this long before the end (#119).
+    rental_reservation_reminder_minutes: int = Field(default=5, ge=1, le=60)
+
     # Push notifications, see docs/adr/0020. "expo" sends through Expo Push Service, "fake" only
     # logs what would go out. Unset: notifications stay queued until a provider is configured.
     notifications_provider: Literal["expo", "fake"] | None = None

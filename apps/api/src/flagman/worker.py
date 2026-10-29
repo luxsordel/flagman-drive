@@ -112,7 +112,12 @@ async def run_reservation_expiry(
 
     async def expire() -> int:
         async with session_factory() as db:
-            return await rentals.expire_reservations(db, now)
+            expired = await rentals.expire_reservations(db, now)
+            # In the same minute's run: a reminder never comes later than a minute late.
+            await rentals.remind_expiring_reservations(
+                db, now, timedelta(minutes=settings.rental_reservation_reminder_minutes)
+            )
+            return expired
 
     expired = await _with_lock(engine, RESERVATION_EXPIRY_LOCK, RESERVATION_EXPIRY, expire)
     # Every minute: only the runs that did something are worth a line in the log.
