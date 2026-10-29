@@ -1,6 +1,7 @@
 """`flagman-staff`: staff accounts until the admin panel can manage them (#32).
 
     flagman-staff create --email admin@flagman.by --role admin
+    flagman-staff set-name --email admin@flagman.by --name Anna
     flagman-staff set-password --email admin@flagman.by
     flagman-staff reset-totp --email admin@flagman.by
     flagman-staff disable --email admin@flagman.by
@@ -39,6 +40,7 @@ from flagman.identity.domain import (
     StaffRole,
     TotpSecretPolicyError,
     normalize_email,
+    normalize_name,
 )
 
 EXIT_OK = 0
@@ -58,6 +60,13 @@ def _email(value: str) -> str:
     return value
 
 
+def _name(value: str) -> str:
+    try:
+        return normalize_name(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(str(error)) from error
+
+
 def _add_password_stdin(command: argparse.ArgumentParser) -> None:
     command.add_argument(
         "--password-stdin",
@@ -74,6 +83,12 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("--email", required=True, type=_email)
     create.add_argument("--role", required=True, choices=[role.value for role in StaffRole])
     _add_password_stdin(create)
+
+    set_name = commands.add_parser("set-name", help="set the name clients see in the support chat")
+    set_name.add_argument("--email", required=True)
+    set_name.add_argument(
+        "--name", required=True, type=_name, help="usually the first name, as on the badge"
+    )
 
     set_password = commands.add_parser(
         "set-password", help="set a new password and end every session (forgotten or leaked)"
@@ -132,6 +147,12 @@ def _stand_staff(
     return account
 
 
+def _ensured(ensured: service.EnsuredStaff, email: str) -> str:
+    if ensured.created:
+        return f"Created {ensured.role.value} {ensured.id} ({email}) with 2FA.\n"
+    return f"Already there as {ensured.role.value} {ensured.id} ({email}); nothing changed.\n"
+
+
 async def _run(args: argparse.Namespace, stdin: TextIO, stdout: TextIO) -> int:
     settings = load_settings()
     account: service.StandStaff | None = None
@@ -156,14 +177,10 @@ async def _run(args: argparse.Namespace, stdin: TextIO, stdout: TextIO) -> int:
                     ensured = await service.ensure_staff(
                         db, account, settings.totp_encryption_key, now
                     )
-                    email = normalize_email(args.email)
-                    if ensured.created:
-                        stdout.write(f"Created {args.role} {ensured.id} ({email}) with 2FA.\n")
-                    else:
-                        stdout.write(
-                            f"Already there as {ensured.role.value} {ensured.id} ({email}); "
-                            "nothing changed.\n"
-                        )
+                    stdout.write(_ensured(ensured, normalize_email(args.email)))
+                case "set-name":
+                    staff_id = await service.set_staff_display_name(db, args.email, args.name)
+                    stdout.write(f"Name set for {staff_id}.\n")
                 case "set-password":
                     password = _read_password(args.password_stdin, stdin)
                     staff_id = await service.set_staff_password(db, args.email, password, now)

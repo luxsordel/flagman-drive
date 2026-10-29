@@ -182,6 +182,11 @@ class Rental:
     def is_active(self) -> bool:
         return self.status in ACTIVE_STATUSES
 
+    @property
+    def is_driving(self) -> bool:
+        """The client has the car: a reservation is active too, but nobody is on the road yet."""
+        return self.status in _DRIVING
+
     def is_busy(self, now: datetime) -> bool:
         return self.command_until is not None and now < self.command_until
 

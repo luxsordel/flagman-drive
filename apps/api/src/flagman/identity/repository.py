@@ -300,6 +300,22 @@ async def list_staff(db: AsyncSession) -> list[StaffSummary]:
     return [StaffSummary(row.id, row.email, row.disabled_at is not None) for row in rows]
 
 
+async def get_staff_display_names(db: AsyncSession, staff_ids: Collection[UUID]) -> dict[UUID, str]:
+    """Staff without a name are left out."""
+    rows = await db.execute(
+        select(StaffMember.id, StaffMember.display_name).where(
+            StaffMember.id.in_(staff_ids), StaffMember.display_name.is_not(None)
+        )
+    )
+    return {row.id: row.display_name for row in rows}
+
+
+async def set_staff_display_name(db: AsyncSession, staff_id: UUID, display_name: str) -> None:
+    await db.execute(
+        update(StaffMember).where(StaffMember.id == staff_id).values(display_name=display_name)
+    )
+
+
 async def set_staff_password_hash(db: AsyncSession, staff_id: UUID, password_hash: str) -> None:
     await db.execute(
         update(StaffMember).where(StaffMember.id == staff_id).values(password_hash=password_hash)

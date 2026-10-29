@@ -71,6 +71,7 @@ from flagman.identity.domain import (
     issue_staff_challenge,
     match_totp,
     normalize_email,
+    normalize_name,
     normalize_totp_secret,
     password_needs_rehash,
     read_staff_access,
@@ -396,7 +397,8 @@ class ClientIdentity:
 async def get_client_identities(
     db: AsyncSession, user_ids: Collection[UUID]
 ) -> dict[UUID, ClientIdentity]:
-    """For the KYC review (#35); runs in the caller's transaction. Unknown ids are left out."""
+    """For the KYC review (#35) and the support chat (#120); runs in the caller's transaction.
+    Unknown ids are left out."""
     records = await repository.get_client_profiles(db, user_ids)
     return {
         user_id: ClientIdentity(record.first_name, record.last_name, record.birth_date)
@@ -853,6 +855,35 @@ async def set_staff_password(db: AsyncSession, email: str, password: str, now: d
         await _end_access(db, staff.id, AuditAction.STAFF_PASSWORD_CHANGED, now)
         await repository.set_staff_password_hash(db, staff.id, password_hash)
     return staff.id
+
+
+async def set_staff_display_name(db: AsyncSession, email: str, display_name: str) -> UUID:
+    """The name clients see in the support chat; raises StaffNotFoundError, ValueError.
+
+    Sessions stay: the name changes nothing about signing in.
+    """
+    name = normalize_name(display_name)
+    async with db.begin():
+        staff = await _get_staff(db, email)
+        await repository.set_staff_display_name(db, staff.id, name)
+        await audit.record(
+            db,
+            AuditEntry(
+                SYSTEM,
+                AuditAction.STAFF_NAME_CHANGED,
+                RequestOrigin(),
+                target=AuditTarget(AuditTargetType.STAFF_MEMBER, staff.id),
+            ),
+        )
+    return staff.id
+
+
+async def get_staff_display_names(db: AsyncSession, staff_ids: Collection[UUID]) -> dict[UUID, str]:
+    """For the support chat (#120); runs in the caller's transaction. Staff without a name are
+    left out."""
+    if not staff_ids:
+        return {}
+    return await repository.get_staff_display_names(db, staff_ids)
 
 
 async def disable_staff(db: AsyncSession, email: str, now: datetime) -> UUID:
