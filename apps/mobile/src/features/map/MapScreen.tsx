@@ -9,8 +9,10 @@ import { useTheme } from '../../theme/theme';
 import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
-import { useKycApplication } from '../kyc/KycProvider';
-import { CarCard } from './CarCard';
+import { useKycApplication, useKycState } from '../kyc/KycProvider';
+import { RentalBanner } from '../rental/RentalBanner';
+import { useRentalStore, useRestoredRental } from '../rental/RentalProvider';
+import { CarCard, type Reservation } from './CarCard';
 import { LazyCarMap } from './LazyCarMap';
 import { useClientLocation } from './location';
 import type { LatLon } from './mapConfig';
@@ -73,8 +75,12 @@ function ExpoGoNotice() {
 function LiveMap() {
   const { t } = useTranslation();
   const theme = useTheme();
+  const router = useRouter();
   const store = useMapStore();
   const state = useMapState();
+  const rentalStore = useRentalStore();
+  const rentalState = useRestoredRental();
+  const kyc = useKycState();
   const { status, location } = useClientLocation();
   // The camera follows the client's location once, when it first becomes known; later fixes
   // only update the distances, so the map does not jump away from where the client panned it.
@@ -100,6 +106,31 @@ function LiveMap() {
   }, [store]);
 
   const notice = mapNotice(state, status === 'denied');
+  const selectedCar = state.selected?.car ?? null;
+  const reservation: Reservation = {
+    // Unknown while loading; after a failed load the server decides, and explains a refusal.
+    kycApproved:
+      kyc.application !== null
+        ? kyc.application.status === 'approved'
+        : kyc.loadError !== null
+          ? true
+          : null,
+    reserving: rentalState.pending === 'reserve',
+    onReserve: async () => {
+      if (selectedCar === null) return null;
+      const error = await rentalStore.reserve(selectedCar.id);
+      if (error === null) {
+        store.clearSelection();
+        router.push('/rental');
+      } else if (error.kind === 'carGone') {
+        store.refresh();
+      }
+      return error;
+    },
+    onOpenDocuments: () => {
+      router.push('/kyc');
+    },
+  };
 
   return (
     <>
@@ -124,9 +155,19 @@ function LiveMap() {
         />
       </Suspense>
       <SafeAreaView style={styles.bottom} edges={['bottom']} pointerEvents="box-none">
-        {state.selected !== null ? (
+        {rentalState.rental !== null ? (
+          <RentalBanner
+            rental={rentalState.rental}
+            onOpen={() => {
+              router.push('/rental');
+            }}
+          />
+        ) : state.selected !== null ? (
           <CarCard
+            // A card of another car starts without the confirmation of the previous one.
+            key={state.selected.id}
             selected={state.selected}
+            reservation={reservation}
             onClose={() => {
               store.clearSelection();
             }}

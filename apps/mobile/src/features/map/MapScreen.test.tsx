@@ -3,8 +3,12 @@ import { Text as MockText } from 'react-native';
 
 import { initI18n } from '../../i18n';
 import { KycProvider } from '../kyc/KycProvider';
+import type { KycStatus } from '../kyc/kycApi';
 import { KycStore } from '../kyc/kycStore';
 import { fakeKycApi, kycApplication, ok as kycOk } from '../kyc/testing';
+import { RentalProvider } from '../rental/RentalProvider';
+import { RentalStore } from '../rental/rentalStore';
+import { fakeRentalApi, nearCar, ok as rentalOk, rental } from '../rental/testing';
 import type { CarMapProps } from './carMapProps';
 import { areaSettleMs } from './mapConfig';
 import { MapProvider } from './MapProvider';
@@ -56,9 +60,11 @@ function mapProps(): CarMapProps {
   return mockMapProps;
 }
 
-async function renderMap() {
+let mockRentals = fakeRentalApi();
+
+async function renderMap({ kycStatus = 'pending' }: { kycStatus?: KycStatus } = {}) {
   const kyc = fakeKycApi();
-  kyc.api.getApplication.mockResolvedValue(kycOk(kycApplication([], { status: 'pending' })));
+  kyc.api.getApplication.mockResolvedValue(kycOk(kycApplication([], { status: kycStatus })));
   const api = fakeMapApi();
   api.listZones.mockResolvedValue(ok([mapZone()]));
   api.listCars.mockResolvedValue(ok([mapCar({ distance_m: 1540 })]));
@@ -66,7 +72,15 @@ async function renderMap() {
   await render(
     <KycProvider store={new KycStore(kyc.api)}>
       <MapProvider store={new MapStore(api)}>
-        <MapScreen />
+        <RentalProvider
+          store={
+            new RentalStore(mockRentals.api, () =>
+              Promise.resolve({ kind: 'located', location: nearCar }),
+            )
+          }
+        >
+          <MapScreen />
+        </RentalProvider>
       </MapProvider>
     </KycProvider>,
   );
@@ -86,6 +100,7 @@ describe('MapScreen', () => {
     jest.clearAllMocks();
     jest.useFakeTimers();
     mockMapProps = null;
+    mockRentals = fakeRentalApi();
     mockPlatform.isExpoGo = false;
     mockLocation.status = 'granted';
   });
@@ -199,6 +214,65 @@ describe('MapScreen', () => {
 
     await fireEvent.press(screen.getByRole('button', { name: 'Профиль' }));
     expect(mockRouter.push).toHaveBeenCalledWith('/profile');
+  });
+
+  async function pressCar() {
+    await showArea();
+    await act(async () => {
+      mapProps().onCarPress('car-1');
+      await jest.advanceTimersByTimeAsync(0);
+    });
+  }
+
+  it('reserves the car after a confirmation and opens the reservation', async () => {
+    await renderMap({ kycStatus: 'approved' });
+    mockRentals.api.reserve.mockResolvedValue(rentalOk(rental()));
+    await pressCar();
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Забронировать' }));
+    expect(mockRentals.api.reserve).not.toHaveBeenCalled();
+    await fireEvent.press(screen.getByRole('button', { name: 'Да, забронировать' }));
+
+    expect(mockRentals.api.reserve).toHaveBeenCalledWith('car-1');
+    expect(mockRouter.push).toHaveBeenCalledWith('/rental');
+    expect(screen.getByText('Машина забронирована')).toBeOnTheScreen();
+  });
+
+  it('sends a client without approved documents to them instead', async () => {
+    await renderMap({ kycStatus: 'pending' });
+    await pressCar();
+
+    expect(
+      screen.getByText('Бронировать машины можно после одобрения документов'),
+    ).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Забронировать' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'К документам' }));
+    expect(mockRouter.push).toHaveBeenCalledWith('/kyc');
+  });
+
+  it('explains a car taken meanwhile and refreshes the map', async () => {
+    const api = await renderMap({ kycStatus: 'approved' });
+    mockRentals.api.reserve.mockResolvedValue({ ok: false, error: { kind: 'carGone' } });
+    await pressCar();
+    const loads = api.listCars.mock.calls.length;
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Забронировать' }));
+    await fireEvent.press(screen.getByRole('button', { name: 'Да, забронировать' }));
+
+    expect(
+      screen.getByText('Эта машина больше недоступна: её уже забронировали или ей нужна зарядка'),
+    ).toBeOnTheScreen();
+    expect(mockRouter.push).not.toHaveBeenCalledWith('/rental');
+    expect(api.listCars.mock.calls.length).toBeGreaterThan(loads);
+  });
+
+  it('comes back to an active rental after a restart', async () => {
+    mockRentals.api.current.mockResolvedValue(rentalOk(rental()));
+    await renderMap({ kycStatus: 'approved' });
+
+    expect(await screen.findByText('Машина забронирована')).toBeOnTheScreen();
+    await fireEvent.press(screen.getByRole('button', { name: 'Перейти' }));
+    expect(mockRouter.push).toHaveBeenCalledWith('/rental');
   });
 
   it('shows a notice instead of the map in Expo Go', async () => {
