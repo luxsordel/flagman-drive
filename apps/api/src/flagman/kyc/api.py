@@ -10,6 +10,7 @@ from flagman.audit.dependencies import get_request_origin
 from flagman.audit.domain import RequestOrigin
 from flagman.core.db import get_session
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
+from flagman.core.photos import PhotoTooLargeError, photo_request_body, read_photo_body
 from flagman.core.ratelimit import RateLimiter, get_rate_limiter
 from flagman.core.resources import Resources, get_resources
 from flagman.identity.dependencies import (
@@ -20,7 +21,6 @@ from flagman.identity.dependencies import (
 )
 from flagman.identity.domain import StaffRole
 from flagman.kyc.domain import AdmissionRules, DocumentKind, DocumentTooLargeError
-from flagman.kyc.images import ACCEPTED_CONTENT_TYPES, MAX_UPLOAD_BYTES
 from flagman.kyc.ports import DocumentStorage, create_document_storage
 from flagman.kyc.schemas import (
     QUEUE_SIZE_DEFAULT,
@@ -78,34 +78,14 @@ _STORAGE_UNAVAILABLE_RESPONSE: dict[str, Any] = {
     "model": Problem,
     "description": "`urn:flagman:problem:document-storage-unavailable`.",
 }
-# The photo is the raw request body: a multipart form would be written to a temporary file in
-# full before the size limit could stop it.
-_PHOTO_BODY: dict[str, Any] = {
-    "requestBody": {
-        "required": True,
-        "description": (
-            f"The photo itself, at most {MAX_UPLOAD_BYTES // (1024 * 1024)} MB. "
-            "The type is detected from the content; the stored copy is a JPEG without metadata."
-        ),
-        "content": {
-            content_type: {"schema": {"type": "string", "format": "binary"}}
-            for content_type in ACCEPTED_CONTENT_TYPES
-        },
-    }
-}
+_PHOTO_BODY = photo_request_body("The photo itself")
 
 
 async def _read_photo(request: Request) -> bytes:
-    declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > MAX_UPLOAD_BYTES:
-        raise DocumentTooLargeError
-    body = bytearray()
-    # Chunked uploads have no length up front, so the limit is also enforced while reading.
-    async for chunk in request.stream():
-        body += chunk
-        if len(body) > MAX_UPLOAD_BYTES:
-            raise DocumentTooLargeError
-    return bytes(body)
+    try:
+        return await read_photo_body(request)
+    except PhotoTooLargeError as error:
+        raise DocumentTooLargeError from error
 
 
 @router.get("/application", summary="The client's own application and uploaded documents")

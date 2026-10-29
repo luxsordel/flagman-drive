@@ -10,6 +10,8 @@ export type PhotoBody = Blob | Uint8Array<ArrayBuffer>;
 
 export interface SendPhotoOptions {
   url: string;
+  /** `PUT` replaces a document photo; `POST` adds a photo to a car inspection. */
+  method?: 'PUT' | 'POST';
   accessToken: string;
   photo: PhotoBody;
   /** Share of the photo sent so far, 0..1. */
@@ -36,11 +38,12 @@ export class UploadAbortedError extends Error {
 }
 
 /**
- * Sends the photo as the raw body of `PUT` (ADR-0012). XMLHttpRequest rather than fetch: only it
+ * Sends the photo as the raw request body (ADR-0012). XMLHttpRequest rather than fetch: only it
  * reports upload progress, on iOS, Android and the web alike.
  */
 export function sendPhoto({
   url,
+  method = 'PUT',
   accessToken,
   photo,
   onProgress,
@@ -60,7 +63,7 @@ export function sendPhoto({
     const settle = () => {
       signal?.removeEventListener('abort', abort);
     };
-    xhr.open('PUT', url);
+    xhr.open(method, url);
     // A mobile connection can drop silently; without a timeout the progress bar would hang forever.
     xhr.timeout = uploadTimeoutMs;
     xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);

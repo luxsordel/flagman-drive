@@ -10,6 +10,7 @@ import { createAppKycStore, KycProvider } from '../features/kyc/KycProvider';
 import { createAppMapStore, MapProvider } from '../features/map/MapProvider';
 import { createAppPayments, PaymentsProvider } from '../features/payments/PaymentsProvider';
 import { createAppProfileStore, ProfileProvider } from '../features/profile/ProfileProvider';
+import { createAppRentalStore, RentalProvider } from '../features/rental/RentalProvider';
 import { initI18n } from '../i18n';
 import { fontAssets } from '../theme/fonts';
 import { navigationTheme, useTheme } from '../theme/theme';
@@ -23,6 +24,7 @@ export default function RootLayout() {
   const [kycStore] = useState(() => createAppKycStore(session));
   const [profileStore] = useState(() => createAppProfileStore(session));
   const [mapStore] = useState(() => createAppMapStore(session));
+  const [rentalStore] = useState(() => createAppRentalStore(session));
   const [payments] = useState(() => createAppPayments(session));
   const status = useSyncExternalStore(session.subscribe, session.getStatus);
   const [fontsLoaded, fontError] = useFonts(fontAssets);
@@ -48,22 +50,26 @@ export default function RootLayout() {
           <KycProvider store={kycStore}>
             <ProfileProvider store={profileStore}>
               <MapProvider store={mapStore}>
-                <PaymentsProvider deps={payments}>
-                  <StatusBar style="auto" />
-                  <Stack screenOptions={{ headerShown: false }}>
-                    <Stack.Protected guard={signedIn}>
-                      <Stack.Screen name="index" />
-                      <Stack.Screen name="kyc/index" />
-                      <Stack.Screen name="kyc/upload" />
-                      <Stack.Screen name="profile" />
-                      <Stack.Screen name="payment-methods" />
-                    </Stack.Protected>
-                    <Stack.Protected guard={!signedIn}>
-                      <Stack.Screen name="sign-in" />
-                      <Stack.Screen name="code" />
-                    </Stack.Protected>
-                  </Stack>
-                </PaymentsProvider>
+                <RentalProvider store={rentalStore}>
+                  <PaymentsProvider deps={payments}>
+                    <StatusBar style="auto" />
+                    <Stack screenOptions={{ headerShown: false }}>
+                      <Stack.Protected guard={signedIn}>
+                        <Stack.Screen name="index" />
+                        <Stack.Screen name="kyc/index" />
+                        <Stack.Screen name="kyc/upload" />
+                        <Stack.Screen name="profile" />
+                        <Stack.Screen name="rental/index" />
+                        <Stack.Screen name="rental/inspection" />
+                        <Stack.Screen name="payment-methods" />
+                      </Stack.Protected>
+                      <Stack.Protected guard={!signedIn}>
+                        <Stack.Screen name="sign-in" />
+                        <Stack.Screen name="code" />
+                      </Stack.Protected>
+                    </Stack>
+                  </PaymentsProvider>
+                </RentalProvider>
               </MapProvider>
             </ProfileProvider>
           </KycProvider>

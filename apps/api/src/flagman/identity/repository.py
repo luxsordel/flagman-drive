@@ -100,6 +100,14 @@ async def get_client_profile(
     return _client_profile_record(row) if row is not None else None
 
 
+async def is_client_blocked(db: AsyncSession, user_id: UUID) -> bool:
+    # FOR SHARE: a block that comes during the caller's transaction waits for it to end.
+    blocked_at = await db.scalar(
+        select(User.blocked_at).where(User.id == user_id).with_for_update(read=True)
+    )
+    return blocked_at is not None
+
+
 async def get_client_profiles(
     db: AsyncSession, user_ids: Collection[UUID]
 ) -> dict[UUID, ClientProfileRecord]:

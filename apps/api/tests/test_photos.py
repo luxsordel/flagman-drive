@@ -3,8 +3,13 @@ from io import BytesIO
 import pytest
 from PIL import Image, ImageCms, PngImagePlugin
 
-from flagman.kyc.domain import DocumentTooLargeError, DocumentTypeUnsupportedError
-from flagman.kyc.images import MAX_PIXELS, MAX_UPLOAD_BYTES, clean_document_photo
+from flagman.core.photos import (
+    MAX_PIXELS,
+    MAX_UPLOAD_BYTES,
+    PhotoTooLargeError,
+    PhotoTypeUnsupportedError,
+    clean_photo,
+)
 
 _EXIF_ORIENTATION = 0x0112
 _EXIF_MAKE = 0x010F
@@ -41,7 +46,7 @@ def test_metadata_is_gone_from_a_jpeg() -> None:
         xmp=b"<x:xmpmeta>secret</x:xmpmeta>",
     )
 
-    cleaned = clean_document_photo(original)
+    cleaned = clean_photo(original)
 
     image = _open(cleaned)
     assert image.format == "JPEG"
@@ -55,14 +60,14 @@ def test_the_photo_is_turned_upright_before_the_orientation_is_dropped() -> None
     exif = Image.Exif()
     exif[_EXIF_ORIENTATION] = _ROTATED_90
 
-    image = _open(clean_document_photo(_photo((40, 20), exif=exif)))
+    image = _open(clean_photo(_photo((40, 20), exif=exif)))
 
     assert image.size == (20, 40)
 
 
 @pytest.mark.parametrize("image_format", ["PNG", "WEBP"])
 def test_png_and_webp_become_jpeg(image_format: str) -> None:
-    image = _open(clean_document_photo(_photo(image_format=image_format)))
+    image = _open(clean_photo(_photo(image_format=image_format)))
 
     assert image.format == "JPEG"
     assert image.size == (40, 20)
@@ -72,7 +77,7 @@ def test_png_text_chunks_are_dropped() -> None:
     text = PngImagePlugin.PngInfo()
     text.add_text("Location", "Minsk, home")
 
-    cleaned = clean_document_photo(_photo(image_format="PNG", pnginfo=text))
+    cleaned = clean_photo(_photo(image_format="PNG", pnginfo=text))
 
     assert b"Minsk" not in cleaned
 
@@ -81,7 +86,7 @@ def test_a_transparent_png_is_accepted() -> None:
     output = BytesIO()
     Image.new("RGBA", (10, 10), (0, 0, 0, 0)).save(output, format="PNG")
 
-    assert _open(clean_document_photo(output.getvalue())).mode == "RGB"
+    assert _open(clean_photo(output.getvalue())).mode == "RGB"
 
 
 @pytest.mark.parametrize(
@@ -96,13 +101,13 @@ def test_a_transparent_png_is_accepted() -> None:
     ],
 )
 def test_anything_but_a_jpeg_png_or_webp_is_refused(data: bytes) -> None:
-    with pytest.raises(DocumentTypeUnsupportedError):
-        clean_document_photo(data)
+    with pytest.raises(PhotoTypeUnsupportedError):
+        clean_photo(data)
 
 
 def test_a_file_over_the_size_limit_is_refused() -> None:
-    with pytest.raises(DocumentTooLargeError):
-        clean_document_photo(_photo() + b"\0" * MAX_UPLOAD_BYTES)
+    with pytest.raises(PhotoTooLargeError):
+        clean_photo(_photo() + b"\0" * MAX_UPLOAD_BYTES)
 
 
 def test_a_small_file_declaring_too_many_pixels_is_refused_before_decoding() -> None:
@@ -112,5 +117,5 @@ def test_a_small_file_declaring_too_many_pixels_is_refused_before_decoding() -> 
     Image.new("1", (side, side)).save(output, format="PNG")
     assert len(output.getvalue()) < MAX_UPLOAD_BYTES
 
-    with pytest.raises(DocumentTooLargeError):
-        clean_document_photo(output.getvalue())
+    with pytest.raises(PhotoTooLargeError):
+        clean_photo(output.getvalue())

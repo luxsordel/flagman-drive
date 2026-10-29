@@ -148,6 +148,11 @@ class Settings(DatabaseSettings):
     # Clock skew allowed between the API and telematics, for signatures and snapshot times alike.
     telematics_signature_tolerance_seconds: int = Field(default=300, ge=1, le=3600)
 
+    # A reservation is free for the tariff's first minutes, then paid until its end, when the
+    # timeout cancels it (docs/01-vision-and-mvp.md, docs/adr/0022).
+    rental_max_reservation_minutes: int = Field(default=45, ge=1, le=240)
+    # How close the client must be to open or close the car (docs/03-security.md).
+    rental_command_max_distance_m: float = Field(default=50.0, gt=0, le=1000)
     # Card payments, see docs/adr/0019. "fake" is the test provider inside the API: its own card
     # page and test card numbers, no money moves. Unset: the API runs, but cards cannot be bound
     # and payments answer 503.

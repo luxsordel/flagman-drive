@@ -404,6 +404,15 @@ async def get_client_identities(
     }
 
 
+async def is_client_blocked(db: AsyncSession, user_id: UUID) -> bool:
+    """Whether an operator has blocked the client; an unknown id counts as not blocked.
+
+    Runs in the caller's transaction and holds the client's row until it ends, so a rental
+    checks the block and starts in one transaction, and a block waits for it.
+    """
+    return await repository.is_client_blocked(db, user_id)
+
+
 def _verify_password_or_dummy(password_hash: str | None, password: str) -> bool:
     # An unknown email still costs one argon2 run, so timing does not reveal who has an account.
     if password_hash is None:
