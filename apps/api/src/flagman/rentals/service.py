@@ -3,7 +3,7 @@
 Every change runs in one transaction with the car's status (fleet) and holds the rental row, so
 a request, the timeout job and a parallel request of the same client never act on one rental
 at once. A command to the car is the exception: nothing is held while the car thinks, the
-rental is marked busy instead (docs/adr/0018).
+rental is marked busy instead (docs/adr/0022).
 """
 
 import asyncio
@@ -26,11 +26,19 @@ from flagman.core.photos import (
 from flagman.core.ratelimit import Limit, RateLimiter
 from flagman.core.storage import ObjectStorage
 from flagman.fleet import service as fleet
-from flagman.fleet.domain import AvailabilityRules, Car, CarCommand, CarTransition
+from flagman.fleet.domain import (
+    AvailabilityRules,
+    Car,
+    CarCommand,
+    CarNotFoundError,
+    CarTransition,
+)
 from flagman.geo import service as geo
 from flagman.identity import service as identity
 from flagman.kyc import service as kyc
 from flagman.kyc.domain import KycStatus
+from flagman.pricing import service as pricing
+from flagman.pricing.domain import TariffNotFoundError, TariffPrices, TariffVersion
 from flagman.rentals import repository
 from flagman.rentals.domain import (
     SIGNED_URL_TTL,
@@ -80,7 +88,7 @@ _EXPIRY_BATCH = 100
 
 @dataclass(frozen=True)
 class RentalRules:
-    terms: ReservationTerms
+    max_wait: timedelta
     availability: AvailabilityRules
     commands: CommandRules
     command_hold: timedelta
@@ -89,10 +97,7 @@ class RentalRules:
 def rental_rules(settings: Settings) -> RentalRules:
     availability = fleet.availability_rules(settings)
     return RentalRules(
-        terms=ReservationTerms(
-            free_wait=timedelta(minutes=settings.rental_free_wait_minutes),
-            max_wait=timedelta(minutes=settings.rental_max_reservation_minutes),
-        ),
+        max_wait=timedelta(minutes=settings.rental_max_reservation_minutes),
         availability=availability,
         commands=CommandRules(
             max_distance_m=settings.rental_command_max_distance_m,
@@ -123,13 +128,17 @@ class CommandRequest:
 class RentalView:
     rental: Rental
     car: Car
+    # Of the version fixed at the reservation, not the current one.
+    prices: TariffPrices
     inspection_submitted: bool
 
 
-async def _current_tariff_version(db: AsyncSession, car: Car) -> UUID | None:
-    # The tariffs (#109) replace this with pricing.service: the version current for the car's
-    # model at the reservation, fixed for the whole rental.
-    return None
+async def _current_tariff(db: AsyncSession, car: Car) -> TariffVersion:
+    """Raises CarNotFoundError for a model without a tariff: such a car is not on the map either."""
+    try:
+        return await pricing.current_version(db, car.model_id)
+    except TariffNotFoundError as error:
+        raise CarNotFoundError from error
 
 
 async def _expire(db: AsyncSession, rental: Rental, now: datetime) -> Rental:
@@ -146,7 +155,7 @@ async def _expire_if_due(db: AsyncSession, rental: Rental, now: datetime) -> Ren
 
 
 async def expire_reservations(db: AsyncSession, now: datetime) -> int:
-    """The timeout job (docs/adr/0018): cancels the reservations nobody has touched since
+    """The timeout job (docs/adr/0022): cancels the reservations nobody has touched since
     their end, batch by batch, each batch in a transaction of its own. Returns how many."""
     expired = 0
     while True:
@@ -187,7 +196,10 @@ class RentalService:
         car = await fleet.get_car(self.db, rental.car_id)
         before = await repository.get_inspection(self.db, rental.id, InspectionStage.BEFORE)
         submitted = before is not None and before.inspection.is_submitted
-        return RentalView(rental=rental, car=car, inspection_submitted=submitted)
+        tariff = await pricing.get_version(self.db, rental.tariff_version_id)
+        return RentalView(
+            rental=rental, car=car, prices=tariff.prices, inspection_submitted=submitted
+        )
 
     async def reserve(self, user_id: UUID, car_id: UUID, now: datetime) -> RentalView:
         await self.limiter.hit(RESERVE_LIMIT, str(user_id))
@@ -201,14 +213,19 @@ class RentalService:
             if held is not None:
                 await _expire_if_due(self.db, held, now)
             car = await fleet.reserve_car(self.db, car_id, self.rules.availability, now)
-            free_wait_until, expires_at = reservation_deadlines(now, self.rules.terms)
+            tariff = await _current_tariff(self.db, car)
+            terms = ReservationTerms(
+                free_wait=timedelta(minutes=tariff.prices.free_waiting_minutes),
+                max_wait=self.rules.max_wait,
+            )
+            free_wait_until, expires_at = reservation_deadlines(now, terms)
             try:
                 rental = await repository.add_rental(
                     self.db,
                     NewRental(
                         user_id=user_id,
                         car_id=car.id,
-                        tariff_version_id=await _current_tariff_version(self.db, car),
+                        tariff_version_id=tariff.id,
                         reserved_at=now,
                         free_wait_until=free_wait_until,
                         expires_at=expires_at,
@@ -217,7 +234,7 @@ class RentalService:
             except ActiveRentalTakenError as error:
                 raise ActiveRentalExistsError from error
         logger.info("rental_reserved", rental_id=str(rental.id), car_id=str(car.id))
-        return RentalView(rental=rental, car=car, inspection_submitted=False)
+        return RentalView(rental=rental, car=car, prices=tariff.prices, inspection_submitted=False)
 
     async def get(self, user_id: UUID, rental_id: UUID, now: datetime) -> RentalView:
         async with self.db.begin():

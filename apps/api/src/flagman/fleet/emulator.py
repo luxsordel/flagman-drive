@@ -13,6 +13,14 @@ import structlog
 from pydantic import ValidationError
 
 from flagman.core.geo import GeoPoint
+from flagman.core.signing import (
+    SIGNATURE_HEADER,
+    TIMESTAMP_HEADER,
+    SignatureError,
+    SignedRequest,
+    sign,
+    verify,
+)
 from flagman.fleet.domain import (
     CarCommand,
     CarCommandDuplicateError,
@@ -25,14 +33,6 @@ from flagman.fleet.domain import (
 )
 from flagman.fleet.ports import TelemetryWebhook
 from flagman.fleet.schemas import EmulatorCarState, EmulatorCommandResult, EmulatorTelemetryBatch
-from flagman.fleet.signing import (
-    SIGNATURE_HEADER,
-    TIMESTAMP_HEADER,
-    SignatureError,
-    SignedRequest,
-    sign,
-    verify,
-)
 
 logger = structlog.get_logger(__name__)
 

@@ -45,10 +45,19 @@ class RentalCarOut(BaseModel):
     doors_locked: bool | None
 
 
+class RentalTariffOut(BaseModel):
+    """Prices of the tariff version fixed at the reservation, in kopecks of BYN."""
+
+    driving_per_minute: int
+    parked_per_minute: int
+    waiting_per_minute: int = Field(description="The paid wait, after the free minutes.")
+
+
 class RentalOut(BaseModel):
     id: UUID
     status: RentalStatus
     car: RentalCarOut
+    tariff: RentalTariffOut
     reserved_at: datetime
     free_wait_until: datetime = Field(description="The reservation is free until then.")
     expires_at: datetime = Field(
@@ -79,6 +88,11 @@ class RentalOut(BaseModel):
                 battery_pct=state.battery_pct if state else None,
                 range_km=range_left_km(car.model.range_km, state.battery_pct) if state else None,
                 doors_locked=state.doors_locked if state else None,
+            ),
+            tariff=RentalTariffOut(
+                driving_per_minute=view.prices.driving_per_minute,
+                parked_per_minute=view.prices.parked_per_minute,
+                waiting_per_minute=view.prices.waiting_per_minute,
             ),
             reserved_at=rental.reserved_at,
             free_wait_until=rental.free_wait_until,

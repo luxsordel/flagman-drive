@@ -109,6 +109,15 @@ uv run flagman-staff reset-totp --email admin@flagman.by
 uv run flagman-staff disable --email admin@flagman.by
 ```
 
+Для сида демо-стенда — `ensure`: создаёт сотрудника с уже настроенной 2FA, а существующего не трогает, поэтому
+её можно запускать при каждой выкладке. Пароль и base32-секрет 2FA — первыми двумя строками stdin. Её вызывает
+`infra/stand/bin/seed.sh`, подробнее — [docs/08-demo-stand.md](../../docs/08-demo-stand.md). С `--check` она только
+проверяет пароль и секрет, без базы. При `API_ENV=prod` она не работает: секрет 2FA из файла слабее настроенного по QR-коду.
+
+```bash
+printf '%s\n%s\n' "$PASSWORD" "$TOTP_SECRET" | uv run flagman-staff ensure --email operator@flagman.by --role operator
+```
+
 ## Демо-зона
 
 Команда `flagman-geo seed` добавляет одну разрешённую зону внутри МКАД, над той же областью, где эмулятор
@@ -150,6 +159,23 @@ id машин не зависят от `EMULATOR_CAR_COUNT`. Если число
 машины. Если уменьшилось, лишние машины останутся без телеметрии, и клиенту их не предложат.
 После смены `EMULATOR_SEED` сид останавливается с ошибкой и ничего не добавляет: те же номера уже заняты
 машинами со старыми id. Сбросьте базу (`docker compose ... down -v`, затем миграции) и запустите сид заново.
+
+## Демо-тарифы
+
+Команда `flagman-pricing seed` даёт каждой модели машины без тарифа демо-тариф: 0,39 BYN за минуту в
+движении, 0,12 BYN за минуту стоянки и платного ожидания, 15 бесплатных минут брони, холд 30 BYN. Цифры —
+заглушки (`docs/01-vision-and-mvp.md`). Запускать после `flagman-fleet seed`. Тарифы, которые уже есть, в том
+числе изменённые в админке, повторный запуск не трогает. С `API_ENV=prod` команда не работает.
+
+```bash
+uv run flagman-pricing seed
+```
+
+В Docker — из корня репозитория, после миграций и сида парка:
+
+```bash
+docker compose --env-file .env -f infra/docker-compose.yml run --rm api flagman-pricing seed
+```
 
 ## Проверки
 

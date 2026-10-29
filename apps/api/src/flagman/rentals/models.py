@@ -67,8 +67,8 @@ class Rental(Base):
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
     car_id: Mapped[UUID] = mapped_column(ForeignKey("cars.id"), index=True)
     status: Mapped[str] = mapped_column(String(STATUS_LENGTH))
-    # The tariffs (#109) add their table; until then the column stays empty, without a key.
-    tariff_version_id: Mapped[UUID | None]
+    # The version current at the reservation; versions are never changed or deleted (pricing).
+    tariff_version_id: Mapped[UUID] = mapped_column(ForeignKey("tariff_versions.id"))
     reserved_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     free_wait_until: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

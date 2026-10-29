@@ -50,7 +50,7 @@ def _to_rental(row: RentalRow) -> Rental:
 class NewRental:
     user_id: UUID
     car_id: UUID
-    tariff_version_id: UUID | None
+    tariff_version_id: UUID
     reserved_at: datetime
     free_wait_until: datetime
     expires_at: datetime

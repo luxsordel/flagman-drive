@@ -46,6 +46,8 @@ async def test_migrations_match_the_models(integration_settings: Settings) -> No
     import flagman.geo.models  # noqa: PLC0415
     import flagman.identity.models  # noqa: PLC0415
     import flagman.kyc.models  # noqa: PLC0415
+    import flagman.payments.models  # noqa: PLC0415
+    import flagman.pricing.models  # noqa: PLC0415
     import flagman.rentals.models  # noqa: F401, PLC0415
 
     # PostGIS ships its own tables (spatial_ref_sys and others); only ours are compared.

@@ -13,6 +13,7 @@ from flagman.core.db import create_engine, create_session_factory
 from flagman.fleet.domain import CarStatus
 from flagman.fleet.tests.conftest import add_car
 from flagman.kyc.domain import KycStatus
+from flagman.pricing.seed import DEMO_PRICES
 from flagman.rentals import service
 from flagman.rentals.tests.conftest import (
     CAR_POINT,
@@ -52,16 +53,83 @@ def test_a_reservation_holds_the_car_and_starts_the_free_wait(
     assert rental["inspection_submitted"] is False
     reserved_at = datetime.fromisoformat(rental["reserved_at"])
     assert reserved_at >= before
-    assert datetime.fromisoformat(rental["free_wait_until"]) - reserved_at == timedelta(minutes=15)
     assert datetime.fromisoformat(rental["expires_at"]) - reserved_at == timedelta(minutes=45)
     assert car_status(integration_settings, car) == CarStatus.RESERVED
-    # The tariffs (#109) fill it in; until then nothing is fixed.
+    # The demo tariff's free minutes and prices, and its version fixed for the whole rental.
+    assert rental["tariff"] == {
+        "driving_per_minute": DEMO_PRICES.driving_per_minute,
+        "parked_per_minute": DEMO_PRICES.parked_per_minute,
+        "waiting_per_minute": DEMO_PRICES.waiting_per_minute,
+    }
+    assert datetime.fromisoformat(rental["free_wait_until"]) - reserved_at == timedelta(
+        minutes=DEMO_PRICES.free_waiting_minutes
+    )
     rows = query(
         integration_settings,
-        "SELECT tariff_version_id FROM rentals WHERE car_id = :c",
-        c=uuid.UUID(car),
+        "SELECT t.model_id, c.model_id AS car_model FROM rentals r "
+        "JOIN tariff_versions v ON v.id = r.tariff_version_id JOIN tariffs t ON t.id = v.tariff_id "
+        "JOIN cars c ON c.id = r.car_id "
+        "WHERE r.id = :id",
+        id=uuid.UUID(rental["id"]),
     )
-    assert rows[0].tariff_version_id is None
+    assert rows[0].model_id == rows[0].car_model
+
+
+def test_a_tariff_changed_later_does_not_touch_the_reservation(
+    integration_settings: Settings, person: Person, car: str
+) -> None:
+    rental = person.reserve(car).json()
+    before = query(
+        integration_settings,
+        "SELECT tariff_version_id FROM rentals WHERE id = :id",
+        id=uuid.UUID(rental["id"]),
+    )[0].tariff_version_id
+    execute(
+        integration_settings,
+        "INSERT INTO tariff_versions (id, tariff_id, number, driving_per_minute, "
+        "parked_per_minute, waiting_per_minute, free_waiting_minutes, hold_amount, valid_from) "
+        "SELECT gen_random_uuid(), tariff_id, number + 1, 99, 99, 99, 0, 9900, now() "
+        "FROM tariff_versions WHERE id = :id",
+        id=before,
+    )
+
+    after = query(
+        integration_settings,
+        "SELECT tariff_version_id FROM rentals WHERE id = :id",
+        id=uuid.UUID(rental["id"]),
+    )[0].tariff_version_id
+    assert after == before
+    assert person.get(rental["id"]).json()["free_wait_until"] == rental["free_wait_until"]
+
+
+def test_a_car_of_a_model_without_a_tariff_is_not_found(
+    integration_settings: Settings, person: Person
+) -> None:
+    car = add_car(integration_settings, CAR_POINT)
+    execute(
+        integration_settings,
+        "UPDATE cars SET model_id = :model WHERE id = :id",
+        model=_model_without_tariff(integration_settings),
+        id=uuid.UUID(car),
+    )
+
+    response = person.reserve(car)
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert problem_type(response) == "car-not-found"
+    assert car_status(integration_settings, car) == CarStatus.AVAILABLE
+
+
+def _model_without_tariff(settings: Settings) -> uuid.UUID:
+    model_id = uuid.uuid4()
+    execute(
+        settings,
+        "INSERT INTO car_models (id, brand, name, seats, battery_wh, range_km, created_at) "
+        "VALUES (:id, 'Test', :name, 5, 50000, 300, now())",
+        id=model_id,
+        name=f"No tariff {model_id.hex[:8]}",
+    )
+    return model_id
 
 
 def test_the_reserved_car_leaves_the_map(person: Person, car: str) -> None:

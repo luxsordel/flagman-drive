@@ -302,6 +302,16 @@ async def set_pending_totp_secret(db: AsyncSession, staff_id: UUID, ciphertext: 
     )
 
 
+async def set_enrolled_totp_secret(
+    db: AsyncSession, staff_id: UUID, ciphertext: bytes, now: datetime
+) -> None:
+    await db.execute(
+        update(StaffMember)
+        .where(StaffMember.id == staff_id)
+        .values(totp_secret_encrypted=ciphertext, totp_enrolled_at=now, totp_last_step=None)
+    )
+
+
 async def accept_totp_step(
     db: AsyncSession, staff_id: UUID, step: int, enrolled_at: datetime | None
 ) -> None:

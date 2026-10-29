@@ -1,4 +1,4 @@
-"""`flagman-worker`: periodic jobs that run next to the API, see docs/adr/0013 and docs/adr/0018.
+"""`flagman-worker`: periodic jobs that run next to the API, see docs/adr/0013 and docs/adr/0022.
 
     flagman-worker
 
@@ -31,7 +31,7 @@ RESERVATION_EXPIRY = "reservation_expiry"
 INTERVALS: Mapping[str, timedelta] = {
     AUTH_CLEANUP: timedelta(hours=1),
     # A reservation is cancelled within a minute of its end even if nobody asks for it, so the
-    # car is back on the map (docs/adr/0018).
+    # car is back on the map (docs/adr/0022).
     RESERVATION_EXPIRY: timedelta(minutes=1),
 }
 # Sooner after a failure: on a fresh database the first run comes before the migrations, and

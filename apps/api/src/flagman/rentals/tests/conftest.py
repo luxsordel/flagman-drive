@@ -16,10 +16,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.geo import GeoPoint
+from flagman.fleet import repository as fleet_repository
 from flagman.fleet.domain import CarState
+from flagman.fleet.seed import DEMO_MODELS
 from flagman.fleet.tests.conftest import FakeGateway, bearer, run_in_db
 from flagman.identity.domain import AccessClaims, issue_access_token
 from flagman.kyc.domain import KycStatus
+from flagman.pricing import service as pricing
 from flagman.rentals import api
 
 # The demo zone of the pilot is around here; distances are on the spheroid near Minsk.
@@ -74,6 +77,22 @@ class FakeStorage:
 
 def opened_state(point: GeoPoint = CAR_POINT) -> CarState:
     return CarState(point, 80, False, False, False, datetime.now(UTC))
+
+
+@pytest.fixture(autouse=True)
+def demo_tariffs(integration_settings: Settings) -> None:
+    """Every demo model has the demo tariff: cars without one are not rented out.
+
+    Seeding again changes nothing, so every test may run it.
+    """
+
+    async def seed(db: AsyncSession) -> None:
+        async with db.begin():
+            for demo in DEMO_MODELS:
+                await fleet_repository.ensure_model(db, demo.spec, datetime.now(UTC))
+        await pricing.seed_demo_tariffs(db, datetime.now(UTC))
+
+    run_in_db(integration_settings, seed)
 
 
 @pytest.fixture

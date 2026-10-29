@@ -5,15 +5,29 @@ const block = (selector: string, variables: Record<string, string>): string =>
     .map(([name, value]) => `${name}: ${value};`)
     .join(' ')} }`;
 
-/** Puts the design tokens into CSS variables; the dark palette applies under `data-theme="dark"`. */
-export function installTheme(): void {
-  if (document.head.querySelector('style[data-flagman-theme]')) return;
-  const style = document.createElement('style');
-  style.dataset.flagmanTheme = '';
-  style.textContent = [
+const themeCss = (): string =>
+  [
     block(':root', { ...cssStaticVariables(), ...cssVariables(themes.light) }),
     block(':root[data-theme="dark"]', cssVariables(themes.dark)),
   ].join('\n');
+
+let installedSheet: CSSStyleSheet | undefined;
+
+/** Puts the design tokens into CSS variables; the dark palette applies under `data-theme="dark"`. */
+export function installTheme(): void {
+  // A constructed sheet rather than a <style> element where the browser has one: the stand's CSP
+  // (style-src 'self', infra/stand/web/Caddyfile) blocks inline style text, but not the CSSOM.
+  if (Reflect.has(document, 'adoptedStyleSheets')) {
+    if (installedSheet && document.adoptedStyleSheets.includes(installedSheet)) return;
+    installedSheet = new CSSStyleSheet();
+    installedSheet.replaceSync(themeCss());
+    document.adoptedStyleSheets = [...document.adoptedStyleSheets, installedSheet];
+    return;
+  }
+  if (document.head.querySelector('style[data-flagman-theme]')) return;
+  const style = document.createElement('style');
+  style.dataset.flagmanTheme = '';
+  style.textContent = themeCss();
   document.head.append(style);
 }
 

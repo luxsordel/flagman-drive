@@ -29,6 +29,7 @@ export function rental(overrides: Partial<Rental> = {}): Rental {
       range_km: 320,
       doors_locked: true,
     },
+    tariff: { driving_per_minute: 39, parked_per_minute: 12, waiting_per_minute: 12 },
     reserved_at: '2026-10-26T11:55:00Z',
     free_wait_until: '2026-10-26T12:10:00Z',
     expires_at: '2026-10-26T12:40:00Z',

@@ -24,6 +24,11 @@
           "zone.created",
           "zone.updated",
           "zone.disabled",
+          "tariff.created",
+          "tariff.updated",
+          "payment.succeeded",
+          "payment.declined",
+          "payment.failed",
           "car.command_sent"
         ],
         "title": "AuditAction",
@@ -186,7 +191,7 @@
       },
       "AuditTargetType": {
         "description": "Every kind of object an event names, so the admin panel can label each one.\n\nValues are stored as is, like AuditAction: renaming one leaves older events with the old name.",
-        "enum": ["staff_member", "kyc_application", "zone", "car"],
+        "enum": ["staff_member", "kyc_application", "zone", "tariff", "payment_operation", "car"],
         "title": "AuditTargetType",
         "type": "string"
       },
@@ -242,10 +247,116 @@
         "title": "CarCommandOut",
         "type": "object"
       },
+      "CarModelOut": {
+        "properties": {
+          "brand": {
+            "title": "Brand",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": ["id", "brand", "name"],
+        "title": "CarModelOut",
+        "type": "object"
+      },
       "CarStatus": {
         "description": "Values are stored as is: renaming one needs a migration.",
         "enum": ["available", "reserved", "in_rental", "service", "offline"],
         "title": "CarStatus",
+        "type": "string"
+      },
+      "CardBindingIn": {
+        "additionalProperties": false,
+        "properties": {
+          "return_url": {
+            "description": "Where the provider's page sends the client back, with `binding_id` added to the query: the app's `flagmandrive://` link, Expo Go's `exp://` outside prod, or a page of an origin from `API_CORS_ORIGINS`.",
+            "examples": ["flagmandrive://payment-methods"],
+            "maxLength": 512,
+            "title": "Return Url",
+            "type": "string"
+          }
+        },
+        "required": ["return_url"],
+        "title": "CardBindingIn",
+        "type": "object"
+      },
+      "CardBindingOut": {
+        "properties": {
+          "card": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PaymentCardOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With `succeeded`: the card that was bound."
+          },
+          "decline_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeclineReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "With `declined`."
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CardBindingStatus"
+          }
+        },
+        "required": ["id", "status", "card", "decline_reason"],
+        "title": "CardBindingOut",
+        "type": "object"
+      },
+      "CardBindingStarted": {
+        "properties": {
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "page_url": {
+            "description": "The provider's page: open it in the browser.",
+            "title": "Page Url",
+            "type": "string"
+          }
+        },
+        "required": ["id", "page_url", "expires_at"],
+        "title": "CardBindingStarted",
+        "type": "object"
+      },
+      "CardBindingStatus": {
+        "description": "Values are stored as is, except EXPIRED: it is a pending binding past its time.",
+        "enum": ["pending", "succeeded", "declined", "cancelled", "expired"],
+        "title": "CardBindingStatus",
+        "type": "string"
+      },
+      "CardBrand": {
+        "description": "Values are stored as is: renaming one needs a migration.",
+        "enum": ["visa", "mastercard", "mir", "belcard", "other"],
+        "title": "CardBrand",
         "type": "string"
       },
       "CheckStatus": {
@@ -452,6 +563,11 @@
       "DamageSide": {
         "enum": ["front", "rear", "left", "right", "roof", "interior"],
         "title": "DamageSide",
+        "type": "string"
+      },
+      "DeclineReason": {
+        "enum": ["declined", "insufficient_funds"],
+        "title": "DeclineReason",
         "type": "string"
       },
       "DocumentKind": {
@@ -1005,6 +1121,10 @@
             "description": "Estimated from the charge, rounded down.",
             "title": "Range Km",
             "type": "integer"
+          },
+          "tariff": {
+            "$ref": "#/components/schemas/MapTariffOut",
+            "description": "The current tariff of the car's model; cars of a model without one are hidden."
           }
         },
         "required": [
@@ -1016,9 +1136,26 @@
           "lon",
           "battery_pct",
           "range_km",
-          "distance_m"
+          "distance_m",
+          "tariff"
         ],
         "title": "MapCarOut",
+        "type": "object"
+      },
+      "MapTariffOut": {
+        "description": "Kopecks of BYN; the server counts the price of a rental, the app only shows these.",
+        "properties": {
+          "driving_per_minute": {
+            "title": "Driving Per Minute",
+            "type": "integer"
+          },
+          "parked_per_minute": {
+            "title": "Parked Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": ["driving_per_minute", "parked_per_minute"],
+        "title": "MapTariffOut",
         "type": "object"
       },
       "MapZoneList": {
@@ -1052,6 +1189,53 @@
         },
         "required": ["id", "kind", "polygon"],
         "title": "MapZoneOut",
+        "type": "object"
+      },
+      "ModelTariffList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ModelTariffOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": ["items"],
+        "title": "ModelTariffList",
+        "type": "object"
+      },
+      "ModelTariffOut": {
+        "properties": {
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TariffVersionOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "model": {
+            "$ref": "#/components/schemas/CarModelOut"
+          },
+          "tariff_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "None until a tariff is created for the model.",
+            "title": "Tariff Id"
+          }
+        },
+        "required": ["model", "tariff_id", "current"],
+        "title": "ModelTariffOut",
         "type": "object"
       },
       "OtpRequest": {
@@ -1128,6 +1312,57 @@
         },
         "required": ["phone", "code", "device_id"],
         "title": "OtpVerifyRequest",
+        "type": "object"
+      },
+      "PaymentCardList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PaymentCardOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": ["items"],
+        "title": "PaymentCardList",
+        "type": "object"
+      },
+      "PaymentCardOut": {
+        "description": "What the client sees of a card; the provider's token never leaves the API.",
+        "properties": {
+          "brand": {
+            "$ref": "#/components/schemas/CardBrand"
+          },
+          "exp_month": {
+            "title": "Exp Month",
+            "type": "integer"
+          },
+          "exp_year": {
+            "title": "Exp Year",
+            "type": "integer"
+          },
+          "expired": {
+            "title": "Expired",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "description": "Holds and charges of rentals go to this card.",
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "last4": {
+            "title": "Last4",
+            "type": "string"
+          }
+        },
+        "required": ["id", "brand", "last4", "exp_month", "exp_year", "is_default", "expired"],
+        "title": "PaymentCardOut",
         "type": "object"
       },
       "PhotoUrlOut": {
@@ -1470,6 +1705,9 @@
           "status": {
             "$ref": "#/components/schemas/RentalStatus"
           },
+          "tariff": {
+            "$ref": "#/components/schemas/RentalTariffOut"
+          },
           "trip_started_at": {
             "anyOf": [
               {
@@ -1487,6 +1725,7 @@
           "id",
           "status",
           "car",
+          "tariff",
           "reserved_at",
           "free_wait_until",
           "expires_at",
@@ -1512,6 +1751,27 @@
         ],
         "title": "RentalStatus",
         "type": "string"
+      },
+      "RentalTariffOut": {
+        "description": "Prices of the tariff version fixed at the reservation, in kopecks of BYN.",
+        "properties": {
+          "driving_per_minute": {
+            "title": "Driving Per Minute",
+            "type": "integer"
+          },
+          "parked_per_minute": {
+            "title": "Parked Per Minute",
+            "type": "integer"
+          },
+          "waiting_per_minute": {
+            "description": "The paid wait, after the free minutes.",
+            "title": "Waiting Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": ["driving_per_minute", "parked_per_minute", "waiting_per_minute"],
+        "title": "RentalTariffOut",
+        "type": "object"
       },
       "ReserveIn": {
         "additionalProperties": false,
@@ -1842,6 +2102,196 @@
         },
         "required": ["challenge_token", "code"],
         "title": "StaffTotpRequest",
+        "type": "object"
+      },
+      "TariffCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "driving_per_minute": {
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Driving Per Minute",
+            "type": "integer"
+          },
+          "free_waiting_minutes": {
+            "default": 15,
+            "maximum": 600.0,
+            "minimum": 0.0,
+            "title": "Free Waiting Minutes",
+            "type": "integer"
+          },
+          "hold_amount": {
+            "description": "Held on the card when a trip starts.",
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Hold Amount",
+            "type": "integer"
+          },
+          "model_id": {
+            "format": "uuid",
+            "title": "Model Id",
+            "type": "string"
+          },
+          "parked_per_minute": {
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Parked Per Minute",
+            "type": "integer"
+          },
+          "waiting_per_minute": {
+            "description": "A minute of a reservation after the free ones.",
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Waiting Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "driving_per_minute",
+          "parked_per_minute",
+          "waiting_per_minute",
+          "hold_amount",
+          "model_id"
+        ],
+        "title": "TariffCreate",
+        "type": "object"
+      },
+      "TariffPricesOut": {
+        "properties": {
+          "driving_per_minute": {
+            "title": "Driving Per Minute",
+            "type": "integer"
+          },
+          "free_waiting_minutes": {
+            "title": "Free Waiting Minutes",
+            "type": "integer"
+          },
+          "hold_amount": {
+            "title": "Hold Amount",
+            "type": "integer"
+          },
+          "parked_per_minute": {
+            "title": "Parked Per Minute",
+            "type": "integer"
+          },
+          "waiting_per_minute": {
+            "title": "Waiting Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "driving_per_minute",
+          "parked_per_minute",
+          "waiting_per_minute",
+          "free_waiting_minutes",
+          "hold_amount"
+        ],
+        "title": "TariffPricesOut",
+        "type": "object"
+      },
+      "TariffUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "based_on_version": {
+            "description": "The version number the form was filled from: if someone saved a newer one meanwhile, the change is refused with `tariff-changed` instead of overwriting theirs.",
+            "minimum": 1.0,
+            "title": "Based On Version",
+            "type": "integer"
+          },
+          "driving_per_minute": {
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Driving Per Minute",
+            "type": "integer"
+          },
+          "free_waiting_minutes": {
+            "default": 15,
+            "maximum": 600.0,
+            "minimum": 0.0,
+            "title": "Free Waiting Minutes",
+            "type": "integer"
+          },
+          "hold_amount": {
+            "description": "Held on the card when a trip starts.",
+            "maximum": 1000000.0,
+            "minimum": 1.0,
+            "title": "Hold Amount",
+            "type": "integer"
+          },
+          "parked_per_minute": {
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Parked Per Minute",
+            "type": "integer"
+          },
+          "waiting_per_minute": {
+            "description": "A minute of a reservation after the free ones.",
+            "maximum": 100000.0,
+            "minimum": 0.0,
+            "title": "Waiting Per Minute",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "driving_per_minute",
+          "parked_per_minute",
+          "waiting_per_minute",
+          "hold_amount",
+          "based_on_version"
+        ],
+        "title": "TariffUpdate",
+        "type": "object"
+      },
+      "TariffVersionList": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/TariffVersionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": ["items"],
+        "title": "TariffVersionList",
+        "type": "object"
+      },
+      "TariffVersionOut": {
+        "properties": {
+          "created_by": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The staff member; none for the demo seed.",
+            "title": "Created By"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "number": {
+            "title": "Number",
+            "type": "integer"
+          },
+          "prices": {
+            "$ref": "#/components/schemas/TariffPricesOut"
+          },
+          "valid_from": {
+            "description": "Rentals booked from this moment use the version.",
+            "format": "date-time",
+            "title": "Valid From",
+            "type": "string"
+          }
+        },
+        "required": ["id", "number", "prices", "valid_from", "created_by"],
+        "title": "TariffVersionOut",
         "type": "object"
       },
       "TokenPair": {
@@ -3041,6 +3491,439 @@
         ],
         "summary": "All staff members, disabled ones included",
         "tags": ["staff"]
+      }
+    },
+    "/admin/tariffs": {
+      "get": {
+        "operationId": "list_tariffs_admin_tariffs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelTariffList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Every car model with its current tariff, by brand and name",
+        "tags": ["tariffs"]
+      },
+      "post": {
+        "operationId": "create_tariff_admin_tariffs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TariffCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelTariffOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:car-model-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:tariff-exists`: change that tariff instead."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create the tariff of a car model",
+        "tags": ["tariffs"]
+      }
+    },
+    "/admin/tariffs/{tariff_id}": {
+      "get": {
+        "operationId": "get_tariff_admin_tariffs__tariff_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tariff_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tariff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelTariffOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:tariff-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "One tariff",
+        "tags": ["tariffs"]
+      },
+      "put": {
+        "description": "Adds a version that applies from now on. Rentals booked before keep the version they were booked with.",
+        "operationId": "update_tariff_admin_tariffs__tariff_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tariff_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tariff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TariffUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ModelTariffOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:tariff-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:tariff-changed`: a newer version than `based_on_version` was saved meanwhile; reload the tariff."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Save new prices of a tariff",
+        "tags": ["tariffs"]
+      }
+    },
+    "/admin/tariffs/{tariff_id}/versions": {
+      "get": {
+        "operationId": "list_tariff_versions_admin_tariffs__tariff_id__versions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tariff_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tariff Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TariffVersionList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: `operator` and `admin` see tariffs, only `admin` changes them."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:tariff-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Every version of a tariff, newest first",
+        "tags": ["tariffs"]
       }
     },
     "/admin/zones": {
@@ -4700,6 +5583,386 @@
         ],
         "summary": "Change the signed-in client's profile",
         "tags": ["profile"]
+      }
+    },
+    "/payment-cards": {
+      "get": {
+        "operationId": "list_cards_payment_cards_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentCardList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The client's cards, oldest first",
+        "tags": ["payments"]
+      }
+    },
+    "/payment-cards/bindings": {
+      "post": {
+        "description": "The card number goes to the provider's page only. When the client is done, the page sends them to `return_url` with `binding_id`; the outcome comes from the provider separately, so ask `GET /payment-cards/bindings/{binding_id}` until it is not `pending`. The first card, or one bound while the default card has expired, becomes the default.",
+        "operationId": "start_binding_payment_cards_bindings_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CardBindingIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardBindingStarted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:return-url-not-allowed`, or `validation-error`."
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:payments-unavailable`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start binding a card: open the provider's page it returns",
+        "tags": ["payments"]
+      }
+    },
+    "/payment-cards/bindings/{binding_id}": {
+      "get": {
+        "operationId": "get_binding_payment_cards_bindings__binding_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "binding_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Binding Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CardBindingOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:card-binding-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "How a card binding ended, or that it is still pending",
+        "tags": ["payments"]
+      }
+    },
+    "/payment-cards/{card_id}": {
+      "delete": {
+        "description": "If it was the default one, the newest other card that has not expired takes over.",
+        "operationId": "remove_card_payment_cards__card_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "card_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Card Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:payment-card-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Remove a card",
+        "tags": ["payments"]
+      }
+    },
+    "/payment-cards/{card_id}/default": {
+      "post": {
+        "operationId": "set_default_card_payment_cards__card_id__default_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "card_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Card Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentCardOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:payment-card-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:payment-card-expired`: bind another card."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Make a card the default one",
+        "tags": ["payments"]
       }
     },
     "/ready": {

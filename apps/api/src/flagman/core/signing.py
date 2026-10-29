@@ -1,6 +1,7 @@
-"""HMAC request signing of the emulator's telematics API (docs/adr/0007).
+"""HMAC request signing with a timestamp (docs/adr/0007).
 
-The same wire format as services/car-emulator (car_emulator.signing): both sides test one vector.
+Telematics and the fake payment provider (docs/adr/0019) sign alike. The same wire format as
+services/car-emulator (car_emulator.signing): both sides test one vector.
 """
 
 import hashlib

@@ -92,16 +92,22 @@ def test_deadlines_count_from_the_reservation() -> None:
 
 @pytest.mark.parametrize(
     ("free", "maximum"),
-    [
-        (timedelta(minutes=-1), timedelta(minutes=10)),
-        (timedelta(minutes=20), timedelta(minutes=10)),
-    ],
+    [(timedelta(minutes=-1), timedelta(minutes=10)), (timedelta(minutes=5), timedelta(0))],
 )
-def test_terms_refuse_a_free_wait_outside_the_reservation(
+def test_terms_refuse_negative_waits_and_an_empty_reservation(
     free: timedelta, maximum: timedelta
 ) -> None:
-    with pytest.raises(ValueError, match="free wait"):
+    with pytest.raises(ValueError, match="must"):
         ReservationTerms(free_wait=free, max_wait=maximum)
+
+
+def test_more_free_minutes_than_the_reservation_make_all_of_it_free() -> None:
+    terms = ReservationTerms(free_wait=timedelta(minutes=60), max_wait=timedelta(minutes=45))
+
+    assert reservation_deadlines(NOW, terms) == (
+        NOW + timedelta(minutes=45),
+        NOW + timedelta(minutes=45),
+    )
 
 
 def test_a_reservation_may_be_free_until_its_end() -> None:
@@ -118,7 +124,7 @@ def _rental(**overrides: object) -> Rental:
         user_id=uuid.uuid4(),
         car_id=uuid.uuid4(),
         status=RentalStatus.RESERVED,
-        tariff_version_id=None,
+        tariff_version_id=uuid.uuid4(),
         reserved_at=NOW - timedelta(minutes=10),
         free_wait_until=NOW + timedelta(minutes=5),
         expires_at=NOW + timedelta(minutes=35),

@@ -12,7 +12,7 @@ import { Screen } from '../../ui/Screen';
 import { LazyCarMap } from '../map/LazyCarMap';
 import { useClientLocation } from '../map/location';
 import type { MapCar } from '../map/mapApi';
-import { formatDistance } from '../map/mapFormat';
+import { formatDistance, formatKopecks } from '../map/mapFormat';
 import { isExpoGo } from '../map/platform';
 import type { Rental } from './rentalApi';
 import { RentalErrorMessage } from './RentalErrorMessage';
@@ -29,7 +29,7 @@ const refreshEveryMs = 30_000;
 
 /** The reservation: the car, the countdown, the inspection, then opening the car. */
 export function ReservationScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { colors } = useTheme();
   const router = useRouter();
   const store = useRentalStore();
@@ -79,7 +79,14 @@ export function ReservationScreen() {
       <AppText variant="title">{t('rental.title')}</AppText>
       <CarSummary rental={rental} />
       {rental.status === 'reserved' ? (
-        <StableCountdown rental={rental} offsetMs={state.offsetMs} />
+        <>
+          <StableCountdown rental={rental} offsetMs={state.offsetMs} />
+          <AppText variant="caption" tone="muted">
+            {t('rental.waitingPrice', {
+              price: formatKopecks(rental.tariff.waiting_per_minute, i18n.language),
+            })}
+          </AppText>
+        </>
       ) : (
         <AppText tone="muted">{t('rental.inTrip')}</AppText>
       )}
@@ -185,6 +192,10 @@ function mapCarOf(rental: Rental, at: { lat: number; lon: number }): MapCar {
     battery_pct: car.battery_pct ?? 0,
     range_km: car.range_km ?? 0,
     distance_m: null,
+    tariff: {
+      driving_per_minute: rental.tariff.driving_per_minute,
+      parked_per_minute: rental.tariff.parked_per_minute,
+    },
   };
 }
 

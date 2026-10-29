@@ -71,18 +71,25 @@ Docker Desktop должен быть запущен. Все команды — �
 
 2. Заполнить в `.env` пустые значения: `API_ENV` (локально `dev`), `POSTGRES_PASSWORD`, `REDIS_PASSWORD`,
    `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `API_JWT_SECRET`, `API_OTP_PEPPER`, `API_TOTP_ENCRYPTION_KEY`,
-   `EMULATOR_COMMAND_SECRET`, `EMULATOR_TELEMETRY_SECRET`.
+   `EMULATOR_COMMAND_SECRET`, `EMULATOR_TELEMETRY_SECRET`, `PAYMENTS_WEBHOOK_SECRET`,
+   `PAYMENTS_TOKEN_ENCRYPTION_KEY`.
    Для локальной разработки придумайте их сами, например `openssl rand -hex 24` в Git Bash.
    Секреты эмулятора — не короче 32 символов и разные. Оба читают и эмулятор, и API:
    `EMULATOR_TELEMETRY_SECRET` подписывает телеметрию, `EMULATOR_COMMAND_SECRET` — ручные команды машинам
    из раздела «Парк» админки.
    `API_JWT_SECRET` и `API_OTP_PEPPER` — не короче 32 символов и разные (`openssl rand -hex 32` даёт 64),
    иначе API не стартует. `API_TOTP_ENCRYPTION_KEY` — ровно 32 байта в base64: `openssl rand -base64 32`.
+   `PAYMENTS_WEBHOOK_SECRET` — не короче 32 символов, `PAYMENTS_TOKEN_ENCRYPTION_KEY` — тоже 32 байта в
+   base64 и не равен `API_TOTP_ENCRYPTION_KEY`. Они нужны тестовому платёжному провайдеру
+   (`PAYMENTS_PROVIDER=fake`): без них API с этим провайдером не стартует. Если оставить `PAYMENTS_PROVIDER`
+   пустым, API работает, но карты привязать нельзя. С `API_ENV=prod` тестовый провайдер запрещён: на сервере
+   пилота `PAYMENTS_PROVIDER` оставьте пустым, пока не подключён настоящий.
    Если `.env` у вас уже был, перенесите в него из `.env.example` новые строки
    `API_JWT_SECRET`, `API_OTP_PEPPER`, `SMS_BACKEND`, `SMS_FIXED_CODE`, `SMS_FIXED_PHONES`,
    `API_TOTP_ENCRYPTION_KEY`, `S3_ENDPOINT_URL`, `S3_REGION`, `S3_PUBLIC_URL`, `FLEET_MIN_BATTERY_PCT`,
    `FLEET_TELEMETRY_MAX_AGE_SECONDS`, `TELEMATICS_SIGNATURE_TOLERANCE_SECONDS`, `EMULATOR_SEED`,
-   `EMULATOR_URL` и `TELEMATICS_COMMAND_TIMEOUT_SECONDS`.
+   `EMULATOR_URL`, `TELEMATICS_COMMAND_TIMEOUT_SECONDS`, `PAYMENTS_PROVIDER`, `PAYMENTS_WEBHOOK_SECRET`,
+   `PAYMENTS_TOKEN_ENCRYPTION_KEY` и `PAYMENTS_WEBHOOK_TOLERANCE_SECONDS`.
    Локально можно оставить пустыми `S3_ENDPOINT_URL`, `S3_REGION`, `S3_PUBLIC_URL`, `FLEET_MIN_BATTERY_PCT`,
    `FLEET_TELEMETRY_MAX_AGE_SECONDS`, `TELEMATICS_SIGNATURE_TOLERANCE_SECONDS`, `EMULATOR_URL`
    (в Compose это сервис `car-emulator`) и `TELEMATICS_COMMAND_TIMEOUT_SECONDS`; `EMULATOR_SEED`

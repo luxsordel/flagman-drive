@@ -1,7 +1,7 @@
 """Rentals: the status machine, reservation terms, inspections and car commands. No I/O here.
 
 The machine is drawn in docs/02-architecture.md; the reasons behind the reservation timeout are
-in docs/adr/0018.
+in docs/adr/0022.
 """
 
 import uuid
@@ -149,14 +149,14 @@ def apply_transition(status: RentalStatus, transition: RentalTransition) -> Rent
 
 @dataclass(frozen=True)
 class ReservationTerms:
-    """The free wait, then the paid one until `max_wait` from the reservation (docs/01)."""
+    """The tariff's free wait, then the paid one until `max_wait` from the reservation (docs/01)."""
 
     free_wait: timedelta
     max_wait: timedelta
 
     def __post_init__(self) -> None:
-        if self.free_wait < timedelta(0) or self.max_wait < self.free_wait:
-            raise ValueError("the free wait must be within 0..max_wait")
+        if self.free_wait < timedelta(0) or self.max_wait <= timedelta(0):
+            raise ValueError("the waits must not be negative and a reservation must last")
 
 
 @dataclass(frozen=True)
@@ -165,8 +165,8 @@ class Rental:
     user_id: uuid.UUID
     car_id: uuid.UUID
     status: RentalStatus
-    # Null until the tariffs (#109) exist; then the version fixed at the reservation.
-    tariff_version_id: uuid.UUID | None
+    # Fixed at the reservation: a tariff changed later does not change this rental's price.
+    tariff_version_id: uuid.UUID
     reserved_at: datetime
     free_wait_until: datetime
     expires_at: datetime
@@ -174,7 +174,7 @@ class Rental:
     ended_at: datetime | None
     cancel_reason: CancelReason | None
     # Set while a command waits for the car: the reservation is neither expired nor cancelled
-    # under it, and a second command is refused (docs/adr/0018).
+    # under it, and a second command is refused (docs/adr/0022).
     command_until: datetime | None
 
     @property
@@ -196,8 +196,12 @@ class Rental:
 def reservation_deadlines(
     reserved_at: datetime, terms: ReservationTerms
 ) -> tuple[datetime, datetime]:
-    """When the free wait ends and when the reservation is cancelled by the timeout."""
-    return reserved_at + terms.free_wait, reserved_at + terms.max_wait
+    """When the free wait ends and when the reservation is cancelled by the timeout.
+
+    A tariff may give more free minutes than a reservation lasts: then all of it is free.
+    """
+    expires_at = reserved_at + terms.max_wait
+    return min(reserved_at + terms.free_wait, expires_at), expires_at
 
 
 class InspectionStage(StrEnum):

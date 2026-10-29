@@ -67,6 +67,7 @@ describe('ReservationScreen', () => {
     expect(screen.getByText('Номер: 1234 AB-7')).toBeOnTheScreen();
     expect(screen.getByText('До машины: 30 м')).toBeOnTheScreen();
     expect(screen.getByText('Бесплатное ожидание: ещё 10:00')).toBeOnTheScreen();
+    expect(screen.getByText(/^Платное ожидание: 0,12\sBYN\/мин$/)).toBeOnTheScreen();
   });
 
   it('counts down into the paid wait', async () => {

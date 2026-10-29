@@ -1,3 +1,4 @@
+import asyncio
 import itertools
 import json
 import uuid
@@ -11,10 +12,11 @@ from fastapi.testclient import TestClient
 
 from flagman.core.app import create_app
 from flagman.core.config import Settings
+from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.core.ratelimit import Limit
-from flagman.fleet import api
-from flagman.fleet.domain import CarStatus
+from flagman.fleet import api, repository
+from flagman.fleet.domain import CarModelSpec, CarStatus
 from flagman.fleet.seed import DEMO_MODELS
 from flagman.fleet.tests.conftest import add_car
 from flagman.identity.domain import (
@@ -24,6 +26,8 @@ from flagman.identity.domain import (
     issue_access_token,
     issue_staff_access_token,
 )
+from flagman.pricing import service as pricing
+from flagman.pricing.seed import DEMO_PRICES
 
 pytestmark = pytest.mark.integration
 
@@ -40,7 +44,30 @@ MAP_FIELDS = {
     "battery_pct",
     "range_km",
     "distance_m",
+    "tariff",
 }
+
+
+@pytest.fixture(autouse=True)
+def demo_tariffs(integration_settings: Settings) -> None:
+    """The map offers only cars of models with a tariff: the demo models get the demo one.
+
+    Seeding again changes nothing, so every test may run it.
+    """
+    settings = integration_settings
+
+    async def seed() -> None:
+        engine = create_engine(settings)
+        try:
+            async with create_session_factory(engine)() as db:
+                async with db.begin():
+                    for demo in DEMO_MODELS:
+                        await repository.ensure_model(db, demo.spec, datetime.now(UTC))
+                await pricing.seed_demo_tariffs(db, datetime.now(UTC))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(seed())
 
 
 @pytest.fixture
@@ -205,6 +232,36 @@ def test_the_card_shows_the_same_fields_and_the_distance(
     assert card.status_code == HTTPStatus.OK
     assert card.json() == listed.json()["items"][0]
     assert client.get(f"{URL}/{car_id}", headers=headers).json()["distance_m"] is None
+
+
+def test_cars_come_with_the_prices_of_their_model(
+    client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
+) -> None:
+    car_id = add_car(integration_settings, spot)
+
+    listed = client.get(URL, params=_area(spot), headers=headers).json()["items"]
+    card = client.get(f"{URL}/{car_id}", headers=headers).json()
+
+    expected = {
+        "driving_per_minute": DEMO_PRICES.driving_per_minute,
+        "parked_per_minute": DEMO_PRICES.parked_per_minute,
+    }
+    assert listed[0]["tariff"] == expected
+    assert card["tariff"] == expected
+
+
+def test_a_car_of_a_model_without_a_tariff_is_not_offered(
+    client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
+) -> None:
+    spec = CarModelSpec("Test", f"No tariff {uuid.uuid4().hex[:8]}", 5, 50_000, 400, None)
+    hidden = add_car(integration_settings, spot, model=spec)
+    shown = add_car(integration_settings, GeoPoint(spot.lat + STEP, spot.lon))
+
+    listed = client.get(URL, params=_area(spot), headers=headers)
+    card = client.get(f"{URL}/{hidden}", headers=headers)
+
+    assert _ids(listed) == [shown]
+    assert card.status_code == HTTPStatus.NOT_FOUND
 
 
 def test_an_unknown_car_is_404(client: TestClient, headers: dict[str, str]) -> None:

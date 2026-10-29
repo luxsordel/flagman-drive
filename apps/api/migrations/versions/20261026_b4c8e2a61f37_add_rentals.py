@@ -25,7 +25,7 @@ def upgrade() -> None:
         sa.Column("user_id", sa.Uuid(), nullable=False),
         sa.Column("car_id", sa.Uuid(), nullable=False),
         sa.Column("status", sa.String(length=16), nullable=False),
-        sa.Column("tariff_version_id", sa.Uuid(), nullable=True),
+        sa.Column("tariff_version_id", sa.Uuid(), nullable=False),
         sa.Column("reserved_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("free_wait_until", sa.DateTime(timezone=True), nullable=False),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
@@ -52,6 +52,11 @@ def upgrade() -> None:
             name=op.f("ck_rentals_reservation_deadlines_ordered"),
         ),
         sa.ForeignKeyConstraint(["car_id"], ["cars.id"], name=op.f("fk_rentals_car_id_cars")),
+        sa.ForeignKeyConstraint(
+            ["tariff_version_id"],
+            ["tariff_versions.id"],
+            name=op.f("fk_rentals_tariff_version_id_tariff_versions"),
+        ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], name=op.f("fk_rentals_user_id_users")),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_rentals")),
     )

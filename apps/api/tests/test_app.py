@@ -42,9 +42,10 @@ def test_start_outside_prod_warns_about_disabled_protections(
     assert events[0]["disabled_protections"] == ["hsts", "hidden_api_docs"]
 
 
-def test_start_in_prod_does_not_warn(
-    make_settings: SettingsFactory, capsys: pytest.CaptureFixture[str]
+@pytest.mark.parametrize("api_env", ["stand", "prod"])
+def test_start_on_a_public_server_does_not_warn(
+    make_settings: SettingsFactory, capsys: pytest.CaptureFixture[str], api_env: str
 ) -> None:
-    create_app(make_settings(api_env="prod"))
+    create_app(make_settings(api_env=api_env))
 
     assert _startup_events(capsys) == []
