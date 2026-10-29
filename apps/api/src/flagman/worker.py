@@ -1,5 +1,5 @@
-"""`flagman-worker`: periodic jobs that run next to the API, see docs/adr/0013, docs/adr/0020 and
-docs/adr/0022.
+"""`flagman-worker`: periodic jobs that run next to the API, see docs/adr/0013, docs/adr/0020,
+docs/adr/0022 and docs/adr/0025.
 
     flagman-worker
 
@@ -24,6 +24,7 @@ from flagman.core.config import WorkerSettings, load_worker_settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.logging import configure_logging
 from flagman.identity import service as identity
+from flagman.maintenance import service as maintenance
 from flagman.notifications import service as notifications
 from flagman.notifications.expo import ExpoPushProvider
 from flagman.notifications.fake_provider import FakePushProvider
@@ -35,6 +36,8 @@ logger = structlog.get_logger(__name__)
 AUTH_CLEANUP = "auth_cleanup"
 RESERVATION_EXPIRY = "reservation_expiry"
 OUTBOX_CLEANUP = "outbox_cleanup"
+# Every MAINTENANCE_CHARGING_INTERVAL_SECONDS.
+MAINTENANCE_CHARGING = "maintenance_charging"
 # Scheduled only with NOTIFICATIONS_PROVIDER set, every NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS.
 NOTIFICATIONS_DISPATCH = "notifications_dispatch"
 INTERVALS: Mapping[str, timedelta] = {
@@ -52,6 +55,7 @@ AUTH_CLEANUP_LOCK = 4_600_001
 RESERVATION_EXPIRY_LOCK = 4_600_002
 NOTIFICATIONS_DISPATCH_LOCK = 4_600_003
 OUTBOX_CLEANUP_LOCK = 4_600_004
+MAINTENANCE_CHARGING_LOCK = 4_600_006
 
 
 async def _with_lock[T](
@@ -175,6 +179,23 @@ def push_provider(settings: WorkerSettings, http: httpx2.AsyncClient) -> PushPro
             return None
 
 
+async def run_maintenance_charging(
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: WorkerSettings,
+    now: datetime,
+) -> int | None:
+    """Returns how many charging tasks were created, None when another copy holds the job."""
+
+    async def create() -> int:
+        async with session_factory() as db:
+            return await maintenance.create_charging_tasks(
+                db, maintenance.charging_rules(settings), now
+            )
+
+    return await _with_lock(engine, MAINTENANCE_CHARGING_LOCK, MAINTENANCE_CHARGING, create)
+
+
 Job = Callable[
     [AsyncEngine, async_sessionmaker[AsyncSession], WorkerSettings, datetime], Awaitable[object]
 ]
@@ -195,6 +216,7 @@ def _schedule(
         AUTH_CLEANUP: run_auth_cleanup,
         RESERVATION_EXPIRY: run_reservation_expiry,
         OUTBOX_CLEANUP: run_outbox_cleanup,
+        MAINTENANCE_CHARGING: run_maintenance_charging,
     }
     if provider is None:
         logger.warning("notifications_not_sent", reason="NOTIFICATIONS_PROVIDER is not set")
@@ -225,6 +247,7 @@ async def run(
     session_factory = create_session_factory(engine)
     intervals = {
         NOTIFICATIONS_DISPATCH: timedelta(seconds=settings.notifications_dispatch_interval_seconds),
+        MAINTENANCE_CHARGING: timedelta(seconds=settings.maintenance_charging_interval_seconds),
         **intervals,
     }
     try:

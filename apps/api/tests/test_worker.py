@@ -11,9 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from flagman import worker
 from flagman.core.config import Settings, WorkerSettings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.fleet.tests.conftest import add_car
 from flagman.identity.service import AuthCleanupResult
 from flagman.notifications.expo import ExpoPushProvider
 from flagman.notifications.fake_provider import FakePushProvider
+from flagman.rentals.tests.conftest import CAR_POINT as POINT
 
 
 def _worker_settings(settings: Settings) -> WorkerSettings:
@@ -142,10 +144,12 @@ async def test_each_job_keeps_its_own_interval(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(worker, "run_auth_cleanup", job(worker.AUTH_CLEANUP))
     monkeypatch.setattr(worker, "run_reservation_expiry", job(worker.RESERVATION_EXPIRY))
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
     intervals = {
         worker.AUTH_CLEANUP: timedelta(hours=1),
         worker.RESERVATION_EXPIRY: timedelta(milliseconds=50),
         worker.OUTBOX_CLEANUP: timedelta(hours=1),
+        worker.MAINTENANCE_CHARGING: timedelta(hours=1),
     }
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=intervals), 5)
@@ -201,6 +205,7 @@ async def test_a_failed_run_is_retried_sooner_and_does_not_stop_the_worker(
     monkeypatch.setattr(worker, "run_auth_cleanup", job)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
 
     # An hour between runs: only the short retry lets the second run happen in time.
     hourly = dict.fromkeys(worker.INTERVALS, timedelta(hours=1))
@@ -222,6 +227,7 @@ async def test_worker_stops_without_waiting_for_the_next_run(
     monkeypatch.setattr(worker, "run_auth_cleanup", job)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
 
     # The interval is an hour: the run must end on the stop, not on the timer.
     await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
@@ -266,6 +272,7 @@ async def test_notifications_go_out_on_their_own_short_interval(
     monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
     monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
     settings = _offline_settings().model_copy(
         update={"notifications_provider": "fake", "notifications_dispatch_interval_seconds": 0.01}
@@ -289,6 +296,7 @@ async def test_without_a_provider_nothing_is_sent(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
     monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
@@ -306,3 +314,79 @@ async def test_provider_follows_the_setting() -> None:
         assert expo_provider.access_token == "t"
         assert isinstance(worker.push_provider(fake, http), FakePushProvider)
         assert worker.push_provider(_offline_settings(), http) is None
+
+
+async def test_charging_tasks_are_looked_for_on_their_own_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+    runs = 0
+
+    async def look(*args: object) -> None:
+        nonlocal runs
+        runs += 1
+        if runs == 3:
+            stop.set()
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_maintenance_charging", look)
+    settings = _offline_settings().model_copy(
+        update={"maintenance_charging_interval_seconds": 0.01}
+    )
+    hourly = dict.fromkeys(worker.INTERVALS, timedelta(hours=1))
+
+    await asyncio.wait_for(worker.run(settings, stop, intervals=hourly), 5)
+
+    assert runs == 3
+
+
+def test_charging_threshold_is_not_below_the_rentable_charge() -> None:
+    with pytest.raises(ValueError, match="MAINTENANCE_CHARGING_THRESHOLD_PCT"):
+        WorkerSettings(
+            _env_file=None,
+            postgres_user="test",
+            postgres_password=SecretStr("test"),
+            postgres_db="test",
+            fleet_min_battery_pct=30,
+            maintenance_charging_threshold_pct=25,
+        )
+
+
+@pytest.mark.integration
+async def test_charging_job_creates_tasks_and_is_skipped_while_another_worker_holds_it(
+    integration_settings: Settings,
+) -> None:
+    # add_car runs its own event loop.
+    car_id = await asyncio.to_thread(add_car, integration_settings, POINT, battery_pct=5)
+    engine = create_engine(integration_settings)
+    try:
+        factory = create_session_factory(engine)
+        settings = _worker_settings(integration_settings)
+        async with engine.connect() as other_worker:
+            await other_worker.execute(
+                text("SELECT pg_advisory_lock(:key)"), {"key": worker.MAINTENANCE_CHARGING_LOCK}
+            )
+            await other_worker.commit()
+            skipped = await worker.run_maintenance_charging(
+                engine, factory, settings, datetime.now(UTC)
+            )
+            await other_worker.execute(
+                text("SELECT pg_advisory_unlock(:key)"), {"key": worker.MAINTENANCE_CHARGING_LOCK}
+            )
+        assert skipped is None
+
+        created = await worker.run_maintenance_charging(
+            engine, factory, settings, datetime.now(UTC)
+        )
+
+        assert created is not None
+        assert created >= 1
+        async with engine.connect() as connection:
+            types = await connection.scalars(
+                text("SELECT type FROM maintenance_tasks WHERE car_id = :car"), {"car": car_id}
+            )
+            assert list(types) == ["charging"]
+    finally:
+        await engine.dispose()
