@@ -88,7 +88,7 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 Долг (`PAYMENT_FAILED`) после оплаты переходит в `PAID`. Переходы и запрет всех остальных —
 `rentals/domain.py`.
 
-Расчёт аренды описан в [ADR-0023](adr/0023-rental-trip-settlement.md):
+Расчёт аренды описан в [ADR-0024](adr/0024-rental-trip-settlement.md):
 - при первом открытии держится холд;
 - интервалы движения и стоянки хранятся в `rental_intervals`;
 - завершение проходит проверки по телеметрии, запирает машину и формирует неизменяемый чек;
@@ -374,3 +374,5 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0020](adr/0020-push-notifications-outbox.md) — push-уведомления: Expo Push Service за портом, очередь-outbox в Postgres
 - [ADR-0021](adr/0021-demo-stand-digitalocean-ghcr.md) — демо-стенд: DigitalOcean, образы в GHCR, выкладка по кнопке
 - [ADR-0022](adr/0022-rental-reservation-timeout.md) — бронь: истечение по сроку при обращении и воркером раз в минуту, удержание на время команды, гонки в индексах базы
+- [ADR-0023](adr/0023-support-chat-polling.md) — чат поддержки и инциденты: опрос по курсору вместо WebSocket, без автопаузы тарификации при ДТП
+- [ADR-0024](adr/0024-rental-trip-settlement.md) — поездка и расчёт аренды: интервалы, холд, списание, долг и чек

@@ -38,7 +38,7 @@ AUTH_CLEANUP = "auth_cleanup"
 RESERVATION_EXPIRY = "reservation_expiry"
 OUTBOX_CLEANUP = "outbox_cleanup"
 TRIP_BATTERY_WATCH = "trip_battery_watch"
-# Scheduled only with PAYMENTS_PROVIDER set (docs/adr/0023).
+# Scheduled only with PAYMENTS_PROVIDER set (docs/adr/0024).
 RENTAL_CHARGES = "rental_charges"
 # Scheduled only with NOTIFICATIONS_PROVIDER set, every NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS.
 NOTIFICATIONS_DISPATCH = "notifications_dispatch"

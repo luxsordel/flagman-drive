@@ -40,7 +40,7 @@ class RentalTransition(StrEnum):
 
 
 class ChargeStatus(StrEnum):
-    """Where the money of a rental stands; values are stored as is (docs/adr/0023).
+    """Where the money of a rental stands; values are stored as is (docs/adr/0024).
 
     A rental with nothing to charge has none. `failed` is a debt whatever the rental's status:
     a cancelled reservation whose paid wait was declined owes as much as a finished trip.
@@ -200,6 +200,11 @@ class Rental:
     @property
     def is_active(self) -> bool:
         return self.status in ACTIVE_STATUSES
+
+    @property
+    def is_driving(self) -> bool:
+        """The client has the car: a reservation is active too, but nobody is on the road yet."""
+        return self.status in _DRIVING
 
     def is_busy(self, now: datetime) -> bool:
         return self.command_until is not None and now < self.command_until
@@ -411,7 +416,7 @@ def ensure_near_car(
         raise TooFarFromCarError
 
 
-# The trip and its end (docs/adr/0023)
+# The trip and its end (docs/adr/0024)
 
 
 class CardRequiredError(AppError):

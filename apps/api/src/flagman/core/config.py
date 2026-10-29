@@ -77,7 +77,7 @@ class DatabaseSettings(BaseSettings):
 
 class PaymentsSettings(DatabaseSettings):
     """Card payments, for the API and for the worker that retries a declined charge
-    (docs/adr/0019, docs/adr/0023)."""
+    (docs/adr/0019, docs/adr/0024)."""
 
     # Card payments, see docs/adr/0019. "fake" is the test provider inside the API: its own card
     # page and test card numbers, no money moves. Unset: the API runs, but cards cannot be bound
@@ -134,13 +134,13 @@ class TripSettings(PaymentsSettings):
     rental_low_battery_pct: int = Field(default=15, ge=1, le=100)
     # The trip screen warns that the range may not last below this many kilometres.
     rental_low_range_km: int = Field(default=30, ge=1, le=1000)
-    # A declined debt is tried again this often, this many times (docs/adr/0023).
+    # A declined debt is tried again this often, this many times (docs/adr/0024).
     rental_charge_retry_interval_seconds: int = Field(default=3600, ge=60)
     rental_charge_max_attempts: int = Field(default=5, ge=0, le=50)
 
 
 class WorkerSettings(TripSettings):
-    """`flagman-worker` gets the payment settings to retry charges (docs/adr/0023) and none of
+    """`flagman-worker` gets the payment settings to retry charges (docs/adr/0024) and none of
     the other API secrets: it does not sign or check anything."""
 
     # Ended sessions and their refresh tokens are kept this long before the periodic cleanup
@@ -240,7 +240,7 @@ class Settings(TripSettings):
     # How close the client must be to open or close the car (docs/03-security.md).
     rental_command_max_distance_m: float = Field(default=50.0, gt=0, le=1000)
     # The rental ends by a snapshot this recent: the car must be in the zone now, not when it
-    # last reported five minutes ago (docs/adr/0023).
+    # last reported five minutes ago (docs/adr/0024).
     rental_finish_max_state_age_seconds: int = Field(default=60, ge=5, le=600)
 
     @field_validator("api_cors_origins", "sms_fixed_phones", mode="before")

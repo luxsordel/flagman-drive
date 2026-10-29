@@ -1,7 +1,7 @@
 """add rental trips, settlement and receipts
 
 Revision ID: d7a3f9c1e2b8
-Revises: e5b7c2d9a4f1
+Revises: d7e3a9c4b152
 Create Date: 2026-10-29 12:00:00.000000
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d7a3f9c1e2b8"
-down_revision: str | Sequence[str] | None = "e5b7c2d9a4f1"
+down_revision: str | Sequence[str] | None = "d7e3a9c4b152"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -126,12 +126,10 @@ def upgrade() -> None:
             name=op.f("fk_rental_receipt_lines_rental_id_rental_receipts"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_rental_receipt_lines")),
-        sa.UniqueConstraint(
-            "rental_id", "kind", name=op.f("uq_rental_receipt_lines_rental_id")
-        ),
+        sa.UniqueConstraint("rental_id", "kind", name=op.f("uq_rental_receipt_lines_rental_id")),
     )
 
-    # A receipt the client was shown never changes, like the audit log (docs/adr/0010, 0023).
+    # A receipt the client was shown never changes, like the audit log (docs/adr/0010, 0024).
     op.execute(
         """
         CREATE FUNCTION rental_receipts_reject_change() RETURNS trigger

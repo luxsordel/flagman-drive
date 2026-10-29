@@ -169,7 +169,7 @@ services:
 
   # Periodic jobs, see docs/adr/0013, and push notifications, docs/adr/0020. The image of the
   # API, but only the database, push and payment settings: the payments retry declined charges
-  # (docs/adr/0023); the worker signs and checks nothing else, so it gets no other API secret.
+  # (docs/adr/0024); the worker signs and checks nothing else, so it gets no other API secret.
   worker:
     # The same build and tag as the api service, so `up worker` alone still finds the image.
     image: flagman-api:local

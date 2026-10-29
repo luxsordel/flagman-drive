@@ -43,6 +43,7 @@ class AuditAction(StrEnum):
     STAFF_TOTP_RESET = "staff.totp_reset"
     STAFF_PASSWORD_CHANGED = "staff.password_changed"  # noqa: S105 - an event name, not a secret
     STAFF_DISABLED = "staff.disabled"
+    STAFF_NAME_CHANGED = "staff.name_changed"
     KYC_APPROVED = "kyc.approved"
     KYC_REJECTED = "kyc.rejected"
     KYC_DOCUMENT_VIEWED = "kyc.document_viewed"
@@ -55,6 +56,15 @@ class AuditAction(StrEnum):
     PAYMENT_DECLINED = "payment.declined"
     PAYMENT_FAILED = "payment.failed"
     CAR_COMMAND_SENT = "car.command_sent"
+    SUPPORT_CONVERSATION_TAKEN = "support.conversation_taken"
+    SUPPORT_MESSAGE_SENT = "support.message_sent"
+    SUPPORT_CONVERSATION_CLOSED = "support.conversation_closed"
+    SUPPORT_PHOTO_VIEWED = "support.photo_viewed"
+    INCIDENT_TAKEN = "incident.taken"
+    INCIDENT_RESOLVED = "incident.resolved"
+    INCIDENT_REJECTED = "incident.rejected"
+    INCIDENT_CAR_SENT_TO_SERVICE = "incident.car_sent_to_service"
+    INCIDENT_PHOTO_VIEWED = "incident.photo_viewed"
 
 
 class AuditTargetType(StrEnum):
@@ -69,6 +79,8 @@ class AuditTargetType(StrEnum):
     TARIFF = "tariff"
     PAYMENT_OPERATION = "payment_operation"
     CAR = "car"
+    SUPPORT_CONVERSATION = "support_conversation"
+    INCIDENT = "incident"
 
 
 @dataclass(frozen=True)

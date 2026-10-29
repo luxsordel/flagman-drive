@@ -167,7 +167,7 @@ class TripInterval(Base):
 
 
 class Receipt(Base):
-    """Append-only: a trigger refuses updates and deletes (docs/adr/0023)."""
+    """Append-only: a trigger refuses updates and deletes (docs/adr/0024)."""
 
     __tablename__ = "rental_receipts"
     __table_args__ = (CheckConstraint("total >= 0", name="total_not_negative"),)

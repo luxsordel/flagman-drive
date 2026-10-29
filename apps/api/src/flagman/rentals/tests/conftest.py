@@ -43,6 +43,10 @@ DECLINED_CARD = "4000000000009995"
 def integration_settings(
     integration_env: dict[str, str], migrated_database: None, make_settings: SettingsFactory
 ) -> Settings:
+    return with_payments(integration_env, make_settings)
+
+
+def with_payments(integration_env: dict[str, str], make_settings: SettingsFactory) -> Settings:
     """With the fake payment provider: a rental needs a card, a trip a hold."""
     return make_settings(
         **{name.lower(): value for name, value in integration_env.items()},

@@ -3,11 +3,11 @@
 Every change runs in one transaction with the car's status (fleet) and holds the rental row, so
 a request, the timeout job and a parallel request of the same client never act on one rental
 at once. A command to the car and a payment are the exceptions: nothing is held while the car
-or the provider thinks, the rental is marked busy instead (docs/adr/0022, docs/adr/0023).
+or the provider thinks, the rental is marked busy instead (docs/adr/0022, docs/adr/0024).
 """
 
 import asyncio
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from uuid import UUID, uuid4
@@ -137,7 +137,7 @@ PAY_DEBT_LIMIT = Limit("rental-pay-debt-user", 10, _HOUR)
 _COMMAND_HOLD_MARGIN = timedelta(seconds=5)
 # The first opening holds the trip's money before the command: the provider's time on top.
 _PAYMENT_HOLD_MARGIN = timedelta(seconds=15)
-# An unknown payment outcome is tried again this soon, with the same keys (docs/adr/0023).
+# An unknown payment outcome is tried again this soon, with the same keys (docs/adr/0024).
 _PENDING_RETRY = timedelta(minutes=1)
 _CHARGE_BATCH = 50
 _EXPIRY_BATCH = 100
@@ -275,6 +275,34 @@ async def expire_reservations(db: AsyncSession, now: datetime) -> int:
             return expired
 
 
+async def get_client_rental(db: AsyncSession, user_id: UUID, rental_id: UUID) -> Rental | None:
+    """For the support module: the client's own rental, None for another client's or a missing one.
+
+    Runs in the caller's transaction.
+    """
+    return await repository.get_rental(db, rental_id, user_id)
+
+
+async def get_client_active_rental(db: AsyncSession, user_id: UUID, now: datetime) -> Rental | None:
+    """For the support module: the client's current rental, if any; in the caller's transaction.
+
+    A reservation past its end is cancelled here, as on any other access (docs/adr/0022): an
+    incident must not get a car the client no longer holds.
+    """
+    rental = await repository.get_active_rental(db, user_id, for_update=True)
+    if rental is None:
+        return None
+    rental = await _expire_if_due(db, rental, now)
+    return rental if rental.is_active else None
+
+
+async def get_rentals(db: AsyncSession, rental_ids: Collection[UUID]) -> dict[UUID, Rental]:
+    """For the support module: the rentals a page of conversations is about, in one query."""
+    if not rental_ids:
+        return {}
+    return {rental.id: rental for rental in await repository.get_rentals(db, rental_ids)}
+
+
 async def remind_expiring_reservations(db: AsyncSession, now: datetime, ahead: timedelta) -> int:
     """Queues «the reservation ends soon» for every reservation ending within `ahead`; runs every
     minute in the worker. A reservation is reminded once however often this runs (the dedup key).
@@ -307,7 +335,7 @@ _TOGGLES = {
 }
 
 
-# Settlement: what a rental cost is taken from the card (docs/adr/0023). Payments run outside
+# Settlement: what a rental cost is taken from the card (docs/adr/0024). Payments run outside
 # any transaction of ours, each with its own key, so a repeat never takes the money twice.
 
 
