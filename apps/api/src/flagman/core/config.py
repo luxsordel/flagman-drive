@@ -97,11 +97,28 @@ class WorkerSettings(DatabaseSettings):
     # Sent and undelivered notifications are kept this long, for support to see what went out.
     notifications_retention_days: int = Field(default=30, ge=1)
 
+    # The charging task job (docs/adr/0025) reads the fleet's rules under the API's own names,
+    # so one .env drives both.
+    fleet_min_battery_pct: int = Field(default=20, ge=0, le=100)
+    fleet_telemetry_max_age_seconds: int = Field(default=300, gt=0)
+    # A free car below this charge gets a charging task. Not below FLEET_MIN_BATTERY_PCT: such a
+    # car would stop being rented without anyone sent to charge it.
+    maintenance_charging_threshold_pct: int = Field(default=20, ge=0, le=100)
+    maintenance_charging_interval_seconds: float = Field(default=60.0, gt=0, le=3600)
+
     @model_validator(mode="after")
     def _validate_notifications(self) -> Self:
         if self.is_prod and self.notifications_provider == "fake":
             # Clients would silently get nothing.
             raise ValueError("NOTIFICATIONS_PROVIDER=fake is not allowed when API_ENV=prod")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_charging_threshold(self) -> Self:
+        if self.maintenance_charging_threshold_pct < self.fleet_min_battery_pct:
+            raise ValueError(
+                "MAINTENANCE_CHARGING_THRESHOLD_PCT must not be below FLEET_MIN_BATTERY_PCT"
+            )
         return self
 
 

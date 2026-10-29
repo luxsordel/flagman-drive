@@ -11,6 +11,8 @@ from flagman.maintenance.domain import (
     OPEN_STATUSES,
     ChargeTooLowError,
     ChargingRules,
+    CommandNotForTaskError,
+    MaintenanceCommand,
     Task,
     TaskNotFoundError,
     TaskNotInProgressError,
@@ -23,6 +25,7 @@ from flagman.maintenance.domain import (
     can_see,
     ensure_can_complete,
     ensure_can_start,
+    ensure_command_fits,
     ensure_own_task_in_progress,
     needs_charging_task,
     returns_to_available,
@@ -222,3 +225,17 @@ def test_state_exactly_at_max_age_is_fresh() -> None:
     assert needs_charging_task(
         CarStatus.AVAILABLE, state(10, age=timedelta(minutes=5)), False, RULES, NOW
     )
+
+
+@pytest.mark.parametrize("command", [MaintenanceCommand.OPEN, MaintenanceCommand.CLOSE])
+def test_doors_open_for_any_task(command: MaintenanceCommand) -> None:
+    ensure_command_fits(task(type=TaskType.WASHING), command)
+
+
+@pytest.mark.parametrize(
+    "command", [MaintenanceCommand.START_CHARGING, MaintenanceCommand.STOP_CHARGING]
+)
+def test_charging_commands_for_charging_task_only(command: MaintenanceCommand) -> None:
+    ensure_command_fits(task(type=TaskType.CHARGING), command)
+    with pytest.raises(CommandNotForTaskError):
+        ensure_command_fits(task(type=TaskType.REPAIR), command)

@@ -165,7 +165,7 @@ services:
     restart: unless-stopped
 
   # Periodic jobs, see docs/adr/0013, and push notifications, docs/adr/0020. The image of the
-  # API, but only the database and push settings: the worker signs and checks nothing, so it
+  # API, but only the database, push and fleet threshold settings: the worker signs and checks nothing, so it
   # gets none of the API secrets.
   worker:
     # The same build and tag as the api service, so `up worker` alone still finds the image.
@@ -183,6 +183,10 @@ services:
       EXPO_PUSH_TIMEOUT_SECONDS: ${EXPO_PUSH_TIMEOUT_SECONDS:-}
       NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS: ${NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS:-}
       NOTIFICATIONS_RETENTION_DAYS: ${NOTIFICATIONS_RETENTION_DAYS:-}
+      FLEET_MIN_BATTERY_PCT: ${FLEET_MIN_BATTERY_PCT:-}
+      FLEET_TELEMETRY_MAX_AGE_SECONDS: ${FLEET_TELEMETRY_MAX_AGE_SECONDS:-}
+      MAINTENANCE_CHARGING_THRESHOLD_PCT: ${MAINTENANCE_CHARGING_THRESHOLD_PCT:-}
+      MAINTENANCE_CHARGING_INTERVAL_SECONDS: ${MAINTENANCE_CHARGING_INTERVAL_SECONDS:-}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}

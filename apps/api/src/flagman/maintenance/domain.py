@@ -120,10 +120,34 @@ class TaskNotInProgressError(AppError):
     title = "Start the task before sending commands to the car"
 
 
+class CommandNotForTaskError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "maintenance-command-not-for-task"
+    title = "Charging commands are for charging tasks only"
+
+
 class TaskPhotoLimitError(AppError):
     status = HTTPStatus.CONFLICT
     slug = "maintenance-task-photo-limit"
     title = f"A task takes at most {MAX_TASK_PHOTOS} photos"
+
+
+class TaskPhotoNotFoundError(AppError):
+    status = HTTPStatus.NOT_FOUND
+    slug = "maintenance-task-photo-not-found"
+    title = "Photo not found"
+
+
+class TaskPhotoTooLargeError(AppError):
+    status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+    slug = "maintenance-task-photo-too-large"
+    title = "The photo is too large"
+
+
+class TaskPhotoTypeUnsupportedError(AppError):
+    status = HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+    slug = "maintenance-task-photo-type-unsupported"
+    title = "The photo must be a JPEG, PNG or WebP image"
 
 
 class TaskNotAssignableError(AppError):
@@ -198,6 +222,17 @@ def ensure_own_task_in_progress(task: Task, worker: Worker) -> None:
     # Operators see every task but work only on the ones they took themselves.
     if task.status is not TaskStatus.IN_PROGRESS or task.assignee_id != worker.staff_id:
         raise TaskNotInProgressError
+
+
+_CHARGING_COMMANDS = frozenset(
+    {MaintenanceCommand.START_CHARGING, MaintenanceCommand.STOP_CHARGING}
+)
+
+
+def ensure_command_fits(task: Task, command: MaintenanceCommand) -> None:
+    # Plugging a car in during a wash would only hide that it still needs charging.
+    if command in _CHARGING_COMMANDS and task.type is not TaskType.CHARGING:
+        raise CommandNotForTaskError
 
 
 def ensure_can_complete(task: Task, state: CarState | None, min_battery_pct: int) -> None:

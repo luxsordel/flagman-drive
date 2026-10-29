@@ -256,8 +256,9 @@ staff_router = APIRouter(
 
 FLEET_VIEWERS = (StaffRole.OPERATOR, StaffRole.TECHNICIAN, StaffRole.ADMIN)
 FleetViewer = Annotated[CurrentStaff, Depends(require_staff_role(*FLEET_VIEWERS))]
-# Technicians too: they open and immobilize the cars they service on the spot.
-CAR_COMMANDERS = (StaffRole.OPERATOR, StaffRole.TECHNICIAN, StaffRole.ADMIN)
+# Not technicians: they reach only the car of their task in progress, and only near it, through
+# the maintenance module (docs/adr/0025).
+CAR_COMMANDERS = (StaffRole.OPERATOR, StaffRole.ADMIN)
 
 
 @staff_router.get(

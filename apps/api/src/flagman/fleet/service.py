@@ -319,6 +319,8 @@ class CarCommandRequest:
     # Why the staff member sends it: kept in the audit log, checked for personal data before.
     comment: str
     confirm_active_rental: bool
+    # Set for the service access of a technician (docs/adr/0025): the audit links the two.
+    maintenance_task_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -392,6 +394,11 @@ class CarCommander:
                 "car_status": car.status.value,
                 "during_active_rental": during_rental,
                 "comment": request.comment,
+                **(
+                    {"maintenance_task_id": request.maintenance_task_id}
+                    if request.maintenance_task_id
+                    else {}
+                ),
             },
         )
 

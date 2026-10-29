@@ -196,7 +196,7 @@ def test_a_command_reaches_every_staff_member(
     car_id = add_car(settings, POINT)
     opened = CarState(POINT, 70, False, False, False, datetime.now(UTC))
     client.app.dependency_overrides[api.get_telematics_gateway] = lambda: FakeGateway(opened)  # type: ignore[attr-defined]
-    sender = Staff(settings, StaffRole.TECHNICIAN)
+    sender = Staff(settings, StaffRole.ADMIN)
 
     with _connect(client) as socket:
         _sign_in(socket, staff.token())

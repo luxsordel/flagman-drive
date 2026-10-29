@@ -55,6 +55,11 @@ class AuditAction(StrEnum):
     PAYMENT_DECLINED = "payment.declined"
     PAYMENT_FAILED = "payment.failed"
     CAR_COMMAND_SENT = "car.command_sent"
+    MAINTENANCE_TASK_CREATED = "maintenance_task.created"
+    MAINTENANCE_TASK_ASSIGNED = "maintenance_task.assigned"
+    MAINTENANCE_TASK_STARTED = "maintenance_task.started"
+    MAINTENANCE_TASK_COMPLETED = "maintenance_task.completed"
+    MAINTENANCE_TASK_CANCELLED = "maintenance_task.cancelled"
 
 
 class AuditTargetType(StrEnum):
@@ -69,6 +74,7 @@ class AuditTargetType(StrEnum):
     TARIFF = "tariff"
     PAYMENT_OPERATION = "payment_operation"
     CAR = "car"
+    MAINTENANCE_TASK = "maintenance_task"
 
 
 @dataclass(frozen=True)
