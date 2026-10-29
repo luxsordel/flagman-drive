@@ -1,4 +1,5 @@
 from collections.abc import Collection
+from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
@@ -92,7 +93,7 @@ async def save_preferences(
 
 
 async def add_to_outbox(
-    db: AsyncSession, user_id: UUID, notification: Notification, now: datetime
+    db: AsyncSession, user_id: UUID, notification: Notification, expires_at: datetime, now: datetime
 ) -> bool:
     """False when the same event was already stored."""
     statement = (
@@ -106,7 +107,7 @@ async def add_to_outbox(
             status=OutboxStatus.PENDING.value,
             attempts=0,
             next_attempt_at=now,
-            expires_at=now + notification.lifetime,
+            expires_at=expires_at,
             created_at=now,
         )
         .on_conflict_do_nothing(index_elements=[OutboxNotification.dedup_key])
@@ -115,9 +116,15 @@ async def add_to_outbox(
     return (await db.scalar(statement)) is not None
 
 
-async def claim_due(
-    db: AsyncSession, now: datetime, lease_until: datetime, limit: int
-) -> list[OutboxItem]:
+@dataclass(frozen=True)
+class Claimed:
+    items: list[OutboxItem]
+    # Rows whose event or params no template takes any more, e.g. queued before a change of the
+    # templates: given up at once, so they do not block the queue.
+    unreadable: list[str]
+
+
+async def claim_due(db: AsyncSession, now: datetime, lease_until: datetime, limit: int) -> Claimed:
     """Takes the due rows for one attempt. Until `lease_until` no one else takes them, so a
     sender that died midway leaves them to be tried again, not lost."""
     rows = (
@@ -133,21 +140,43 @@ async def claim_due(
         )
     ).all()
     items: list[OutboxItem] = []
+    unreadable: list[str] = []
     for row in rows:
         row.attempts += 1
+        try:
+            notification = Notification(
+                event=NotificationEvent(row.event), rental_id=row.rental_id, params=row.params
+            )
+        except ValueError:
+            row.status = OutboxStatus.UNDELIVERED.value
+            row.finished_at = now
+            unreadable.append(row.event)
+            continue
         row.next_attempt_at = lease_until
         items.append(
             OutboxItem(
                 id=row.id,
                 user_id=row.user_id,
-                notification=Notification(
-                    event=NotificationEvent(row.event), rental_id=row.rental_id, params=row.params
-                ),
+                notification=notification,
                 attempts=row.attempts,
                 expires_at=row.expires_at,
             )
         )
-    return items
+    return Claimed(items=items, unreadable=unreadable)
+
+
+async def withdraw(
+    db: AsyncSession, rental_id: UUID, events: Collection[NotificationEvent], now: datetime
+) -> None:
+    await db.execute(
+        update(OutboxNotification)
+        .where(
+            OutboxNotification.rental_id == rental_id,
+            OutboxNotification.event.in_([event.value for event in events]),
+            OutboxNotification.status == OutboxStatus.PENDING.value,
+        )
+        .values(status=OutboxStatus.UNDELIVERED.value, finished_at=now)
+    )
 
 
 async def expire_overdue(db: AsyncSession, now: datetime) -> int:

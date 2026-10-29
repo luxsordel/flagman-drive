@@ -57,7 +57,11 @@ class ExpoPushProvider:
         ]
         try:
             async with asyncio.timeout(self.timeout_s):
-                response = await self.client.post(self.url, json=body, headers=headers)
+                # The client's own default (5 s per phase) would cut a slow Expo short of the
+                # configured timeout.
+                response = await self.client.post(
+                    self.url, json=body, headers=headers, timeout=self.timeout_s
+                )
         except (TimeoutError, httpx2.TransportError) as error:
             logger.warning("expo_push_unreachable", error=type(error).__name__)
             return _not_sent(messages)

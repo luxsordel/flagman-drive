@@ -6,7 +6,7 @@ so a provider that is down never fails a rental or a payment.
 """
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -20,6 +20,7 @@ from flagman.notifications import repository
 from flagman.notifications.domain import (
     Notification,
     NotificationCategory,
+    NotificationEvent,
     NotificationPreferences,
     OutboxItem,
     OutboxStatus,
@@ -43,19 +44,37 @@ DISPATCH_LEASE = timedelta(minutes=2)
 
 
 async def notify_client(
-    db: AsyncSession, user_id: UUID, notification: Notification, now: datetime
+    db: AsyncSession,
+    user_id: UUID,
+    notification: Notification,
+    now: datetime,
+    *,
+    until: datetime | None = None,
 ) -> None:
     """Queues a push for the client; runs in the caller's transaction.
 
     Does nothing when the client switched the category off or the same event for the same
     rental is already queued, so callers may report an event as often as they see it.
+    `until`: when the news stops being true, if the caller knows it better than the event's
+    usual lifetime, e.g. the exact end of a reservation.
     """
     preferences = await repository.get_preferences(db, user_id)
     if not preferences.is_enabled(notification.category):
         return
-    added = await repository.add_to_outbox(db, user_id, notification, now)
+    expires_at = now + notification.lifetime
+    if until is not None:
+        expires_at = min(expires_at, until)
+    added = await repository.add_to_outbox(db, user_id, notification, expires_at, now)
     if added:
         logger.info("notification_queued", push_event=notification.event.value)
+
+
+async def withdraw(
+    db: AsyncSession, rental_id: UUID, events: Collection[NotificationEvent], now: datetime
+) -> None:
+    """Drops the notifications of these events for the rental that are not sent yet, e.g. the
+    reservation reminder once the trip has started; runs in the caller's transaction."""
+    await repository.withdraw(db, rental_id, events, now)
 
 
 async def register_device(  # noqa: PLR0913 - one device's fields
@@ -237,10 +256,11 @@ def _outcome(
 
 
 async def _claim(db: AsyncSession, now: datetime) -> _Claimed:
-    expired = await repository.expire_overdue(db, now)
-    if expired:
-        logger.info("notifications_expired", notifications=expired)
-    items = await repository.claim_due(db, now, now + DISPATCH_LEASE, DISPATCH_BATCH)
+    await _expire_overdue(db, now)
+    claimed = await repository.claim_due(db, now, now + DISPATCH_LEASE, DISPATCH_BATCH)
+    if claimed.unreadable:
+        logger.error("notifications_unreadable", push_events=sorted(set(claimed.unreadable)))
+    items = claimed.items
     if not items:
         return _Claimed([], {}, {})
     user_ids = {item.user_id for item in items}
@@ -260,7 +280,15 @@ async def _claim(db: AsyncSession, now: datetime) -> _Claimed:
     return _Claimed(items=items, devices=dict(devices), languages=languages)
 
 
+async def _expire_overdue(db: AsyncSession, now: datetime) -> None:
+    expired = await repository.expire_overdue(db, now)
+    if expired:
+        logger.info("notifications_expired", notifications=expired)
+
+
 async def clean_up_outbox(db: AsyncSession, now: datetime, retention: timedelta) -> int:
-    """Deletes sent and undelivered notifications older than `retention`; returns how many."""
+    """Gives up on notifications past their lifetime, which matters when no provider sends
+    them, then deletes sent and undelivered ones older than `retention`; returns how many."""
     async with db.begin():
+        await _expire_overdue(db, now)
         return await repository.delete_finished_before(db, now - retention)

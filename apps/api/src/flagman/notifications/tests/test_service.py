@@ -423,3 +423,81 @@ async def test_old_finished_notifications_are_cleaned_up(
             db, datetime.now(UTC) + timedelta(days=31), timedelta(days=30)
         )
     assert await _outbox(sessions, notification) == []
+
+
+async def test_an_unreadable_row_is_given_up_without_blocking_the_rest(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    broken = _notification()
+    await _notify(sessions, caller, broken)
+    # As if queued before the template took other params.
+    async with sessions() as db, db.begin():
+        await db.execute(
+            update(OutboxNotification)
+            .where(OutboxNotification.dedup_key == broken.dedup_key)
+            .values(params={"old_total": 1}, next_attempt_at=datetime.now(UTC) - timedelta(hours=1))
+        )
+    fine = _notification()
+    await _notify(sessions, caller, fine)
+    provider = FakePushProvider()
+
+    await _dispatch(sessions, provider)
+
+    [broken_row] = await _outbox(sessions, broken)
+    [fine_row] = await _outbox(sessions, fine)
+    assert broken_row.status == OutboxStatus.UNDELIVERED
+    assert fine_row.status == OutboxStatus.SENT
+    assert len(_sent_to(provider, token)) == 1
+
+
+async def test_without_a_provider_overdue_notifications_expire_and_are_cleaned_up(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    notification = _notification(NotificationEvent.RESERVATION_EXPIRING, minutes_left=5)
+    await _notify(sessions, caller, notification)
+    later = datetime.now(UTC) + timedelta(minutes=6)
+
+    async with sessions() as db:
+        await service.clean_up_outbox(db, later, timedelta(days=30))
+    [row] = await _outbox(sessions, notification)
+    assert row.status == OutboxStatus.UNDELIVERED
+
+    async with sessions() as db:
+        await service.clean_up_outbox(db, later + timedelta(days=31), timedelta(days=30))
+    assert await _outbox(sessions, notification) == []
+
+
+async def test_a_withdrawn_notification_is_not_sent(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    reminder = _notification(NotificationEvent.RESERVATION_EXPIRING, minutes_left=5)
+    other = Notification(NotificationEvent.TRIP_FINISHED, reminder.rental_id, {"total": 100})
+    await _notify(sessions, caller, reminder)
+    await _notify(sessions, caller, other)
+
+    async with sessions() as db, db.begin():
+        await service.withdraw(
+            db, reminder.rental_id, [NotificationEvent.RESERVATION_EXPIRING], datetime.now(UTC)
+        )
+    provider = FakePushProvider()
+    await _dispatch(sessions, provider)
+
+    [row] = await _outbox(sessions, reminder)
+    assert row.status == OutboxStatus.UNDELIVERED
+    assert [m.content.data["event"] for m in provider.sent if m.token == token] == ["trip_finished"]
+
+
+async def test_until_shortens_the_lifetime(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    notification = _notification(NotificationEvent.TRIP_FINISHED)
+    now = datetime.now(UTC)
+    until = now + timedelta(minutes=2)
+
+    async with sessions() as db, db.begin():
+        await service.notify_client(db, caller.id, notification, now, until=until)
+
+    [row] = await _outbox(sessions, notification)
+    assert row.expires_at == until

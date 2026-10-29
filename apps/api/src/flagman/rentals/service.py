@@ -87,6 +87,8 @@ PHOTO_URL_LIMIT = Limit("rental-photo-url-user", 120, _HOUR)
 # The command holds the rental a little longer than telematics may take to answer it.
 _COMMAND_HOLD_MARGIN = timedelta(seconds=5)
 _EXPIRY_BATCH = 100
+# A reminder still waiting for a retry must not reach a client whose reservation is over.
+_RESERVATION_REMINDERS = (NotificationEvent.RESERVATION_EXPIRING,)
 
 
 @dataclass(frozen=True)
@@ -149,6 +151,7 @@ async def _expire(db: AsyncSession, rental: Rental, now: datetime) -> Rental:
     await repository.cancel(db, rental.id, status, CancelReason.EXPIRED, now)
     await fleet.change_status(db, rental.car_id, CarTransition.CANCEL_RESERVATION, now)
     logger.info("rental_reservation_expired", rental_id=str(rental.id))
+    await notifications.withdraw(db, rental.id, _RESERVATION_REMINDERS, now)
     await notifications.notify_client(
         db, rental.user_id, Notification(NotificationEvent.RESERVATION_EXPIRED, rental.id, {}), now
     )
@@ -186,7 +189,9 @@ async def remind_expiring_reservations(db: AsyncSession, now: datetime, ahead: t
                 rental.id,
                 {"minutes_left": minutes_left(rental.expires_at, now)},
             )
-            await notifications.notify_client(db, rental.user_id, notification, now)
+            await notifications.notify_client(
+                db, rental.user_id, notification, now, until=rental.expires_at
+            )
     return len(rentals)
 
 
@@ -281,6 +286,7 @@ class RentalService:
                     raise RentalBusyError
                 status = apply_transition(rental.status, RentalTransition.CANCEL)
                 await repository.cancel(self.db, rental.id, status, CancelReason.CLIENT, now)
+                await notifications.withdraw(self.db, rental.id, _RESERVATION_REMINDERS, now)
                 await fleet.change_status(
                     self.db, rental.car_id, CarTransition.CANCEL_RESERVATION, now
                 )
@@ -450,6 +456,7 @@ class RentalService:
                     self.db, rental.car_id, CarTransition.START_RENTAL, done_at
                 )
                 await repository.start_trip(self.db, rental.id, status, done_at)
+                await notifications.withdraw(self.db, rental.id, _RESERVATION_REMINDERS, done_at)
                 logger.info("rental_trip_started", rental_id=str(rental.id))
             else:
                 await repository.release_command(self.db, rental.id, hold_until, done_at)

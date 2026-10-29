@@ -149,3 +149,12 @@ async def test_a_failed_request_leaves_the_earlier_ones_delivered() -> None:
 
     # Only the second request is to be tried again, not the hundred already delivered.
     assert statuses == [PushTicketStatus.OK] * MAX_BATCH + NOT_SENT
+
+
+async def test_the_configured_timeout_holds_for_each_phase() -> None:
+    # The client's own default of 5 s would otherwise cut a slow Expo short.
+    def handler(request: httpx2.Request) -> httpx2.Response:
+        assert request.extensions["timeout"]["read"] == 5
+        return _ok(request)
+
+    assert await _provider(handler).send([_message()]) == [PushTicketStatus.OK]

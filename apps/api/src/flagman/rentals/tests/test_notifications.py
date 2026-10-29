@@ -42,8 +42,8 @@ def _ends_in(settings: Settings, rental_id: str, seconds: int) -> None:
 def _queued(settings: Settings, rental_id: str) -> list[Any]:
     return query(
         settings,
-        "SELECT user_id, event, params FROM notification_outbox WHERE rental_id = :id "
-        "ORDER BY created_at",
+        "SELECT user_id, event, params, status, expires_at FROM notification_outbox "
+        "WHERE rental_id = :id ORDER BY created_at",
         id=uuid.UUID(rental_id),
     )
 
@@ -76,6 +76,13 @@ def test_a_reservation_ending_soon_is_reminded_once(
     assert (row.user_id, row.event) == (person.id, "reservation_expiring")
     # 2.5 minutes left: the client is told 3, never less than is left.
     assert row.params == {"minutes_left": 3}
+    # But it is not sent after the reservation is over, rounding or not.
+    [ends] = query(
+        integration_settings,
+        "SELECT expires_at FROM rentals WHERE id = :id",
+        id=uuid.UUID(rental["id"]),
+    )
+    assert row.expires_at == ends.expires_at
 
 
 def test_a_reservation_far_from_its_end_is_not_reminded(
@@ -125,3 +132,47 @@ def test_a_reservation_cancelled_by_the_client_is_not_told_it_expired(
     _run(integration_settings, "expire")
 
     assert _queued(integration_settings, rental["id"]) == []
+
+
+def test_a_reminder_not_sent_yet_is_withdrawn_when_the_client_cancels(
+    integration_settings: Settings, person: Person, car: str
+) -> None:
+    rental = person.reserve(car).json()
+    _ends_in(integration_settings, rental["id"], 150)
+    _run(integration_settings, "remind")
+
+    person.cancel(rental["id"])
+
+    [row] = _queued(integration_settings, rental["id"])
+    assert (row.event, row.status) == ("reservation_expiring", "undelivered")
+
+
+def test_a_reminder_not_sent_yet_is_withdrawn_when_the_trip_starts(
+    integration_settings: Settings, person: Person, car: str
+) -> None:
+    rental = person.reserve(car).json()
+    person.inspect(rental["id"])
+    _ends_in(integration_settings, rental["id"], 150)
+    _run(integration_settings, "remind")
+
+    assert person.command(rental["id"], "open").json()["status"] == "in_trip"
+
+    [row] = _queued(integration_settings, rental["id"])
+    assert (row.event, row.status) == ("reservation_expiring", "undelivered")
+
+
+def test_an_expired_reservation_withdraws_its_reminder(
+    integration_settings: Settings, person: Person, car: str
+) -> None:
+    rental = person.reserve(car).json()
+    _ends_in(integration_settings, rental["id"], 150)
+    _run(integration_settings, "remind")
+    _ends_in(integration_settings, rental["id"], -1)
+
+    _run(integration_settings, "expire")
+
+    rows = _queued(integration_settings, rental["id"])
+    assert [(row.event, row.status) for row in rows] == [
+        ("reservation_expiring", "undelivered"),
+        ("reservation_expired", "pending"),
+    ]
