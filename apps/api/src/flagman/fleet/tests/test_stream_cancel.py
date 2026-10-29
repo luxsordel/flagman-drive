@@ -28,9 +28,10 @@ class _ClosingSocket:
         except asyncio.CancelledError:
             # The server is cancelled from outside right while it waits for its own tasks to end:
             # the test client does this when it leaves the socket, uvicorn on shutdown.
+            # Raise at once: an await here would let anyio cancel this task too, and its own
+            # cancel message would make even gather hand the caller a cancel the scope recognises.
             assert self.scope is not None
             self.scope.cancel()
-            await asyncio.sleep(0)
             raise
 
 
