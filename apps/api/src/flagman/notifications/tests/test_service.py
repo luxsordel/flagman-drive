@@ -50,6 +50,13 @@ async def _only_this_tests_notifications(sessions: async_sessionmaker[AsyncSessi
         await db.execute(delete(TicketRow))
 
 
+@pytest.fixture(autouse=True)
+def _fresh_service_logger(monkeypatch: pytest.MonkeyPatch) -> None:
+    """configure_logging caches a logger on its first use: once an earlier test of the run has
+    logged through the service's one, capture_logs would see nothing from it."""
+    monkeypatch.setattr(service, "logger", structlog.get_logger(service.__name__))
+
+
 def _notification(
     event: NotificationEvent = NotificationEvent.TRIP_FINISHED, **params: int
 ) -> Notification:
