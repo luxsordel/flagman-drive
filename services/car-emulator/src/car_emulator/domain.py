@@ -29,6 +29,9 @@ class CommandType(StrEnum):
     CLOSE = "close"
     LOCK_ENGINE = "lock_engine"
     UNLOCK_ENGINE = "unlock_engine"
+    # A technician plugs the car in and out on a charging task (the API's docs/adr/0025).
+    START_CHARGING = "start_charging"
+    STOP_CHARGING = "stop_charging"
 
 
 class CommandRejectedError(Exception):
@@ -80,6 +83,8 @@ class SimulationParams:
     charge_below_pct: float
     charge_until_pct: float
     charge_rate_pct_per_h: float
+    # Off: a car below `charge_below_pct` waits for a technician's charging task instead.
+    self_charge: bool = False
 
 
 def apply_command(car: Car, command: CommandType, now: datetime) -> None:
@@ -96,6 +101,14 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
             car.engine_locked = True
         case CommandType.UNLOCK_ENGINE:
             car.engine_locked = False
+        case CommandType.START_CHARGING:
+            # A car on its way cannot be plugged in.
+            if car.mode is CarMode.DRIVING or car.ignition_on:
+                raise CommandRejectedError("ignition_on")
+            car.mode = CarMode.CHARGING
+        case CommandType.STOP_CHARGING:
+            if car.mode is CarMode.CHARGING:
+                car.mode = CarMode.PARKED
     car.updated_at = now
 
 
@@ -219,7 +232,11 @@ def step_car(car: Car, elapsed: timedelta, params: SimulationParams, now: dateti
                 car.mode = CarMode.PARKED
         case _:
             car.charge_pct = max(0.0, car.charge_pct - params.idle_drain_pct_per_h * hours)
-    if car.mode is CarMode.PARKED and car.charge_pct < params.charge_below_pct:
+    if (
+        params.self_charge
+        and car.mode is CarMode.PARKED
+        and car.charge_pct < params.charge_below_pct
+    ):
         car.mode = CarMode.CHARGING
     # Like a tracker: the time moves only when something a client or the API sees has changed.
     if _visible_state(car) != before:

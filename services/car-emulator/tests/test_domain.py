@@ -7,6 +7,7 @@ from car_emulator.domain import (
     MINSK_LAT_RANGE,
     MINSK_LON_RANGE,
     Car,
+    CarMode,
     CommandRejectedError,
     CommandType,
     apply_command,
@@ -89,3 +90,35 @@ def test_unlock_engine_lets_the_car_start_again(car: Car) -> None:
     apply_command(car, CommandType.UNLOCK_ENGINE, LATER)
     assert not car.engine_locked
     assert car.updated_at == LATER
+
+
+def test_start_charging_plugs_a_parked_car_in(car: Car) -> None:
+    apply_command(car, CommandType.START_CHARGING, LATER)
+
+    assert car.mode is CarMode.CHARGING
+    assert car.updated_at == LATER
+
+
+def test_start_charging_is_rejected_while_ignition_is_on(car: Car) -> None:
+    car.ignition_on = True
+
+    with pytest.raises(CommandRejectedError) as error:
+        apply_command(car, CommandType.START_CHARGING, LATER)
+
+    assert error.value.reason == "ignition_on"
+    assert car.mode is CarMode.PARKED
+
+
+def test_stop_charging_unplugs_the_car(car: Car) -> None:
+    apply_command(car, CommandType.START_CHARGING, NOW)
+    apply_command(car, CommandType.STOP_CHARGING, LATER)
+
+    assert car.mode is CarMode.PARKED
+
+
+def test_stop_charging_leaves_a_driving_car_driving(car: Car) -> None:
+    car.mode = CarMode.DRIVING
+
+    apply_command(car, CommandType.STOP_CHARGING, LATER)
+
+    assert car.mode is CarMode.DRIVING

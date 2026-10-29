@@ -35,6 +35,7 @@ def build_simulation(settings: Settings) -> Simulation | None:
         charge_below_pct=settings.charge_below_pct,
         charge_until_pct=settings.charge_until_pct,
         charge_rate_pct_per_h=settings.charge_rate_pct_per_h,
+        self_charge=settings.self_charge,
     )
     # Derived from EMULATOR_SEED but apart from seed_fleet's stream, so cars start where they did.
     rng = random.Random(f"{settings.seed}:simulation")  # noqa: S311 - not used for security

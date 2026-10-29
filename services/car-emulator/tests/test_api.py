@@ -5,6 +5,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from car_emulator.domain import CarMode
 from car_emulator.fleet import FleetService
 from car_emulator.security import MAX_BODY_BYTES
 from tests.conftest import TELEMETRY_SECRET, FakeClock, signed
@@ -139,6 +140,18 @@ async def test_execute_command(
     assert result["command_id"] == str(command_id)
     assert result["car"][field] is expected
     assert getattr(_fleet(app).get_car(car_id), field) is expected
+
+
+async def test_charging_commands_plug_the_car_in_and_out(
+    client: httpx.AsyncClient, app: FastAPI, clock: FakeClock
+) -> None:
+    car_id = _first_car_id(app)
+    response = await _post_command(client, clock, car_id, _command_body("start_charging"))
+    assert response.status_code == 200
+    assert _fleet(app).get_car(car_id).mode is CarMode.CHARGING
+    response = await _post_command(client, clock, car_id, _command_body("stop_charging"))
+    assert response.status_code == 200
+    assert _fleet(app).get_car(car_id).mode is CarMode.PARKED
 
 
 async def test_close_after_open(client: httpx.AsyncClient, app: FastAPI, clock: FakeClock) -> None:
