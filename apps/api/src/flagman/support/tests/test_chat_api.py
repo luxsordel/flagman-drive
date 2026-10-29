@@ -108,6 +108,20 @@ def test_a_conversation_is_attached_to_the_clients_rental(
     assert view["car_plate"]
 
 
+def test_a_rental_is_attached_to_a_conversation_already_open(
+    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    write(person, "A question about tariffs")
+    car = add_car(integration_settings, CAR_POINT)
+    rental = person.reserve(car).json()["id"]
+
+    # The client writes again, now from the trip screen.
+    assert write(person, "The car does not open", rental).status_code == HTTPStatus.CREATED
+
+    view = _staff_conversation(app_client, operator, _conversation_id(person)).json()
+    assert (view["rental_id"], view["car_id"]) == (rental, car)
+
+
 def test_a_conversation_without_a_rental_has_no_car(
     person: Person, operator: Staff, app_client: TestClient
 ) -> None:

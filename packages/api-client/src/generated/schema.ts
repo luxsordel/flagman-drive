@@ -2182,7 +2182,7 @@ export interface components {
     MessageIn: {
       /**
        * Rental Id
-       * @description Attaches the conversation to the client's rental when it opens one; ignored for an open conversation.
+       * @description Attaches the conversation to the client's rental, an open one too: the latest rental the client wrote from is the one the operator sees.
        */
       rental_id?: string | null;
       /** Text */

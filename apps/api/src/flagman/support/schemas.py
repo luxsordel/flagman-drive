@@ -45,8 +45,8 @@ class MessageIn(BaseModel):
     rental_id: UUID | None = Field(
         default=None,
         description=(
-            "Attaches the conversation to the client's rental when it opens one; "
-            "ignored for an open conversation."
+            "Attaches the conversation to the client's rental, an open one too: the latest "
+            "rental the client wrote from is the one the operator sees."
         ),
     )
 

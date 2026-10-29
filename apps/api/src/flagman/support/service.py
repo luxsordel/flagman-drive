@@ -237,7 +237,12 @@ class ClientSupportService:
             and await rentals.get_client_rental(self.db, user_id, rental_id) is None
         ):
             raise SupportRentalNotFoundError
-        return await repository.open_conversation(self.db, user_id, rental_id, now)
+        conversation = await repository.open_conversation(self.db, user_id, rental_id, now)
+        if rental_id is not None and conversation.rental_id != rental_id:
+            # The client writes from a trip screen: the operator needs that rental, not an older
+            # one or none. The row is already locked by open_conversation.
+            conversation.rental_id = rental_id
+        return conversation
 
     async def send_text(
         self, user_id: UUID, text: str, rental_id: UUID | None, now: datetime

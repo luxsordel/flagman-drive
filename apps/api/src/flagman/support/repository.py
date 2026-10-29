@@ -72,7 +72,12 @@ async def get_latest_conversation(db: AsyncSession, user_id: UUID) -> Conversati
     return await db.scalar(
         select(Conversation)
         .where(Conversation.user_id == user_id)
-        .order_by(Conversation.created_at.desc())
+        # The open one wins a tie: closing and the next message can share a timestamp.
+        .order_by(
+            (Conversation.status == ConversationStatus.OPEN).desc(),
+            Conversation.created_at.desc(),
+            Conversation.id.desc(),
+        )
         .limit(1)
     )
 
