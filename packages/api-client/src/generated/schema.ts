@@ -532,6 +532,48 @@ export interface paths {
     patch: operations['update_my_profile_me_patch'];
     trace?: never;
   };
+  '/me/notification-preferences': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Which notifications the client gets */
+    get: operations['get_notification_preferences_me_notification_preferences_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    /** Switch categories of notifications on or off */
+    patch: operations['update_notification_preferences_me_notification_preferences_patch'];
+    trace?: never;
+  };
+  '/me/push-device': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Send pushes to this phone while this session lasts
+     * @description One device per session: a second call replaces the token. A token registered by another session moves to this one. Signing out stops the pushes.
+     */
+    put: operations['register_push_device_me_push_device_put'];
+    post?: never;
+    /**
+     * Stop pushes to this phone
+     * @description Idempotent: a session without a device also gives 204.
+     */
+    delete: operations['forget_push_device_me_push_device_delete'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/payment-cards': {
     parameters: {
       query?: never;
@@ -1576,6 +1618,40 @@ export interface components {
        */
       tariff_id: string | null;
     };
+    /**
+     * NotificationCategory
+     * @enum {string}
+     */
+    NotificationCategory: 'reservation' | 'trip' | 'payment';
+    /** NotificationCategoryOut */
+    NotificationCategoryOut: {
+      category: components['schemas']['NotificationCategory'];
+      /** Enabled */
+      enabled: boolean;
+      /**
+       * Mandatory
+       * @description Trip and payment notifications cannot be switched off.
+       */
+      mandatory: boolean;
+    };
+    /** NotificationPreferencesIn */
+    NotificationPreferencesIn: {
+      /**
+       * Categories
+       * @description Only the categories to change; the others stay as they are.
+       * @example {
+       *       "reservation": false
+       *     }
+       */
+      categories: {
+        [key: string]: boolean;
+      };
+    };
+    /** NotificationPreferencesOut */
+    NotificationPreferencesOut: {
+      /** Categories */
+      categories: components['schemas']['NotificationCategoryOut'][];
+    };
     /** OtpRequest */
     OtpRequest: {
       /**
@@ -1741,6 +1817,21 @@ export interface components {
        */
       type: string;
     };
+    /** PushDeviceIn */
+    PushDeviceIn: {
+      platform: components['schemas']['PushPlatform'];
+      /**
+       * Token
+       * @description The Expo push token of the app on this phone.
+       * @example ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]
+       */
+      token: string;
+    };
+    /**
+     * PushPlatform
+     * @enum {string}
+     */
+    PushPlatform: 'ios' | 'android';
     /** ReadinessResponse */
     ReadinessResponse: {
       /** Checks */
@@ -4491,6 +4582,209 @@ export interface operations {
         };
       };
       /** @description `urn:flagman:problem:validation-error`: see `errors`. `urn:flagman:problem:birth-date-invalid`: in the future or too long ago. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_notification_preferences_me_notification_preferences_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationPreferencesOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  update_notification_preferences_me_notification_preferences_patch: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NotificationPreferencesIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['NotificationPreferencesOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:notification-category-mandatory`, or `validation-error`. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  register_push_device_me_push_device_put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['PushDeviceIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  forget_push_device_me_push_device_delete: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
       422: {
         headers: {
           [name: string]: unknown;

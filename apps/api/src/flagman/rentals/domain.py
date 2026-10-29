@@ -194,6 +194,12 @@ class Rental:
         )
 
 
+def minutes_left(expires_at: datetime, now: datetime) -> int:
+    """Whole minutes until the end, rounded up: «1 minute» while any of it is left."""
+    seconds = (expires_at - now).total_seconds()
+    return max(0, -int(-seconds // 60))
+
+
 def reservation_deadlines(
     reserved_at: datetime, terms: ReservationTerms
 ) -> tuple[datetime, datetime]:

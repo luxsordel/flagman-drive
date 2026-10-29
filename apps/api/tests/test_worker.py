@@ -2,6 +2,7 @@ import asyncio
 import secrets
 from datetime import UTC, datetime, timedelta
 
+import httpx2
 import pytest
 from pydantic import SecretStr
 from sqlalchemy import text
@@ -11,6 +12,8 @@ from flagman import worker
 from flagman.core.config import Settings, WorkerSettings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.identity.service import AuthCleanupResult
+from flagman.notifications.expo import ExpoPushProvider
+from flagman.notifications.fake_provider import FakePushProvider
 
 
 def _worker_settings(settings: Settings) -> WorkerSettings:
@@ -138,9 +141,11 @@ async def test_each_job_keeps_its_own_interval(monkeypatch: pytest.MonkeyPatch) 
 
     monkeypatch.setattr(worker, "run_auth_cleanup", job(worker.AUTH_CLEANUP))
     monkeypatch.setattr(worker, "run_reservation_expiry", job(worker.RESERVATION_EXPIRY))
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     intervals = {
         worker.AUTH_CLEANUP: timedelta(hours=1),
         worker.RESERVATION_EXPIRY: timedelta(milliseconds=50),
+        worker.OUTBOX_CLEANUP: timedelta(hours=1),
     }
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=intervals), 5)
@@ -195,6 +200,7 @@ async def test_a_failed_run_is_retried_sooner_and_does_not_stop_the_worker(
 
     monkeypatch.setattr(worker, "run_auth_cleanup", job)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
 
     # An hour between runs: only the short retry lets the second run happen in time.
     hourly = dict.fromkeys(worker.INTERVALS, timedelta(hours=1))
@@ -215,6 +221,88 @@ async def test_worker_stops_without_waiting_for_the_next_run(
 
     monkeypatch.setattr(worker, "run_auth_cleanup", job)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
 
     # The interval is an hour: the run must end on the stop, not on the timer.
     await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
+
+
+@pytest.mark.integration
+async def test_dispatch_job_is_skipped_while_another_worker_holds_it(
+    integration_settings: Settings,
+) -> None:
+    engine = create_engine(integration_settings)
+    try:
+        async with engine.connect() as other_worker:
+            await other_worker.execute(
+                text("SELECT pg_advisory_lock(:key)"), {"key": worker.NOTIFICATIONS_DISPATCH_LOCK}
+            )
+            await other_worker.commit()
+
+            result = await worker.run_notifications_dispatch(
+                engine, create_session_factory(engine), FakePushProvider(), datetime.now(UTC)
+            )
+
+            await other_worker.execute(
+                text("SELECT pg_advisory_unlock(:key)"), {"key": worker.NOTIFICATIONS_DISPATCH_LOCK}
+            )
+        assert result is None
+    finally:
+        await engine.dispose()
+
+
+async def test_notifications_go_out_on_their_own_short_interval(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+    dispatches = 0
+
+    async def dispatch(*args: object) -> None:
+        nonlocal dispatches
+        dispatches += 1
+        if dispatches == 3:
+            stop.set()
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
+    settings = _offline_settings().model_copy(
+        update={"notifications_provider": "fake", "notifications_dispatch_interval_seconds": 0.01}
+    )
+    hourly = dict.fromkeys(worker.INTERVALS, timedelta(hours=1))
+
+    await asyncio.wait_for(worker.run(settings, stop, intervals=hourly), 5)
+
+    assert dispatches == 3
+
+
+async def test_without_a_provider_nothing_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
+    stop = asyncio.Event()
+
+    async def idle_then_stop(*args: object) -> None:
+        stop.set()
+
+    async def dispatch(*args: object) -> None:
+        raise AssertionError("must not run")
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
+
+    await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
+
+
+async def test_provider_follows_the_setting() -> None:
+    async with httpx2.AsyncClient() as http:
+        expo = _offline_settings().model_copy(
+            update={"notifications_provider": "expo", "expo_access_token": SecretStr("t")}
+        )
+        fake = _offline_settings().model_copy(update={"notifications_provider": "fake"})
+
+        expo_provider = worker.push_provider(expo, http)
+        assert isinstance(expo_provider, ExpoPushProvider)
+        assert expo_provider.access_token == "t"
+        assert isinstance(worker.push_provider(fake, http), FakePushProvider)
+        assert worker.push_provider(_offline_settings(), http) is None

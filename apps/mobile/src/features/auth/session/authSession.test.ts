@@ -227,6 +227,25 @@ describe('AuthSession tokens', () => {
     expect(await session.getAccessToken()).toBeNull();
   });
 
+  it('runs the sign-out hooks while still signed in, and signs out even if one fails', async () => {
+    const { api, session } = await signedIn(() => 0);
+    api.on('/auth/logout', new Response(null, { status: 204 }));
+    const seen: (string | null)[] = [];
+    session.beforeSignOut(async () => {
+      seen.push(await session.getAccessToken());
+    });
+    session.beforeSignOut(() => Promise.reject(new Error('offline')));
+    const removed = jest.fn(() => Promise.resolve());
+    session.beforeSignOut(removed)();
+
+    await session.signOut();
+
+    expect(seen).toEqual(['access-1']);
+    expect(removed).not.toHaveBeenCalled();
+    expect(api.calls.at(-1)?.path).toBe('/auth/logout');
+    expect(session.getStatus()).toBe('signedOut');
+  });
+
   it('signs out with the token a rotation in flight brings, without storing it', async () => {
     let clock = 0;
     const { api, session, store } = await signedIn(() => clock);

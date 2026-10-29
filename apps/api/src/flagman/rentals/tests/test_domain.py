@@ -31,6 +31,7 @@ from flagman.rentals.domain import (
     apply_transition,
     ensure_command_allowed,
     ensure_near_car,
+    minutes_left,
     normalize_damage_comment,
     reservation_deadlines,
 )
@@ -260,3 +261,12 @@ def test_a_car_without_fresh_telemetry_is_nowhere() -> None:
     with pytest.raises(CarLocationUnknownError):
         ensure_near_car(NOW - timedelta(minutes=5, seconds=1), 1.0, RULES, NOW)
     ensure_near_car(NOW - timedelta(minutes=5), 1.0, RULES, NOW)
+
+
+@pytest.mark.parametrize(
+    ("seconds", "minutes"), [(300, 5), (299, 5), (61, 2), (60, 1), (1, 1), (0, 0), (-5, 0)]
+)
+def test_minutes_left_round_up(seconds: int, minutes: int) -> None:
+    now = datetime(2026, 10, 29, 12, 0, tzinfo=UTC)
+
+    assert minutes_left(now + timedelta(seconds=seconds), now) == minutes

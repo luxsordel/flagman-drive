@@ -83,6 +83,27 @@ class WorkerSettings(DatabaseSettings):
     # nothing either way (docs/adr/0009).
     auth_cleanup_retention_days: int = Field(default=7, ge=1)
 
+    # «The reservation ends in N minutes» goes out this long before the end (#119).
+    rental_reservation_reminder_minutes: int = Field(default=5, ge=1, le=60)
+
+    # Push notifications, see docs/adr/0020. "expo" sends through Expo Push Service, "fake" only
+    # logs what would go out. Unset: notifications stay queued until a provider is configured.
+    notifications_provider: Literal["expo", "fake"] | None = None
+    # Only when "enhanced push security" is on for the Expo project.
+    expo_access_token: SecretStr | None = None
+    expo_push_timeout_seconds: float = Field(default=10.0, gt=0, le=60)
+    # How soon a queued notification goes out: a reminder about a reservation must not be late.
+    notifications_dispatch_interval_seconds: float = Field(default=5.0, gt=0, le=300)
+    # Sent and undelivered notifications are kept this long, for support to see what went out.
+    notifications_retention_days: int = Field(default=30, ge=1)
+
+    @model_validator(mode="after")
+    def _validate_notifications(self) -> Self:
+        if self.is_prod and self.notifications_provider == "fake":
+            # Clients would silently get nothing.
+            raise ValueError("NOTIFICATIONS_PROVIDER=fake is not allowed when API_ENV=prod")
+        return self
+
 
 class Settings(DatabaseSettings):
     api_cors_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
