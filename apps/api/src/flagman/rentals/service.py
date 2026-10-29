@@ -37,6 +37,8 @@ from flagman.geo import service as geo
 from flagman.identity import service as identity
 from flagman.kyc import service as kyc
 from flagman.kyc.domain import KycStatus
+from flagman.notifications import service as notifications
+from flagman.notifications.domain import Notification, NotificationEvent
 from flagman.pricing import service as pricing
 from flagman.pricing.domain import TariffNotFoundError, TariffPrices, TariffVersion
 from flagman.rentals import repository
@@ -64,6 +66,7 @@ from flagman.rentals.domain import (
     apply_transition,
     ensure_command_allowed,
     ensure_near_car,
+    minutes_left,
     normalize_damage_comment,
     reservation_deadlines,
 )
@@ -84,6 +87,8 @@ PHOTO_URL_LIMIT = Limit("rental-photo-url-user", 120, _HOUR)
 # The command holds the rental a little longer than telematics may take to answer it.
 _COMMAND_HOLD_MARGIN = timedelta(seconds=5)
 _EXPIRY_BATCH = 100
+# A reminder still waiting for a retry must not reach a client whose reservation is over.
+_RESERVATION_REMINDERS = (NotificationEvent.RESERVATION_EXPIRING,)
 
 
 @dataclass(frozen=True)
@@ -146,6 +151,10 @@ async def _expire(db: AsyncSession, rental: Rental, now: datetime) -> Rental:
     await repository.cancel(db, rental.id, status, CancelReason.EXPIRED, now)
     await fleet.change_status(db, rental.car_id, CarTransition.CANCEL_RESERVATION, now)
     logger.info("rental_reservation_expired", rental_id=str(rental.id))
+    await notifications.withdraw(db, rental.id, _RESERVATION_REMINDERS, now)
+    await notifications.notify_client(
+        db, rental.user_id, Notification(NotificationEvent.RESERVATION_EXPIRED, rental.id, {}), now
+    )
     return replace(rental, status=status, cancel_reason=CancelReason.EXPIRED, ended_at=now)
 
 
@@ -194,6 +203,24 @@ async def get_rentals(db: AsyncSession, rental_ids: Collection[UUID]) -> dict[UU
     if not rental_ids:
         return {}
     return {rental.id: rental for rental in await repository.get_rentals(db, rental_ids)}
+
+
+async def remind_expiring_reservations(db: AsyncSession, now: datetime, ahead: timedelta) -> int:
+    """Queues «the reservation ends soon» for every reservation ending within `ahead`; runs every
+    minute in the worker. A reservation is reminded once however often this runs (the dedup key).
+    Returns how many reservations it looked at."""
+    async with db.begin():
+        rentals = await repository.get_reservations_ending(db, now, now + ahead)
+        for rental in rentals:
+            notification = Notification(
+                NotificationEvent.RESERVATION_EXPIRING,
+                rental.id,
+                {"minutes_left": minutes_left(rental.expires_at, now)},
+            )
+            await notifications.notify_client(
+                db, rental.user_id, notification, now, until=rental.expires_at
+            )
+    return len(rentals)
 
 
 def _was_expired(rental: Rental) -> bool:
@@ -287,6 +314,7 @@ class RentalService:
                     raise RentalBusyError
                 status = apply_transition(rental.status, RentalTransition.CANCEL)
                 await repository.cancel(self.db, rental.id, status, CancelReason.CLIENT, now)
+                await notifications.withdraw(self.db, rental.id, _RESERVATION_REMINDERS, now)
                 await fleet.change_status(
                     self.db, rental.car_id, CarTransition.CANCEL_RESERVATION, now
                 )
@@ -456,6 +484,7 @@ class RentalService:
                     self.db, rental.car_id, CarTransition.START_RENTAL, done_at
                 )
                 await repository.start_trip(self.db, rental.id, status, done_at)
+                await notifications.withdraw(self.db, rental.id, _RESERVATION_REMINDERS, done_at)
                 logger.info("rental_trip_started", rental_id=str(rental.id))
             else:
                 await repository.release_command(self.db, rental.id, hold_until, done_at)

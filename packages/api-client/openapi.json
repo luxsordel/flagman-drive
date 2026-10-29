@@ -1797,6 +1797,68 @@
         "title": "ModelTariffOut",
         "type": "object"
       },
+      "NotificationCategory": {
+        "enum": ["reservation", "trip", "payment"],
+        "title": "NotificationCategory",
+        "type": "string"
+      },
+      "NotificationCategoryOut": {
+        "properties": {
+          "category": {
+            "$ref": "#/components/schemas/NotificationCategory"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "mandatory": {
+            "description": "Trip and payment notifications cannot be switched off.",
+            "title": "Mandatory",
+            "type": "boolean"
+          }
+        },
+        "required": ["category", "enabled", "mandatory"],
+        "title": "NotificationCategoryOut",
+        "type": "object"
+      },
+      "NotificationPreferencesIn": {
+        "additionalProperties": false,
+        "properties": {
+          "categories": {
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "description": "Only the categories to change; the others stay as they are.",
+            "examples": [
+              {
+                "reservation": false
+              }
+            ],
+            "propertyNames": {
+              "$ref": "#/components/schemas/NotificationCategory"
+            },
+            "title": "Categories",
+            "type": "object"
+          }
+        },
+        "required": ["categories"],
+        "title": "NotificationPreferencesIn",
+        "type": "object"
+      },
+      "NotificationPreferencesOut": {
+        "properties": {
+          "categories": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationCategoryOut"
+            },
+            "title": "Categories",
+            "type": "array"
+          }
+        },
+        "required": ["categories"],
+        "title": "NotificationPreferencesOut",
+        "type": "object"
+      },
       "OtpRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2051,6 +2113,30 @@
         "required": ["title", "status"],
         "title": "Problem",
         "type": "object"
+      },
+      "PushDeviceIn": {
+        "additionalProperties": false,
+        "properties": {
+          "platform": {
+            "$ref": "#/components/schemas/PushPlatform"
+          },
+          "token": {
+            "description": "The Expo push token of the app on this phone.",
+            "examples": ["ExponentPushToken[xxxxxxxxxxxxxxxxxxxxxx]"],
+            "maxLength": 255,
+            "pattern": "^Expo(nent)?PushToken\\[[A-Za-z0-9_-]{1,200}\\]$",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": ["token", "platform"],
+        "title": "PushDeviceIn",
+        "type": "object"
+      },
+      "PushPlatform": {
+        "enum": ["ios", "android"],
+        "title": "PushPlatform",
+        "type": "string"
       },
       "ReadinessResponse": {
         "additionalProperties": false,
@@ -7970,6 +8056,245 @@
         ],
         "summary": "Change the signed-in client's profile",
         "tags": ["profile"]
+      }
+    },
+    "/me/notification-preferences": {
+      "get": {
+        "operationId": "get_notification_preferences_me_notification_preferences_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Which notifications the client gets",
+        "tags": ["notifications"]
+      },
+      "patch": {
+        "operationId": "update_notification_preferences_me_notification_preferences_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NotificationPreferencesIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationPreferencesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:notification-category-mandatory`, or `validation-error`."
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Switch categories of notifications on or off",
+        "tags": ["notifications"]
+      }
+    },
+    "/me/push-device": {
+      "delete": {
+        "description": "Idempotent: a session without a device also gives 204.",
+        "operationId": "forget_push_device_me_push_device_delete",
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stop pushes to this phone",
+        "tags": ["notifications"]
+      },
+      "put": {
+        "description": "One device per session: a second call replaces the token. A token registered by another session moves to this one. Signing out stops the pushes.",
+        "operationId": "register_push_device_me_push_device_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushDeviceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "429": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Too many requests, type `urn:flagman:problem:rate-limited`.",
+            "headers": {
+              "Retry-After": {
+                "description": "Seconds to wait before retrying.",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Send pushes to this phone while this session lasts",
+        "tags": ["notifications"]
       }
     },
     "/payment-cards": {

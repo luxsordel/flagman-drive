@@ -12,6 +12,7 @@ import flagman.fleet.models
 import flagman.geo.models
 import flagman.identity.models
 import flagman.kyc.models
+import flagman.notifications.models
 import flagman.payments.models
 import flagman.pricing.models
 import flagman.rentals.models

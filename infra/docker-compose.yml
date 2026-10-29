@@ -164,8 +164,9 @@ services:
       - no-new-privileges:true
     restart: unless-stopped
 
-  # Periodic jobs, see docs/adr/0013. The image of the API, but only the database
-  # settings: the worker signs and checks nothing, so it gets none of the API secrets.
+  # Periodic jobs, see docs/adr/0013, and push notifications, docs/adr/0020. The image of the
+  # API, but only the database and push settings: the worker signs and checks nothing, so it
+  # gets none of the API secrets.
   worker:
     # The same build and tag as the api service, so `up worker` alone still finds the image.
     image: flagman-api:local
@@ -176,6 +177,12 @@ services:
       API_ENV: ${API_ENV:?set API_ENV in .env (dev locally, prod on a server)}
       API_LOG_LEVEL: ${API_LOG_LEVEL:-INFO}
       AUTH_CLEANUP_RETENTION_DAYS: ${AUTH_CLEANUP_RETENTION_DAYS:-}
+      RENTAL_RESERVATION_REMINDER_MINUTES: ${RENTAL_RESERVATION_REMINDER_MINUTES:-}
+      NOTIFICATIONS_PROVIDER: ${NOTIFICATIONS_PROVIDER:-}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+      EXPO_PUSH_TIMEOUT_SECONDS: ${EXPO_PUSH_TIMEOUT_SECONDS:-}
+      NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS: ${NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS:-}
+      NOTIFICATIONS_RETENTION_DAYS: ${NOTIFICATIONS_RETENTION_DAYS:-}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}

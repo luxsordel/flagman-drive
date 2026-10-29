@@ -4,6 +4,8 @@ declare namespace NodeJS {
   interface ProcessEnv {
     readonly EXPO_PUBLIC_API_URL?: string;
     readonly EXPO_PUBLIC_MAP_STYLE_URL?: string;
+    // Read by app.config.ts at build time, not by the bundle.
+    readonly EAS_PROJECT_ID?: string;
   }
   interface Process {
     readonly env: ProcessEnv;

@@ -1,7 +1,7 @@
 """add support conversations and incidents, staff display names
 
 Revision ID: d7e3a9c4b152
-Revises: b4c8e2a61f37
+Revises: e5b7c2d9a4f1
 Create Date: 2026-10-29 12:00:00.000000
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "d7e3a9c4b152"
-down_revision: str | Sequence[str] | None = "b4c8e2a61f37"
+down_revision: str | Sequence[str] | None = "e5b7c2d9a4f1"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

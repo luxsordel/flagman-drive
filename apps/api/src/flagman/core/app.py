@@ -31,6 +31,7 @@ from flagman.identity.api import profile_router, staff_admin_router, staff_route
 from flagman.identity.api import router as identity_router
 from flagman.kyc.api import review_router as kyc_review_router
 from flagman.kyc.api import router as kyc_router
+from flagman.notifications.api import router as notifications_router
 from flagman.payments.api import router as payments_router
 from flagman.payments.api import webhook_router as payments_webhook_router
 from flagman.payments.fake_pages import router as fake_provider_router
@@ -127,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(map_zones_router)
     app.include_router(rentals_router)
     app.include_router(pricing_router)
+    app.include_router(notifications_router)
     app.include_router(payments_router)
     app.include_router(payments_webhook_router)
     app.include_router(support_router)
