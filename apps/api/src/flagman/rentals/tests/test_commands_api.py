@@ -19,6 +19,7 @@ from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import (
     CarCommand,
+    CarCommandDuplicateError,
     CarCommandRejectedError,
     CarState,
     CarStatus,
@@ -183,6 +184,10 @@ def test_a_car_without_fresh_telemetry_does_not_open(
         pytest.param(
             (TelematicsTimeoutError(), HTTPStatus.GATEWAY_TIMEOUT, "telematics-timeout"),
             id="timeout",
+        ),
+        pytest.param(
+            (CarCommandDuplicateError(), HTTPStatus.CONFLICT, "car-command-duplicate"),
+            id="duplicate",
         ),
     ],
 )

@@ -414,8 +414,10 @@ class RentalService:
 
         done_at = self.clock()
         async with self.db.begin():
-            # Not expired here even if the car answered after the hold ran out: it has opened for
-            # this reservation, and cancelling now would put an open car back on the map.
+            # This request does not expire the reservation even if the car answered after the hold
+            # ran out: it has opened for it. The timeout job may still have cancelled it meanwhile,
+            # once `command_until` passed; the hold is sized so that a car answering in time
+            # never meets that (docs/adr/0022).
             locked = await repository.get_rental(self.db, rental_id, user_id, for_update=True)
             if locked is None:
                 raise RentalNotFoundError
