@@ -104,7 +104,10 @@ def test_the_timeout_job_tells_the_client_the_reservation_expired(
     _run(integration_settings, "expire")
 
     [row] = _queued(integration_settings, rental["id"])
-    assert (row.user_id, row.event, row.params) == (person.id, "reservation_expired", {})
+    assert (row.user_id, row.event) == (person.id, "reservation_expired")
+    # The paid half of the 45 minutes, the same amount as in the receipt.
+    receipt = person.get(rental["id"]).json()["receipt"]
+    assert row.params == {"amount": receipt["cost"]["total"]}
 
 
 def test_a_reservation_expired_on_access_is_told_once(
