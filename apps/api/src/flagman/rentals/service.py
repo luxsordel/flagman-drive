@@ -1,9 +1,9 @@
-"""Rentals for clients: reserve, cancel, inspect the car and open it (docs/02-architecture.md).
+"""Rentals for clients: reserve, inspect, open, drive, finish and pay (docs/02-architecture.md).
 
 Every change runs in one transaction with the car's status (fleet) and holds the rental row, so
 a request, the timeout job and a parallel request of the same client never act on one rental
-at once. A command to the car is the exception: nothing is held while the car thinks, the
-rental is marked busy instead (docs/adr/0022).
+at once. A command to the car and a payment are the exceptions: nothing is held while the car
+or the provider thinks, the rental is marked busy instead (docs/adr/0022, docs/adr/0023).
 """
 
 import asyncio
@@ -15,7 +15,7 @@ from uuid import UUID, uuid4
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flagman.core.config import Settings
+from flagman.core.config import Settings, TripSettings
 from flagman.core.geo import GeoPoint
 from flagman.core.photos import (
     OUTPUT_CONTENT_TYPE,
@@ -30,8 +30,10 @@ from flagman.fleet.domain import (
     AvailabilityRules,
     Car,
     CarCommand,
+    CarCommandRejectedError,
     CarNotFoundError,
     CarTransition,
+    range_left_km,
 )
 from flagman.geo import service as geo
 from flagman.identity import service as identity
@@ -39,38 +41,83 @@ from flagman.kyc import service as kyc
 from flagman.kyc.domain import KycStatus
 from flagman.notifications import service as notifications
 from flagman.notifications.domain import Notification, NotificationEvent
+from flagman.payments import service as payments
+from flagman.payments.domain import (
+    NoUsableCardError,
+    OperationKind,
+    OperationStatus,
+    PaymentOperation,
+    PaymentsUnavailableError,
+)
 from flagman.pricing import service as pricing
-from flagman.pricing.domain import TariffNotFoundError, TariffPrices, TariffVersion
+from flagman.pricing.domain import (
+    IntervalKind,
+    Quote,
+    TariffNotFoundError,
+    TariffPrices,
+    TariffVersion,
+    calculate,
+)
 from flagman.rentals import repository
 from flagman.rentals.domain import (
     SIGNED_URL_TTL,
     ActiveRentalExistsError,
     CancelReason,
+    CardRequiredError,
+    ChargeRetryRules,
+    ChargeStatus,
     ClientBlockedError,
     CommandRules,
     DamageSide,
+    FinishCheck,
+    FinishRules,
     Inspection,
     InspectionPhotoNotFoundError,
     InspectionPhotoTooLargeError,
     InspectionPhotoTypeUnsupportedError,
     InspectionStage,
     KycNotApprovedError,
+    OutstandingDebtError,
+    PaymentHoldDeclinedError,
+    PaymentOutcomeUnknownError,
+    PlannedPayment,
+    Receipt,
+    ReceiptCard,
+    ReceiptNotFoundError,
     Rental,
     RentalBusyError,
     RentalCommand,
     RentalNotFoundError,
     RentalStatus,
     RentalTransition,
+    RentalTransitionNotAllowedError,
     ReservationExpiredError,
     ReservationTerms,
+    SettlementStep,
+    TripWarning,
+    TripWarningRules,
     apply_transition,
+    debt_key,
     ensure_command_allowed,
+    ensure_finish_allowed,
     ensure_near_car,
+    hold_key,
+    lock_refusal,
     minutes_left,
+    next_charge_attempt,
     normalize_damage_comment,
+    payment_key,
+    plan_settlement,
+    rental_intervals,
     reservation_deadlines,
+    trip_warnings,
 )
-from flagman.rentals.repository import ActiveRentalTakenError, InspectionRecord, NewRental
+from flagman.rentals.repository import (
+    ActiveRentalTakenError,
+    ChargeState,
+    InspectionRecord,
+    NewRental,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -83,12 +130,35 @@ COMMAND_LIMIT = Limit("rental-commands-user", 10, 60)
 # Eight photos per inspection and a few retries on a bad network.
 UPLOAD_LIMIT = Limit("rental-photo-upload-user", 40, _HOUR)
 PHOTO_URL_LIMIT = Limit("rental-photo-url-user", 120, _HOUR)
+# A client paying a debt by hand after changing the card; more is a script hammering the bank.
+PAY_DEBT_LIMIT = Limit("rental-pay-debt-user", 10, _HOUR)
 
 # The command holds the rental a little longer than telematics may take to answer it.
 _COMMAND_HOLD_MARGIN = timedelta(seconds=5)
+# The first opening holds the trip's money before the command: the provider's time on top.
+_PAYMENT_HOLD_MARGIN = timedelta(seconds=15)
+# An unknown payment outcome is tried again this soon, with the same keys (docs/adr/0023).
+_PENDING_RETRY = timedelta(minutes=1)
+_CHARGE_BATCH = 50
 _EXPIRY_BATCH = 100
 # A reminder still waiting for a retry must not reach a client whose reservation is over.
 _RESERVATION_REMINDERS = (NotificationEvent.RESERVATION_EXPIRING,)
+
+
+@dataclass(frozen=True)
+class SettlementRules:
+    retry: ChargeRetryRules
+    # An unknown outcome is retried this soon, a declined debt by `retry`.
+    pending_retry: timedelta = _PENDING_RETRY
+
+
+def settlement_rules(settings: TripSettings) -> SettlementRules:
+    return SettlementRules(
+        retry=ChargeRetryRules(
+            max_attempts=settings.rental_charge_max_attempts,
+            interval=timedelta(seconds=settings.rental_charge_retry_interval_seconds),
+        )
+    )
 
 
 @dataclass(frozen=True)
@@ -97,6 +167,9 @@ class RentalRules:
     availability: AvailabilityRules
     commands: CommandRules
     command_hold: timedelta
+    finish: FinishRules
+    warnings: TripWarningRules
+    settlement: SettlementRules
 
 
 def rental_rules(settings: Settings) -> RentalRules:
@@ -109,7 +182,16 @@ def rental_rules(settings: Settings) -> RentalRules:
             max_state_age=availability.max_state_age,
         ),
         command_hold=timedelta(seconds=settings.telematics_command_timeout_seconds)
-        + _COMMAND_HOLD_MARGIN,
+        + _COMMAND_HOLD_MARGIN
+        + _PAYMENT_HOLD_MARGIN,
+        finish=FinishRules(
+            max_state_age=timedelta(seconds=settings.rental_finish_max_state_age_seconds)
+        ),
+        warnings=TripWarningRules(
+            low_battery_pct=settings.rental_low_battery_pct,
+            low_range_km=settings.rental_low_range_km,
+        ),
+        settlement=settlement_rules(settings),
     )
 
 
@@ -136,6 +218,19 @@ class RentalView:
     # Of the version fixed at the reservation, not the current one.
     prices: TariffPrices
     inspection_submitted: bool
+    # The cost so far by the server's clock; the receipt's once the rental has one.
+    cost: Quote = field(default_factory=lambda: Quote(lines=(), total=0))
+    warnings: tuple[TripWarning, ...] = ()
+    receipt: Receipt | None = None
+    after_inspection_submitted: bool = False
+
+
+@dataclass(frozen=True)
+class Debt:
+    rental_id: UUID
+    # Kopecks still owed: the receipt's total less what has been taken already.
+    amount: int
+    ended_at: datetime | None
 
 
 async def _current_tariff(db: AsyncSession, car: Car) -> TariffVersion:
@@ -150,6 +245,9 @@ async def _expire(db: AsyncSession, rental: Rental, now: datetime) -> Rental:
     status = apply_transition(rental.status, RentalTransition.EXPIRE)
     await repository.cancel(db, rental.id, status, CancelReason.EXPIRED, now)
     await fleet.change_status(db, rental.car_id, CarTransition.CANCEL_RESERVATION, now)
+    if rental.hold_id is not None:
+        # An opening that held the money and then failed: the charge job releases the hold.
+        await repository.set_charge(db, rental.id, ChargeState(ChargeStatus.PENDING, 0, now), now)
     logger.info("rental_reservation_expired", rental_id=str(rental.id))
     await notifications.withdraw(db, rental.id, _RESERVATION_REMINDERS, now)
     await notifications.notify_client(
@@ -199,6 +297,208 @@ def _was_expired(rental: Rental) -> bool:
     return rental.cancel_reason is CancelReason.EXPIRED
 
 
+_DRIVING = (RentalStatus.IN_TRIP, RentalStatus.PARKED)
+_ENDED_TRIP = (RentalStatus.FINISHED, RentalStatus.PAID, RentalStatus.PAYMENT_FAILED)
+# A finished trip waits for its money; a failed payment is a debt until it is paid.
+_OWING = (RentalStatus.FINISHED, RentalStatus.PAYMENT_FAILED)
+_TOGGLES = {
+    RentalTransition.PARK: (RentalStatus.PARKED, IntervalKind.PARKED),
+    RentalTransition.RESUME: (RentalStatus.IN_TRIP, IntervalKind.DRIVING),
+}
+
+
+# Settlement: what a rental cost is taken from the card (docs/adr/0023). Payments run outside
+# any transaction of ours, each with its own key, so a repeat never takes the money twice.
+
+
+@dataclass(frozen=True)
+class _Settled:
+    status: ChargeStatus
+    attempts: int
+    # Kopecks still owed after this try.
+    owed: int
+    # The provider did not say: the same key goes again soon.
+    unknown: bool = False
+
+
+def _taken(operation: PaymentOperation | None) -> int:
+    if operation is None or operation.status is not OperationStatus.SUCCEEDED:
+        return 0
+    return 0 if operation.kind is OperationKind.VOID else operation.amount
+
+
+def _hold_of(rental: Rental) -> UUID:
+    if rental.hold_id is None:
+        raise RuntimeError("a hold step for a rental without a hold")
+    return rental.hold_id
+
+
+async def _pay(
+    db: AsyncSession, gw: payments.Gateway, rental: Rental, planned: PlannedPayment, now: datetime
+) -> PaymentOperation | None:
+    """None when the client has no usable card left: as good as a decline."""
+    key = payment_key(rental.id, planned.step)
+    try:
+        if planned.step is SettlementStep.VOID:
+            return await payments.void(db, gw, _hold_of(rental), key, now)
+        amount = planned.amount or 0
+        if planned.step is SettlementStep.CAPTURE:
+            return await payments.capture(
+                db, gw, _hold_of(rental), payments.Payment(amount, key), now
+            )
+        return await payments.charge(db, gw, rental.user_id, payments.Payment(amount, key), now)
+    except NoUsableCardError:
+        return None
+
+
+async def _settle_first(
+    db: AsyncSession, gw: payments.Gateway, rental: Rental, total: int, now: datetime
+) -> _Settled:
+    hold = await payments.get_operation(db, rental.hold_id) if rental.hold_id else None
+    taken = 0
+    for planned in plan_settlement(total, hold.amount if hold else None):
+        operation = await _pay(db, gw, rental, planned, now)
+        taken += _taken(operation)
+        if operation is None or operation.status is OperationStatus.DECLINED:
+            return _Settled(ChargeStatus.FAILED, rental.charge_attempts, total - taken)
+        if not operation.is_final:
+            return _Settled(
+                ChargeStatus.PENDING, rental.charge_attempts, total - taken, unknown=True
+            )
+    return _Settled(ChargeStatus.PAID, rental.charge_attempts, 0)
+
+
+async def _taken_before(db: AsyncSession, rental: Rental, attempts: int) -> int:
+    """What the rental's payments took so far, the first settlement and `attempts` debt tries."""
+    first = (SettlementStep.CAPTURE, SettlementStep.EXTRA, SettlementStep.CHARGE)
+    keys = [payment_key(rental.id, step) for step in first]
+    keys += [debt_key(rental.id, attempt) for attempt in range(1, attempts + 1)]
+    return sum([_taken(await payments.find_operation(db, key)) for key in keys])
+
+
+async def _retry_debt(
+    db: AsyncSession, gw: payments.Gateway, rental: Rental, total: int, now: datetime
+) -> _Settled:
+    attempt = rental.charge_attempts
+    last = await payments.find_operation(db, debt_key(rental.id, attempt)) if attempt else None
+    # A try the provider has not answered goes again with its own key; only a declined one,
+    # or one that never reached the provider, makes room for the next.
+    if last is None or last.status is OperationStatus.DECLINED:
+        attempt += 1
+    owed = total - await _taken_before(db, rental, attempt - 1)
+    if owed <= 0:
+        return _Settled(ChargeStatus.PAID, attempt, 0)
+    try:
+        operation = await payments.charge(
+            db, gw, rental.user_id, payments.Payment(owed, debt_key(rental.id, attempt)), now
+        )
+    except NoUsableCardError:
+        return _Settled(ChargeStatus.FAILED, attempt, owed)
+    if operation.status is OperationStatus.SUCCEEDED:
+        return _Settled(ChargeStatus.PAID, attempt, 0)
+    return _Settled(
+        ChargeStatus.FAILED, attempt, owed, unknown=operation.status is not OperationStatus.DECLINED
+    )
+
+
+async def _record(
+    db: AsyncSession, rental_id: UUID, settled: _Settled, rules: SettlementRules, now: datetime
+) -> None:
+    async with db.begin():
+        rental = await repository.get_rental_by_id(db, rental_id, for_update=True)
+        if rental is None:
+            return
+        next_at: datetime | None = None
+        if settled.unknown:
+            next_at = now + rules.pending_retry
+        elif settled.status is ChargeStatus.FAILED:
+            next_at = next_charge_attempt(settled.attempts, rules.retry, now)
+        state = ChargeState(settled.status, settled.attempts, next_at)
+        await repository.set_charge(db, rental.id, state, now)
+        transition = None
+        if settled.status is ChargeStatus.PAID and rental.status in _OWING:
+            transition = RentalTransition.MARK_PAID
+        elif settled.status is ChargeStatus.FAILED and rental.status is RentalStatus.FINISHED:
+            transition = RentalTransition.MARK_PAYMENT_FAILED
+        if transition is not None:
+            status = apply_transition(rental.status, transition)
+            await repository.set_status(db, rental.id, status, now)
+        if (
+            settled.status is ChargeStatus.FAILED
+            and rental.charge_status is not ChargeStatus.FAILED
+        ):
+            notification = Notification(
+                NotificationEvent.PAYMENT_FAILED, rental.id, {"amount": settled.owed}
+            )
+            await notifications.notify_client(db, rental.user_id, notification, now)
+    logger.info("rental_charge_settled", rental_id=str(rental_id), charge_status=settled.status)
+
+
+async def settle(
+    db: AsyncSession, gw: payments.Gateway, rental_id: UUID, rules: SettlementRules, now: datetime
+) -> None:
+    """Takes what the rental owes: the first settlement with its fixed keys while its outcome is
+    not known, then one more debt try once it was declined. Does nothing for a paid rental."""
+    async with db.begin():
+        rental = await repository.get_rental_by_id(db, rental_id)
+        receipt = await repository.get_receipt(db, rental_id)
+    if rental is None or rental.charge_status not in (ChargeStatus.PENDING, ChargeStatus.FAILED):
+        return
+    total = receipt.quote.total if receipt else 0
+    if rental.charge_status is ChargeStatus.PENDING:
+        settled = await _settle_first(db, gw, rental, total, now)
+    else:
+        settled = await _retry_debt(db, gw, rental, total, now)
+    await _record(db, rental.id, settled, rules, now)
+
+
+async def retry_charges(
+    db: AsyncSession, gw: payments.Gateway, rules: SettlementRules, now: datetime
+) -> int:
+    """The charge job: settles the rentals whose outcome is unknown and the debts whose next try
+    is due. Returns how many it tried."""
+    async with db.begin():
+        due = await repository.lock_due_charges(db, now, _CHARGE_BATCH)
+        for rental in due:
+            # Claimed before paying: a crash in the middle leaves it to a later run.
+            claimed = ChargeState(
+                rental.charge_status, rental.charge_attempts, now + rules.pending_retry
+            )
+            await repository.set_charge(db, rental.id, claimed, now)
+    for rental in due:
+        try:
+            await settle(db, gw, rental.id, rules, now)
+        except Exception:
+            # One rental the provider chokes on must not hold up the others.
+            logger.exception("rental_charge_retry_failed", rental_id=str(rental.id))
+    return len(due)
+
+
+async def owed(db: AsyncSession, rental: Rental) -> int:
+    async with db.begin():
+        receipt = await repository.get_receipt(db, rental.id)
+    total = receipt.quote.total if receipt else 0
+    return max(0, total - await _taken_before(db, rental, rental.charge_attempts))
+
+
+async def watch_trip_battery(db: AsyncSession, low_battery_pct: int, now: datetime) -> int:
+    """Warns the clients whose car has gone below the threshold; runs every minute in the worker.
+    The dedup key gives one push per trip however often this runs. Returns how many it warned."""
+    warned = 0
+    async with db.begin():
+        for trip in await repository.get_trips(db):
+            car = await fleet.get_car(db, trip.car_id)
+            pct = car.state.battery_pct if car.state else None
+            if pct is None or pct >= low_battery_pct:
+                continue
+            notification = Notification(
+                NotificationEvent.TRIP_LOW_BATTERY, trip.id, {"battery_pct": pct}
+            )
+            await notifications.notify_client(db, trip.user_id, notification, now)
+            warned += 1
+    return warned
+
+
 @dataclass(frozen=True)
 class RentalService:
     db: AsyncSession
@@ -206,6 +506,13 @@ class RentalService:
     rules: RentalRules
     # The trip starts when the car has opened, which is seconds after the request came.
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
+    # None when PAYMENTS_PROVIDER is not set: a trip cannot start then, settling waits for the job.
+    gateway: payments.Gateway | None = None
+
+    def _gateway(self) -> payments.Gateway:
+        if self.gateway is None:
+            raise PaymentsUnavailableError
+        return self.gateway
 
     async def _ensure_admitted(self, user_id: UUID) -> None:
         if await kyc.get_admission_status(self.db, user_id) is not KycStatus.APPROVED:
@@ -219,19 +526,77 @@ class RentalService:
             raise RentalNotFoundError
         return await _expire_if_due(self.db, rental, now)
 
-    async def _view(self, rental: Rental) -> RentalView:
+    async def _view(self, rental: Rental, now: datetime) -> RentalView:
         car = await fleet.get_car(self.db, rental.car_id)
         before = await repository.get_inspection(self.db, rental.id, InspectionStage.BEFORE)
-        submitted = before is not None and before.inspection.is_submitted
+        after = await repository.get_inspection(self.db, rental.id, InspectionStage.AFTER)
         tariff = await pricing.get_version(self.db, rental.tariff_version_id)
+        receipt = await repository.get_receipt(self.db, rental.id)
+        if receipt is not None:
+            cost = receipt.quote
+        elif rental.ended_at is not None:
+            # Ended without a receipt: nothing was billed, a free cancellation or an expiry.
+            cost = Quote(lines=(), total=0)
+        else:
+            intervals = await repository.get_intervals(self.db, rental.id)
+            cost = calculate(rental_intervals(rental, intervals, now), tariff.prices)
+        state = car.state
+        warnings: tuple[TripWarning, ...] = ()
+        if rental.status in _DRIVING and state is not None:
+            range_km = range_left_km(car.model.range_km, state.battery_pct)
+            warnings = trip_warnings(state.battery_pct, range_km, self.rules.warnings)
         return RentalView(
-            rental=rental, car=car, prices=tariff.prices, inspection_submitted=submitted
+            rental=rental,
+            car=car,
+            prices=tariff.prices,
+            inspection_submitted=before is not None and before.inspection.is_submitted,
+            cost=cost,
+            warnings=warnings,
+            receipt=receipt,
+            after_inspection_submitted=after is not None and after.inspection.is_submitted,
         )
+
+    async def _bill(self, ended: Rental, now: datetime, *, receipt_always: bool) -> Receipt | None:
+        """Issues the receipt of a rental that has just ended and leaves its money to settle.
+
+        A cancelled reservation gets a receipt only for a paid wait; a hold is released either way.
+        """
+        tariff = await pricing.get_version(self.db, ended.tariff_version_id)
+        intervals = await repository.get_intervals(self.db, ended.id)
+        quote = calculate(rental_intervals(ended, intervals, now), tariff.prices)
+        receipt = None
+        if quote.total or receipt_always:
+            card = (
+                await payments.card_of(self.db, ended.hold_id)
+                if ended.hold_id
+                else await payments.default_card(self.db, ended.user_id)
+            )
+            receipt = Receipt(
+                rental_id=ended.id,
+                tariff_version_id=tariff.id,
+                quote=quote,
+                card=ReceiptCard(brand=card.brand.value, last4=card.last4) if card else None,
+                issued_at=now,
+            )
+            await repository.add_receipt(self.db, receipt)
+        if quote.total or ended.hold_id:
+            state = ChargeState(ChargeStatus.PENDING, 0, now + self.rules.settlement.pending_retry)
+            await repository.set_charge(self.db, ended.id, state, now)
+        return receipt
+
+    async def _settle(self, rental_id: UUID) -> None:
+        """Right away when payments are configured; the charge job does it otherwise."""
+        if self.gateway is not None:
+            await settle(self.db, self.gateway, rental_id, self.rules.settlement, self.clock())
 
     async def reserve(self, user_id: UUID, car_id: UUID, now: datetime) -> RentalView:
         await self.limiter.hit(RESERVE_LIMIT, str(user_id))
         async with self.db.begin():
             await self._ensure_admitted(user_id)
+            if await repository.has_debt(self.db, user_id):
+                raise OutstandingDebtError
+            if not await payments.has_usable_card(self.db, user_id, now):
+                raise CardRequiredError
             own = await repository.get_active_rental(self.db, user_id, for_update=True)
             if own is not None and (await _expire_if_due(self.db, own, now)).is_active:
                 raise ActiveRentalExistsError
@@ -265,7 +630,7 @@ class RentalService:
 
     async def get(self, user_id: UUID, rental_id: UUID, now: datetime) -> RentalView:
         async with self.db.begin():
-            return await self._view(await self._lock(user_id, rental_id, now))
+            return await self._view(await self._lock(user_id, rental_id, now), now)
 
     async def current(self, user_id: UUID, now: datetime) -> RentalView | None:
         """The client's active rental, so the app can come back to it after a restart."""
@@ -274,10 +639,14 @@ class RentalService:
             if rental is None:
                 return None
             rental = await _expire_if_due(self.db, rental, now)
-            return await self._view(rental) if rental.is_active else None
+            return await self._view(rental, now) if rental.is_active else None
 
     async def cancel(self, user_id: UUID, rental_id: UUID, now: datetime) -> RentalView:
-        """Cancelling a cancelled reservation answers it as it is: a retry after a lost answer."""
+        """Cancelling a cancelled reservation answers it as it is: a retry after a lost answer.
+
+        A paid wait is charged, and a hold of a failed opening released.
+        """
+        to_settle = False
         async with self.db.begin():
             rental = await self._lock(user_id, rental_id, now)
             if rental.status is not RentalStatus.CANCELLED:
@@ -290,9 +659,15 @@ class RentalService:
                 await fleet.change_status(
                     self.db, rental.car_id, CarTransition.CANCEL_RESERVATION, now
                 )
-                rental = await repository.get_rental(self.db, rental.id, user_id) or rental
+                ended = replace(
+                    rental, status=status, cancel_reason=CancelReason.CLIENT, ended_at=now
+                )
+                await self._bill(ended, now, receipt_always=False)
+                to_settle = bool(await repository.get_receipt(self.db, rental.id) or rental.hold_id)
                 logger.info("rental_reservation_cancelled", rental_id=str(rental.id))
-            return await self._view(rental)
+        if to_settle:
+            await self._settle(rental_id)
+        return await self.get(user_id, rental_id, self.clock())
 
     async def inspection(self, ref: InspectionRef, now: datetime) -> Inspection:
         async with self.db.begin():
@@ -434,6 +809,8 @@ class RentalService:
             rental_id=rental.id,
         )
         try:
+            if request.command is RentalCommand.OPEN and rental.hold_id is None:
+                await self._hold(rental, now)
             await commander.send(car_request, now)
         except Exception:
             async with self.db.begin():
@@ -456,12 +833,168 @@ class RentalService:
                     self.db, rental.car_id, CarTransition.START_RENTAL, done_at
                 )
                 await repository.start_trip(self.db, rental.id, status, done_at)
+                await repository.open_interval(self.db, rental.id, IntervalKind.DRIVING, done_at)
                 await notifications.withdraw(self.db, rental.id, _RESERVATION_REMINDERS, done_at)
                 logger.info("rental_trip_started", rental_id=str(rental.id))
             else:
                 await repository.release_command(self.db, rental.id, hold_until, done_at)
             rental = await repository.get_rental(self.db, rental.id, user_id) or rental
-            return await self._view(rental)
+            return await self._view(rental, done_at)
+
+    async def _hold(self, rental: Rental, now: datetime) -> None:
+        """Holds the trip's money before the car opens; raises when it is not held.
+
+        A declined hold is final for its key, so a retry after the client changed the card takes
+        the next key; an unknown outcome is retried with the same one.
+        """
+        gw = self._gateway()
+        tariff = await pricing.get_version(self.db, rental.tariff_version_id)
+        attempt = 1
+        while (
+            previous := await payments.find_operation(self.db, hold_key(rental.id, attempt))
+        ) is not None and previous.status is OperationStatus.DECLINED:
+            attempt += 1
+        payment = payments.Payment(tariff.prices.hold_amount, hold_key(rental.id, attempt))
+        try:
+            operation = await payments.hold(self.db, gw, rental.user_id, payment, now)
+        except NoUsableCardError as error:
+            raise CardRequiredError from error
+        if operation.status is OperationStatus.DECLINED:
+            raise PaymentHoldDeclinedError
+        if operation.status is not OperationStatus.SUCCEEDED:
+            raise PaymentOutcomeUnknownError
+        async with self.db.begin():
+            await repository.set_hold(self.db, rental.id, operation.id, self.clock())
+        logger.info("rental_hold_taken", rental_id=str(rental.id))
+
+    async def park(self, user_id: UUID, rental_id: UUID, now: datetime) -> RentalView:
+        return await self._toggle(user_id, rental_id, RentalTransition.PARK, now)
+
+    async def resume(self, user_id: UUID, rental_id: UUID, now: datetime) -> RentalView:
+        return await self._toggle(user_id, rental_id, RentalTransition.RESUME, now)
+
+    async def _toggle(
+        self, user_id: UUID, rental_id: UUID, transition: RentalTransition, now: datetime
+    ) -> RentalView:
+        """Parked time costs the parked price from now on; a repeat answers the rental as it is."""
+        wanted, kind = _TOGGLES[transition]
+        async with self.db.begin():
+            rental = await self._lock(user_id, rental_id, now)
+            if rental.status is not wanted:
+                status = apply_transition(rental.status, transition)
+                await repository.close_interval(self.db, rental.id, now)
+                await repository.open_interval(self.db, rental.id, kind, now)
+                await repository.set_status(self.db, rental.id, status, now)
+                rental = replace(rental, status=status)
+                logger.info("rental_trip_toggled", rental_id=str(rental.id), status=status)
+            return await self._view(rental, now)
+
+    async def finish(
+        self, commander: fleet.RentalCarCommander, user_id: UUID, rental_id: UUID, now: datetime
+    ) -> RentalView:
+        """Checks the car, locks it, ends the rental with a receipt and takes the money.
+
+        A repeat after the rental has ended checks nothing again: it settles what is left with
+        the same payment keys and answers the rental, so nothing is charged twice.
+        """
+        await self.limiter.hit(COMMAND_LIMIT, str(user_id))
+        async with self.db.begin():
+            rental = await self._lock(user_id, rental_id, now)
+            driving = rental.status in _DRIVING
+            if driving:
+                after = await repository.get_inspection(self.db, rental.id, InspectionStage.AFTER)
+                state = (await fleet.get_car(self.db, rental.car_id)).state
+                in_zone = state is not None and await geo.can_end_rental_at(self.db, state.location)
+                check = FinishCheck(
+                    recorded_at=state.recorded_at if state else None,
+                    ignition_on=state.ignition_on if state else False,
+                    in_end_zone=in_zone,
+                )
+                submitted = after is not None and after.inspection.is_submitted
+                ensure_finish_allowed(rental, submitted, check, self.rules.finish, now)
+                hold_until = now + self.rules.command_hold
+                await repository.set_command_until(self.db, rental.id, hold_until, now)
+            elif rental.status not in _ENDED_TRIP:
+                raise RentalTransitionNotAllowedError
+        if driving:
+            await self._lock_car(commander, rental, hold_until, now)
+            await self._end_trip(rental, hold_until)
+        await self._settle(rental_id)
+        return await self.get(user_id, rental_id, self.clock())
+
+    async def _lock_car(
+        self,
+        commander: fleet.RentalCarCommander,
+        rental: Rental,
+        hold_until: datetime,
+        now: datetime,
+    ) -> None:
+        car_request = fleet.RentalCommandRequest(
+            car_id=rental.car_id,
+            command=CarCommand.CLOSE,
+            client_id=rental.user_id,
+            rental_id=rental.id,
+        )
+        try:
+            await commander.send(car_request, now)
+        except Exception as error:
+            async with self.db.begin():
+                await repository.release_command(self.db, rental.id, hold_until, self.clock())
+            if isinstance(error, CarCommandRejectedError):
+                raise lock_refusal(error.reason) from error
+            raise
+
+    async def _end_trip(self, rental: Rental, hold_until: datetime) -> None:
+        done_at = self.clock()
+        async with self.db.begin():
+            locked = await repository.get_rental(
+                self.db, rental.id, rental.user_id, for_update=True
+            )
+            if locked is None:
+                raise RentalNotFoundError
+            if locked.status not in _DRIVING:
+                # A parallel finish got here first.
+                await repository.release_command(self.db, rental.id, hold_until, done_at)
+                return
+            status = apply_transition(locked.status, RentalTransition.FINISH)
+            await repository.close_interval(self.db, rental.id, done_at)
+            await repository.finish(self.db, rental.id, status, done_at)
+            await fleet.change_status(self.db, rental.car_id, CarTransition.END_RENTAL, done_at)
+            ended = replace(locked, status=status, ended_at=done_at)
+            receipt = await self._bill(ended, done_at, receipt_always=True)
+            total = receipt.quote.total if receipt else 0
+            notification = Notification(
+                NotificationEvent.TRIP_FINISHED, rental.id, {"total": total}
+            )
+            await notifications.notify_client(self.db, rental.user_id, notification, done_at)
+        logger.info("rental_finished", rental_id=str(rental.id))
+
+    async def receipt(self, user_id: UUID, rental_id: UUID) -> Receipt:
+        async with self.db.begin():
+            rental = await repository.get_rental(self.db, rental_id, user_id)
+            if rental is None:
+                raise RentalNotFoundError
+            receipt = await repository.get_receipt(self.db, rental.id)
+        if receipt is None:
+            raise ReceiptNotFoundError
+        return receipt
+
+    async def debts(self, user_id: UUID) -> list[Debt]:
+        async with self.db.begin():
+            rentals = await repository.get_debts(self.db, user_id)
+        return [Debt(r.id, await owed(self.db, r), r.ended_at) for r in rentals]
+
+    async def pay_debt(self, user_id: UUID, rental_id: UUID, now: datetime) -> RentalView:
+        """One more try at the debt, e.g. after the client bound another card."""
+        await self.limiter.hit(PAY_DEBT_LIMIT, str(user_id))
+        gw = self._gateway()
+        async with self.db.begin():
+            rental = await repository.get_rental(self.db, rental_id, user_id)
+        if rental is None:
+            raise RentalNotFoundError
+        if rental.charge_status is ChargeStatus.FAILED:
+            await settle(self.db, gw, rental.id, self.rules.settlement, now)
+        return await self.get(user_id, rental_id, self.clock())
 
 
 async def _delete_quietly(storage: ObjectStorage, key: str) -> None:

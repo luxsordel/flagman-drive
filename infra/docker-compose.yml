@@ -131,6 +131,9 @@ services:
       FLEET_TELEMETRY_MAX_AGE_SECONDS: ${FLEET_TELEMETRY_MAX_AGE_SECONDS:-}
       RENTAL_MAX_RESERVATION_MINUTES: ${RENTAL_MAX_RESERVATION_MINUTES:-}
       RENTAL_COMMAND_MAX_DISTANCE_M: ${RENTAL_COMMAND_MAX_DISTANCE_M:-}
+      RENTAL_FINISH_MAX_STATE_AGE_SECONDS: ${RENTAL_FINISH_MAX_STATE_AGE_SECONDS:-}
+      RENTAL_LOW_BATTERY_PCT: ${RENTAL_LOW_BATTERY_PCT:-}
+      RENTAL_LOW_RANGE_KM: ${RENTAL_LOW_RANGE_KM:-}
       # For `flagman-fleet seed`: the same values as the emulator, so the seeded cars get its ids.
       EMULATOR_SEED: ${EMULATOR_SEED:-42}
       EMULATOR_CAR_COUNT: ${EMULATOR_CAR_COUNT:-30}
@@ -165,8 +168,8 @@ services:
     restart: unless-stopped
 
   # Periodic jobs, see docs/adr/0013, and push notifications, docs/adr/0020. The image of the
-  # API, but only the database and push settings: the worker signs and checks nothing, so it
-  # gets none of the API secrets.
+  # API, but only the database, push and payment settings: the payments retry declined charges
+  # (docs/adr/0023); the worker signs and checks nothing else, so it gets no other API secret.
   worker:
     # The same build and tag as the api service, so `up worker` alone still finds the image.
     image: flagman-api:local
@@ -178,6 +181,14 @@ services:
       API_LOG_LEVEL: ${API_LOG_LEVEL:-INFO}
       AUTH_CLEANUP_RETENTION_DAYS: ${AUTH_CLEANUP_RETENTION_DAYS:-}
       RENTAL_RESERVATION_REMINDER_MINUTES: ${RENTAL_RESERVATION_REMINDER_MINUTES:-}
+      RENTAL_LOW_BATTERY_PCT: ${RENTAL_LOW_BATTERY_PCT:-}
+      RENTAL_LOW_RANGE_KM: ${RENTAL_LOW_RANGE_KM:-}
+      RENTAL_CHARGE_RETRY_INTERVAL_SECONDS: ${RENTAL_CHARGE_RETRY_INTERVAL_SECONDS:-}
+      RENTAL_CHARGE_MAX_ATTEMPTS: ${RENTAL_CHARGE_MAX_ATTEMPTS:-}
+      PAYMENTS_PROVIDER: ${PAYMENTS_PROVIDER:-}
+      PAYMENTS_WEBHOOK_SECRET: ${PAYMENTS_WEBHOOK_SECRET:-}
+      PAYMENTS_TOKEN_ENCRYPTION_KEY: ${PAYMENTS_TOKEN_ENCRYPTION_KEY:-}
+      PAYMENTS_WEBHOOK_TOLERANCE_SECONDS: ${PAYMENTS_WEBHOOK_TOLERANCE_SECONDS:-}
       NOTIFICATIONS_PROVIDER: ${NOTIFICATIONS_PROVIDER:-}
       EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
       EXPO_PUSH_TIMEOUT_SECONDS: ${EXPO_PUSH_TIMEOUT_SECONDS:-}
@@ -226,6 +237,10 @@ services:
       EMULATOR_CHARGE_BELOW_PCT: ${EMULATOR_CHARGE_BELOW_PCT:-}
       EMULATOR_CHARGE_UNTIL_PCT: ${EMULATOR_CHARGE_UNTIL_PCT:-}
       EMULATOR_CHARGE_RATE_PCT_PER_H: ${EMULATOR_CHARGE_RATE_PCT_PER_H:-}
+      EMULATOR_RENTAL_TRIP_KM: ${EMULATOR_RENTAL_TRIP_KM:-}
+      EMULATOR_RENTAL_REST_S: ${EMULATOR_RENTAL_REST_S:-}
+      EMULATOR_DEMO_ENDPOINTS: ${EMULATOR_DEMO_ENDPOINTS:-}
+      EMULATOR_DEMO_PARK_REST_S: ${EMULATOR_DEMO_PARK_REST_S:-}
     ports:
       - "127.0.0.1:${EMULATOR_PORT:-8100}:8100"
     healthcheck:

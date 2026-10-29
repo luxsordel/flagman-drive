@@ -8,21 +8,29 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.pricing.domain import IntervalKind, Quote, QuoteLine
 from flagman.rentals.domain import (
     ACTIVE_STATUSES,
     CancelReason,
+    ChargeStatus,
     Damage,
     DamageSide,
     Inspection,
     InspectionPhoto,
     InspectionStage,
+    Receipt,
+    ReceiptCard,
     Rental,
     RentalStatus,
+    TripInterval,
 )
 from flagman.rentals.models import Inspection as InspectionRow
 from flagman.rentals.models import InspectionDamage as DamageRow
 from flagman.rentals.models import InspectionPhoto as PhotoRow
+from flagman.rentals.models import Receipt as ReceiptRow
+from flagman.rentals.models import ReceiptLine as ReceiptLineRow
 from flagman.rentals.models import Rental as RentalRow
+from flagman.rentals.models import TripInterval as IntervalRow
 
 
 class ActiveRentalTakenError(Exception):
@@ -43,6 +51,10 @@ def _to_rental(row: RentalRow) -> Rental:
         ended_at=row.ended_at,
         cancel_reason=CancelReason(row.cancel_reason) if row.cancel_reason else None,
         command_until=row.command_until,
+        hold_id=row.hold_id,
+        charge_status=ChargeStatus(row.charge_status) if row.charge_status else None,
+        charge_attempts=row.charge_attempts,
+        charge_next_at=row.charge_next_at,
     )
 
 
@@ -81,6 +93,17 @@ async def get_rental(
 ) -> Rental | None:
     # The owner is part of the query: another client's rental is simply not found.
     query = select(RentalRow).where(RentalRow.id == rental_id, RentalRow.user_id == user_id)
+    if for_update:
+        query = query.with_for_update()
+    row = await db.scalar(query)
+    return _to_rental(row) if row else None
+
+
+async def get_rental_by_id(
+    db: AsyncSession, rental_id: UUID, *, for_update: bool = False
+) -> Rental | None:
+    """For the jobs that act on any client's rental; requests use `get_rental`."""
+    query = select(RentalRow).where(RentalRow.id == rental_id)
     if for_update:
         query = query.with_for_update()
     row = await db.scalar(query)
@@ -262,4 +285,180 @@ async def add_damage(
 async def submit_inspection(db: AsyncSession, inspection_id: UUID, now: datetime) -> None:
     await db.execute(
         update(InspectionRow).where(InspectionRow.id == inspection_id).values(submitted_at=now)
+    )
+
+
+# The trip and its settlement (docs/adr/0023)
+
+_DRIVING = (RentalStatus.IN_TRIP, RentalStatus.PARKED)
+
+
+async def set_hold(db: AsyncSession, rental_id: UUID, hold_id: UUID, now: datetime) -> None:
+    await db.execute(
+        update(RentalRow).where(RentalRow.id == rental_id).values(hold_id=hold_id, updated_at=now)
+    )
+
+
+async def set_status(
+    db: AsyncSession, rental_id: UUID, status: RentalStatus, now: datetime
+) -> None:
+    await db.execute(
+        update(RentalRow).where(RentalRow.id == rental_id).values(status=status, updated_at=now)
+    )
+
+
+async def finish(db: AsyncSession, rental_id: UUID, status: RentalStatus, now: datetime) -> None:
+    await db.execute(
+        update(RentalRow)
+        .where(RentalRow.id == rental_id)
+        .values(status=status, ended_at=now, command_until=None, updated_at=now)
+    )
+
+
+@dataclass(frozen=True)
+class ChargeState:
+    status: ChargeStatus | None
+    attempts: int = 0
+    # When the worker tries again; None when nothing is left to try.
+    next_at: datetime | None = None
+
+
+async def set_charge(db: AsyncSession, rental_id: UUID, state: ChargeState, now: datetime) -> None:
+    await db.execute(
+        update(RentalRow)
+        .where(RentalRow.id == rental_id)
+        .values(
+            charge_status=state.status,
+            charge_attempts=state.attempts,
+            charge_next_at=state.next_at,
+            updated_at=now,
+        )
+    )
+
+
+async def has_debt(db: AsyncSession, user_id: UUID) -> bool:
+    query = select(RentalRow.id).where(
+        RentalRow.user_id == user_id, RentalRow.charge_status == ChargeStatus.FAILED
+    )
+    return await db.scalar(query.limit(1)) is not None
+
+
+async def get_debts(db: AsyncSession, user_id: UUID) -> list[Rental]:
+    query = (
+        select(RentalRow)
+        .where(RentalRow.user_id == user_id, RentalRow.charge_status == ChargeStatus.FAILED)
+        .order_by(RentalRow.ended_at)
+    )
+    return [_to_rental(row) for row in await db.scalars(query)]
+
+
+async def lock_due_charges(db: AsyncSession, now: datetime, limit: int) -> list[Rental]:
+    """Charges the retry job owes a try: an unknown outcome or a declined debt whose time came.
+
+    SKIP LOCKED: a rental a request settles right now is left to that request.
+    """
+    query = (
+        select(RentalRow)
+        .where(
+            RentalRow.charge_status.in_((ChargeStatus.PENDING, ChargeStatus.FAILED)),
+            RentalRow.charge_next_at <= now,
+        )
+        .order_by(RentalRow.charge_next_at)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    return [_to_rental(row) for row in await db.scalars(query)]
+
+
+async def get_trips(db: AsyncSession) -> list[Rental]:
+    """Rentals on the road now, for the low battery watch."""
+    query = select(RentalRow).where(RentalRow.status.in_(_DRIVING))
+    return [_to_rental(row) for row in await db.scalars(query)]
+
+
+async def open_interval(
+    db: AsyncSession, rental_id: UUID, kind: IntervalKind, now: datetime
+) -> None:
+    db.add(IntervalRow(rental_id=rental_id, kind=kind, started_at=now))
+    await db.flush()
+
+
+async def close_interval(db: AsyncSession, rental_id: UUID, now: datetime) -> None:
+    await db.execute(
+        update(IntervalRow)
+        .where(IntervalRow.rental_id == rental_id, IntervalRow.ended_at.is_(None))
+        .values(ended_at=now)
+    )
+
+
+async def get_intervals(db: AsyncSession, rental_id: UUID) -> tuple[TripInterval, ...]:
+    query = (
+        select(IntervalRow)
+        .where(IntervalRow.rental_id == rental_id)
+        .order_by(IntervalRow.started_at, IntervalRow.id)
+    )
+    return tuple(
+        TripInterval(kind=IntervalKind(row.kind), start=row.started_at, end=row.ended_at)
+        for row in await db.scalars(query)
+    )
+
+
+async def add_receipt(db: AsyncSession, receipt: Receipt) -> None:
+    card = receipt.card
+    db.add(
+        ReceiptRow(
+            rental_id=receipt.rental_id,
+            tariff_version_id=receipt.tariff_version_id,
+            total=receipt.quote.total,
+            card_brand=card.brand if card else None,
+            card_last4=card.last4 if card else None,
+            issued_at=receipt.issued_at,
+        )
+    )
+    # The lines refer to the receipt: it goes in first.
+    await db.flush()
+    db.add_all(
+        ReceiptLineRow(
+            rental_id=receipt.rental_id,
+            kind=line.kind,
+            minutes=line.minutes,
+            free_minutes=line.free_minutes,
+            per_minute=line.per_minute,
+            amount=line.amount,
+        )
+        for line in receipt.quote.lines
+    )
+    await db.flush()
+
+
+async def get_receipt(db: AsyncSession, rental_id: UUID) -> Receipt | None:
+    row = await db.get(ReceiptRow, rental_id)
+    if row is None:
+        return None
+    lines = await db.scalars(select(ReceiptLineRow).where(ReceiptLineRow.rental_id == rental_id))
+    order = list(IntervalKind)
+    quote_lines = sorted(
+        (
+            QuoteLine(
+                kind=IntervalKind(line.kind),
+                minutes=line.minutes,
+                free_minutes=line.free_minutes,
+                per_minute=line.per_minute,
+                amount=line.amount,
+            )
+            for line in lines
+        ),
+        key=lambda line: order.index(line.kind),
+    )
+    card = (
+        ReceiptCard(brand=row.card_brand, last4=row.card_last4)
+        if row.card_brand and row.card_last4
+        else None
+    )
+    return Receipt(
+        rental_id=row.rental_id,
+        tariff_version_id=row.tariff_version_id,
+        quote=Quote(lines=tuple(quote_lines), total=row.total),
+        card=card,
+        issued_at=row.issued_at,
     )

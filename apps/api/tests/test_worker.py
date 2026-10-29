@@ -142,10 +142,12 @@ async def test_each_job_keeps_its_own_interval(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(worker, "run_auth_cleanup", job(worker.AUTH_CLEANUP))
     monkeypatch.setattr(worker, "run_reservation_expiry", job(worker.RESERVATION_EXPIRY))
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_battery_watch", _idle_job)
     intervals = {
         worker.AUTH_CLEANUP: timedelta(hours=1),
         worker.RESERVATION_EXPIRY: timedelta(milliseconds=50),
         worker.OUTBOX_CLEANUP: timedelta(hours=1),
+        worker.TRIP_BATTERY_WATCH: timedelta(hours=1),
     }
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=intervals), 5)

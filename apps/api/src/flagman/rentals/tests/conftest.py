@@ -1,7 +1,9 @@
+import base64
 import random
+import secrets
 import uuid
 from collections.abc import Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from typing import Any
@@ -13,15 +15,17 @@ from redis import Redis
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import SettingsFactory
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.geo import GeoPoint
 from flagman.fleet import repository as fleet_repository
 from flagman.fleet.domain import CarState
 from flagman.fleet.seed import DEMO_MODELS
-from flagman.fleet.tests.conftest import FakeGateway, bearer, run_in_db
+from flagman.fleet.tests.conftest import FakeGateway, add_car, bearer, run_in_db
 from flagman.identity.domain import AccessClaims, issue_access_token
 from flagman.kyc.domain import KycStatus
+from flagman.payments.tests.conftest import RETURN_URL, submit_card
 from flagman.pricing import service as pricing
 from flagman.rentals import api
 
@@ -30,6 +34,22 @@ CAR_POINT = GeoPoint(lat=53.9023, lon=27.5615)
 # About 111.3 km per degree of latitude here: these are roughly 30 m and 70 m north of the car.
 NEAR_CAR = GeoPoint(lat=CAR_POINT.lat + 0.00027, lon=CAR_POINT.lon)
 FAR_FROM_CAR = GeoPoint(lat=CAR_POINT.lat + 0.00063, lon=CAR_POINT.lon)
+# The fake provider's cards (payments/fake_provider.py).
+GOOD_CARD = "4242424242424242"
+DECLINED_CARD = "4000000000009995"
+
+
+@pytest.fixture
+def integration_settings(
+    integration_env: dict[str, str], migrated_database: None, make_settings: SettingsFactory
+) -> Settings:
+    """With the fake payment provider: a rental needs a card, a trip a hold."""
+    return make_settings(
+        **{name.lower(): value for name, value in integration_env.items()},
+        payments_provider="fake",
+        payments_webhook_secret=secrets.token_hex(32),
+        payments_token_encryption_key=base64.b64encode(secrets.token_bytes(32)).decode(),
+    )
 
 
 def query(settings: Settings, sql: str, **params: Any) -> list[Row[Any]]:
@@ -95,6 +115,15 @@ def demo_tariffs(integration_settings: Settings) -> None:
     run_in_db(integration_settings, seed)
 
 
+def add_priced_car(settings: Settings, point: GeoPoint | None) -> str:
+    """A car of a model of its own with the demo tariff: other tests may give the shared demo
+    models new prices, and a test that counts money must know what it is charged."""
+    spec = replace(DEMO_MODELS[0].spec, name=f"Trip {uuid.uuid4().hex[:8]}")
+    car = add_car(settings, point, model=spec)
+    run_in_db(settings, lambda db: pricing.seed_demo_tariffs(db, datetime.now(UTC)))
+    return car
+
+
 @pytest.fixture
 def gateway() -> FakeGateway:
     return FakeGateway(outcome=opened_state())
@@ -121,7 +150,11 @@ class Person:
     """A client in the database with a token; approved for rentals unless told otherwise."""
 
     def __init__(
-        self, settings: Settings, client: TestClient, kyc: KycStatus | None = KycStatus.APPROVED
+        self,
+        settings: Settings,
+        client: TestClient,
+        kyc: KycStatus | None = KycStatus.APPROVED,
+        card: str | None = GOOD_CARD,
     ) -> None:
         self.settings = settings
         self.client = client
@@ -146,6 +179,18 @@ class Person:
         secret = settings.api_jwt_secret.get_secret_value()
         token = issue_access_token(AccessClaims(self.id, uuid.uuid4()), secret, datetime.now(UTC))
         self.headers = bearer(token)
+        if card is not None:
+            self.bind_card(card)
+
+    def bind_card(self, number: str) -> str:
+        """Through the fake provider's page, as the app does; returns the binding id."""
+        started = self.client.post(
+            "/payment-cards/bindings", json={"return_url": RETURN_URL}, headers=self.headers
+        )
+        assert started.status_code == 201, started.text
+        page_url = started.json()["page_url"]
+        assert submit_card(self.client, page_url, number).status_code == 303
+        return str(started.json()["id"])
 
     def block(self) -> None:
         execute(self.settings, "UPDATE users SET blocked_at = now() WHERE id = :id", id=self.id)
