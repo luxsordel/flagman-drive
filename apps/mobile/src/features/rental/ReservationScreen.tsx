@@ -15,17 +15,21 @@ import type { MapCar } from '../map/mapApi';
 import { formatDistance, formatKopecks } from '../map/mapFormat';
 import { isExpoGo } from '../map/platform';
 import type { Rental } from './rentalApi';
+import { ReceiptView } from './ReceiptView';
 import { RentalErrorMessage } from './RentalErrorMessage';
 import { useRentalStore, useRestoredRental } from './RentalProvider';
 import { ReservationCountdown } from './ReservationCountdown';
 import type { RentalAction } from './rentalStore';
 import { endedText } from './rentalText';
-import { distanceMeters, isActive } from './rentalTime';
+import { distanceMeters, isActive, isOnTrip } from './rentalTime';
+import { TripPanel } from './TripPanel';
 
 const photoHeight = 120;
 const mapHeight = 220;
 // Doors and charge change while the client walks to the car; the deadlines may too.
 const refreshEveryMs = 30_000;
+// The cost of a trip grows every minute: the server is asked more often then.
+const tripRefreshEveryMs = 15_000;
 
 /** The reservation: the car, the countdown, the inspection, then opening the car. */
 export function ReservationScreen() {
@@ -35,13 +39,15 @@ export function ReservationScreen() {
   const store = useRentalStore();
   const state = useRestoredRental();
   const { rental } = state;
+  const onTrip = rental !== null && isOnTrip(rental);
 
   useEffect(() => {
-    const timer = setInterval(() => void store.refresh(), refreshEveryMs);
+    const every = onTrip ? tripRefreshEveryMs : refreshEveryMs;
+    const timer = setInterval(() => void store.refresh(), every);
     return () => {
       clearInterval(timer);
     };
-  }, [store]);
+  }, [store, onTrip]);
 
   const toMap = () => {
     store.dismiss();
@@ -69,7 +75,12 @@ export function ReservationScreen() {
     return (
       <Screen>
         <AppText variant="title">{t('rental.title')}</AppText>
-        <AppText accessibilityRole="alert">{t(endedText(rental))}</AppText>
+        {rental.receipt === null ? (
+          <AppText accessibilityRole="alert">{t(endedText(rental))}</AppText>
+        ) : (
+          <ReceiptView rental={rental} pending={state.pending} />
+        )}
+        <RentalErrorMessage error={state.error} />
         <Button title={t('rental.toMap')} onPress={toMap} />
       </Screen>
     );
@@ -88,7 +99,12 @@ export function ReservationScreen() {
           </AppText>
         </>
       ) : (
-        <AppText tone="muted">{t('rental.inTrip')}</AppText>
+        <>
+          <TripPanel rental={rental} offsetMs={state.offsetMs} pending={state.pending} />
+          {state.error?.kind === 'network' ? (
+            <AppText tone="muted">{t('rental.trip.offline')}</AppText>
+          ) : null}
+        </>
       )}
       <RentalErrorMessage error={state.error} />
       {rental.inspection_submitted ? (
@@ -180,7 +196,7 @@ function CarSummary({ rental }: { rental: Rental }) {
   );
 }
 
-function mapCarOf(rental: Rental, at: { lat: number; lon: number }): MapCar {
+export function mapCarOf(rental: Rental, at: { lat: number; lon: number }): MapCar {
   const { car } = rental;
   return {
     id: car.id,

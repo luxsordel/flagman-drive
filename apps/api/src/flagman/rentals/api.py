@@ -17,6 +17,8 @@ from flagman.core.storage import ObjectStorage, object_storage_from_settings
 from flagman.fleet import service as fleet
 from flagman.fleet.ports import TelematicsGateway
 from flagman.identity.dependencies import CurrentClient, get_current_client
+from flagman.payments import service as payments
+from flagman.payments.domain import PaymentsUnavailableError
 from flagman.rentals.domain import (
     SIGNED_URL_TTL,
     InspectionPhotoTooLargeError,
@@ -27,8 +29,11 @@ from flagman.rentals.schemas import (
     CommandIn,
     CurrentRentalOut,
     DamageIn,
+    DebtOut,
+    DebtsOut,
     InspectionOut,
     PhotoUrlOut,
+    ReceiptOut,
     RentalOut,
     ReserveIn,
 )
@@ -55,7 +60,14 @@ def get_rental_service(
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
     resources: Annotated[Resources, Depends(get_resources)],
 ) -> RentalService:
-    return RentalService(db=db, limiter=limiter, rules=rental_rules(resources.settings))
+    try:
+        gateway = payments.gateway(resources.settings)
+    except PaymentsUnavailableError:
+        # Reading a rental works without payments; holding and paying answer 503.
+        gateway = None
+    return RentalService(
+        db=db, limiter=limiter, rules=rental_rules(resources.settings), gateway=gateway
+    )
 
 
 def get_photo_storage(resources: Annotated[Resources, Depends(get_resources)]) -> ObjectStorage:
@@ -129,7 +141,8 @@ _STORAGE_UNAVAILABLE = _problem("`urn:flagman:problem:photo-storage-unavailable`
             "not told."
         ),
         HTTPStatus.CONFLICT: _problem(
-            "`urn:flagman:problem:active-rental-exists`: finish or cancel the current one first."
+            "`urn:flagman:problem:active-rental-exists`: finish or cancel the current one first; "
+            "`card-required`: bind a card; `outstanding-debt`: an earlier rental is not paid."
         ),
         HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
@@ -146,6 +159,11 @@ async def get_current_rental(client: Client, service: Service) -> CurrentRentalO
     return CurrentRentalOut(rental=RentalOut.of(view, now) if view else None)
 
 
+@router.get("/debts", summary="What the client owes for earlier rentals")
+async def get_debts(client: Client, service: Service) -> DebtsOut:
+    return DebtsOut(debts=[DebtOut.of(debt) for debt in await service.debts(client.user_id)])
+
+
 @router.get("/{rental_id}", summary="One of the client's rentals")
 async def get_rental(client: Client, rental_id: UUID, service: Service) -> RentalOut:
     now = datetime.now(UTC)
@@ -155,7 +173,10 @@ async def get_rental(client: Client, rental_id: UUID, service: Service) -> Renta
 @router.post(
     "/{rental_id}/cancel",
     summary="Cancel the reservation",
-    description="Cancelling a cancelled reservation returns it as it is.",
+    description=(
+        "Cancelling a cancelled reservation returns it as it is. A paid wait is charged: "
+        "`charge_status` and `receipt` tell how it went."
+    ),
     responses={
         HTTPStatus.CONFLICT: _problem(
             "`urn:flagman:problem:rental-transition-not-allowed`: the trip has started; "
@@ -166,6 +187,111 @@ async def get_rental(client: Client, rental_id: UUID, service: Service) -> Renta
 async def cancel_reservation(client: Client, rental_id: UUID, service: Service) -> RentalOut:
     now = datetime.now(UTC)
     return RentalOut.of(await service.cancel(client.user_id, rental_id, now), now)
+
+
+_PAYMENT_UNKNOWN = (
+    "`urn:flagman:problem:payment-outcome-unknown`: the provider did not answer, try again; "
+    "`payments-unavailable`: payments are not configured."
+)
+
+
+@router.post(
+    "/{rental_id}/park",
+    summary="Park during the trip, at the parked price",
+    description=(
+        "Needs fresh telemetry of a car with its ignition off: the parked price is for a car "
+        "that stands. Parking a parked rental returns it as it is."
+    ),
+    responses={
+        HTTPStatus.CONFLICT: _problem(
+            "One reason at a time: `urn:flagman:problem:rental-transition-not-allowed`: not on "
+            "a trip; `rental-command-in-progress`; `car-state-stale`: no fresh telemetry, try "
+            "again; `ignition-on`."
+        ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+    },
+)
+async def park(client: Client, rental_id: UUID, service: Service) -> RentalOut:
+    now = datetime.now(UTC)
+    return RentalOut.of(await service.park(client.user_id, rental_id, now), now)
+
+
+@router.post(
+    "/{rental_id}/resume",
+    summary="Drive on after parking, at the driving price",
+    description="Resuming a rental on the road returns it as it is.",
+    responses={
+        HTTPStatus.CONFLICT: _problem(
+            "`urn:flagman:problem:rental-transition-not-allowed`: not on a trip; "
+            "`rental-command-in-progress`."
+        ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+    },
+)
+async def resume(client: Client, rental_id: UUID, service: Service) -> RentalOut:
+    now = datetime.now(UTC)
+    return RentalOut.of(await service.resume(client.user_id, rental_id, now), now)
+
+
+@router.post(
+    "/{rental_id}/finish",
+    summary="Finish the trip: check and lock the car, issue the receipt and pay",
+    description=(
+        "Needs the inspection after the trip. Checks the car's fresh telemetry, locks it, then "
+        "takes the cost from the hold and charges the rest. A repeat after the end checks "
+        "nothing again and never charges twice: it answers the rental with its receipt."
+    ),
+    responses={
+        HTTPStatus.CONFLICT: _problem(
+            "One reason at a time: `urn:flagman:problem:inspection-required`; "
+            "`car-state-stale`: no fresh telemetry, try again; `outside-end-zone`; "
+            "`ignition-on`; `doors-open`; `car-lock-failed`: `detail` is the car's reason; "
+            "`rental-command-in-progress`; `rental-transition-not-allowed`: not on a trip."
+        ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+        HTTPStatus.SERVICE_UNAVAILABLE: _problem(
+            "`urn:flagman:problem:telematics-unavailable`: nothing was done, try again."
+        ),
+        HTTPStatus.GATEWAY_TIMEOUT: _problem(
+            "`urn:flagman:problem:telematics-timeout`: the car may have locked, try again."
+        ),
+    },
+)
+async def finish(
+    client: Client, rental_id: UUID, service: Service, commander: Commander
+) -> RentalOut:
+    view = await service.finish(commander, client.user_id, rental_id, datetime.now(UTC))
+    return RentalOut.of(view, datetime.now(UTC))
+
+
+@router.get(
+    "/{rental_id}/receipt",
+    summary="The receipt of an ended rental",
+    responses={
+        HTTPStatus.NOT_FOUND: _problem(
+            "`urn:flagman:problem:receipt-not-found`: still running, or nothing was billed."
+        ),
+    },
+)
+async def get_receipt(client: Client, rental_id: UUID, service: Service) -> ReceiptOut:
+    return ReceiptOut.of(await service.receipt(client.user_id, rental_id))
+
+
+@router.post(
+    "/{rental_id}/pay",
+    summary="Try to pay the debt of the rental again",
+    description=(
+        "For a client who has bound another card; the worker retries a debt by itself too. "
+        "A rental without a debt is returned as it is."
+    ),
+    responses={
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+        HTTPStatus.SERVICE_UNAVAILABLE: _problem(_PAYMENT_UNKNOWN),
+    },
+)
+async def pay_debt(client: Client, rental_id: UUID, service: Service) -> RentalOut:
+    view = await service.pay_debt(client.user_id, rental_id, datetime.now(UTC))
+    return RentalOut.of(view, datetime.now(UTC))
 
 
 def get_inspection_ref(client: Client, rental_id: UUID, stage: InspectionStage) -> InspectionRef:
@@ -255,8 +381,9 @@ async def submit_inspection(ref: Ref, service: Service) -> InspectionOut:
     "/{rental_id}/commands",
     summary="Open or close the car of the rental",
     description=(
-        "Only within reach of the car, after the inspection. The first opening starts the trip. "
-        "Waits for the car; a failed command leaves the rental as it was."
+        "Only within reach of the car, after the inspection. The first opening holds the "
+        "tariff's amount on the card and starts the trip. Waits for the car; a failed command "
+        "leaves the rental as it was."
     ),
     responses={
         HTTPStatus.FORBIDDEN: _problem(_ADMISSION),
@@ -264,11 +391,16 @@ async def submit_inspection(ref: Ref, service: Service) -> InspectionOut:
             "`urn:flagman:problem:inspection-required`; `too-far-from-car`; "
             "`car-location-unknown`: no fresh telemetry from the car; "
             "`rental-command-in-progress`; `rental-transition-not-allowed`: the rental is over; "
-            "`car-command-rejected`: the car refused, `detail` is its reason; " + _EXPIRED
+            "`car-command-rejected`: the car refused, `detail` is its reason; "
+            "`card-required`: no usable card for the hold; " + _EXPIRED
+        ),
+        HTTPStatus.PAYMENT_REQUIRED: _problem(
+            "`urn:flagman:problem:payment-hold-declined`: the car stays closed; change the card."
         ),
         HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
         HTTPStatus.SERVICE_UNAVAILABLE: _problem(
-            "`urn:flagman:problem:telematics-unavailable`: nothing was done, try again."
+            "`urn:flagman:problem:telematics-unavailable`: nothing was done, try again; "
+            + _PAYMENT_UNKNOWN
         ),
         HTTPStatus.GATEWAY_TIMEOUT: _problem(
             "`urn:flagman:problem:telematics-timeout`: the car may or may not have done it."

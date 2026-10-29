@@ -6,7 +6,16 @@ from collections.abc import Iterable
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta
 
-from car_emulator.domain import Car, CommandType, SimulationParams, apply_command, step_fleet
+from car_emulator.domain import (
+    Car,
+    CommandRejectedError,
+    CommandType,
+    SimulationParams,
+    apply_command,
+    is_rented,
+    step_fleet,
+    stop_for_client,
+)
 
 
 class CarNotFoundError(Exception):
@@ -55,6 +64,16 @@ class FleetService:
         # Remembered even if the command is rejected: a retry needs a new id, as with real APIs.
         self._seen_commands[command_id] = now + self._replay_window
         apply_command(car, command, now)
+        return replace(car)
+
+    def park_for_demo(self, car_id: uuid.UUID, rest: timedelta, now: datetime) -> Car:
+        """Stops a rented car where it is and keeps it there for `rest`, so a demo can finish
+        the rental without waiting for the drive to end. Raises CommandRejectedError
+        `not_rented` for a car nobody has opened."""
+        car = self._get(car_id)
+        if not is_rented(car):
+            raise CommandRejectedError("not_rented")
+        stop_for_client(car, rest, now)
         return replace(car)
 
     def simulate(self, now: datetime) -> None:

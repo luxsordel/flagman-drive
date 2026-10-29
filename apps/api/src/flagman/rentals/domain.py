@@ -12,6 +12,7 @@ from enum import StrEnum
 from http import HTTPStatus
 
 from flagman.core.errors import AppError
+from flagman.pricing.domain import Interval, IntervalKind, Quote
 
 
 class RentalStatus(StrEnum):
@@ -36,6 +37,18 @@ class RentalTransition(StrEnum):
     FORCE_FINISH = "force_finish"
     MARK_PAID = "mark_paid"
     MARK_PAYMENT_FAILED = "mark_payment_failed"
+
+
+class ChargeStatus(StrEnum):
+    """Where the money of a rental stands; values are stored as is (docs/adr/0024).
+
+    A rental with nothing to charge has none. `failed` is a debt whatever the rental's status:
+    a cancelled reservation whose paid wait was declined owes as much as a finished trip.
+    """
+
+    PENDING = "pending"
+    PAID = "paid"
+    FAILED = "failed"
 
 
 class CancelReason(StrEnum):
@@ -177,6 +190,12 @@ class Rental:
     # Set while a command waits for the car: the reservation is neither expired nor cancelled
     # under it, and a second command is refused (docs/adr/0022).
     command_until: datetime | None
+    # The trip's hold, set by the first opening; a reservation that never opened has none.
+    hold_id: uuid.UUID | None = None
+    charge_status: ChargeStatus | None = None
+    # Retries of a declined debt so far, and when the worker tries the next one.
+    charge_attempts: int = 0
+    charge_next_at: datetime | None = None
 
     @property
     def is_active(self) -> bool:
@@ -395,3 +414,284 @@ def ensure_near_car(
         raise CarLocationUnknownError
     if distance_m > rules.max_distance_m:
         raise TooFarFromCarError
+
+
+# The trip and its end (docs/adr/0024)
+
+
+class CardRequiredError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "card-required"
+    title = "Bind a payment card before renting"
+
+
+class OutstandingDebtError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "outstanding-debt"
+    title = "Pay the debt of an earlier rental first"
+
+
+class PaymentHoldDeclinedError(AppError):
+    """The bank refused the trip's hold: the car stays closed."""
+
+    status = HTTPStatus.PAYMENT_REQUIRED
+    slug = "payment-hold-declined"
+    title = "The bank declined the hold for the trip; try another card"
+
+
+class PaymentOutcomeUnknownError(AppError):
+    """The provider did not answer; a retry with the same request is safe."""
+
+    status = HTTPStatus.SERVICE_UNAVAILABLE
+    slug = "payment-outcome-unknown"
+    title = "The payment provider did not answer; try again in a minute"
+
+
+class CarStateStaleError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "car-state-stale"
+    title = "The car has not reported itself recently; try again in a minute"
+
+
+class OutsideEndZoneError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "outside-end-zone"
+    title = "The rental cannot be finished here; park the car within the zone"
+
+
+class IgnitionOnError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "ignition-on"
+    title = "Turn the ignition off first"
+
+
+class DoorsOpenError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "doors-open"
+    title = "Close the doors first"
+
+
+class CarLockFailedError(AppError):
+    """The car refused to lock for a reason the client cannot fix; `detail` has it."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "car-lock-failed"
+    title = "The car did not lock; contact support"
+
+
+class ReceiptNotFoundError(AppError):
+    status = HTTPStatus.NOT_FOUND
+    slug = "receipt-not-found"
+    title = "The rental has no receipt"
+
+
+def is_debt(charge_status: ChargeStatus | None) -> bool:
+    return charge_status is ChargeStatus.FAILED
+
+
+@dataclass(frozen=True)
+class TripInterval:
+    """A stored driving or parked interval; the current one has no end yet."""
+
+    kind: IntervalKind
+    start: datetime
+    end: datetime | None
+
+
+def rental_intervals(
+    rental: Rental, stored: tuple[TripInterval, ...], now: datetime
+) -> tuple[Interval, ...]:
+    """What the rental is billed for: the wait for the client, then the trip's intervals. The
+    open one runs until `now`, or until the end of a rental that has ended."""
+    end = rental.ended_at or now
+    waited_until = max(rental.reserved_at, rental.trip_started_at or end)
+    billed = [Interval(IntervalKind.WAITING, rental.reserved_at, waited_until)]
+    billed.extend(
+        Interval(trip.kind, trip.start, trip.end or max(trip.start, end)) for trip in stored
+    )
+    return tuple(billed)
+
+
+@dataclass(frozen=True)
+class FinishRules:
+    # Stricter than for opening: the car must be where it reports now, not five minutes ago.
+    max_state_age: timedelta
+
+
+@dataclass(frozen=True)
+class FinishCheck:
+    """What the car told in its last snapshot and where that is."""
+
+    recorded_at: datetime | None
+    ignition_on: bool
+    in_end_zone: bool
+
+
+def ensure_finish_allowed(
+    rental: Rental,
+    inspection_submitted: bool,
+    check: FinishCheck,
+    rules: FinishRules,
+    now: datetime,
+) -> None:
+    """The client's checks before the car is locked; the doors are told by the car when it locks.
+
+    One reason at a time, in the order the client fixes them: the photos, then the car itself.
+    """
+    if rental.status not in _DRIVING:
+        raise RentalTransitionNotAllowedError
+    if rental.is_busy(now):
+        raise RentalBusyError
+    if not inspection_submitted:
+        raise InspectionRequiredError
+    if check.recorded_at is None or now - check.recorded_at > rules.max_state_age:
+        raise CarStateStaleError
+    if not check.in_end_zone:
+        raise OutsideEndZoneError
+    if check.ignition_on:
+        raise IgnitionOnError
+
+
+@dataclass(frozen=True)
+class ParkCheck:
+    """What the car told in its last snapshot when the client asks for the parked price."""
+
+    recorded_at: datetime | None
+    ignition_on: bool
+
+
+def ensure_toggle_allowed(
+    rental: Rental,
+    transition: RentalTransition,
+    check: ParkCheck,
+    rules: FinishRules,
+    now: datetime,
+) -> None:
+    """Parking is the cheaper price, so the car must be standing with its ignition off: otherwise
+    the client would set it and drive on. Driving on again needs nothing but a free rental."""
+    if rental.is_busy(now):
+        raise RentalBusyError
+    if transition is not RentalTransition.PARK:
+        return
+    if check.recorded_at is None or now - check.recorded_at > rules.max_state_age:
+        raise CarStateStaleError
+    if check.ignition_on:
+        raise IgnitionOnError
+
+
+# The emulator's reasons, the ones a real provider's adapter maps its own to.
+_DOORS_OPEN_REASON = "doors_open"
+_IGNITION_ON_REASON = "ignition_on"
+
+
+def lock_refusal(reason: str) -> AppError:
+    """The client-facing error for a car that refused to lock at the end of the trip."""
+    if reason == _DOORS_OPEN_REASON:
+        return DoorsOpenError()
+    if reason == _IGNITION_ON_REASON:
+        return IgnitionOnError()
+    return CarLockFailedError(reason)
+
+
+class SettlementStep(StrEnum):
+    """One payment of a rental; the value is also part of its idempotency key."""
+
+    CAPTURE = "capture"
+    VOID = "void"
+    EXTRA = "extra"
+    CHARGE = "charge"
+
+
+@dataclass(frozen=True)
+class PlannedPayment:
+    step: SettlementStep
+    # Kopecks; None for a void, which takes nothing.
+    amount: int | None
+
+
+def plan_settlement(total: int, hold_amount: int | None) -> tuple[PlannedPayment, ...]:
+    """How a total is paid: from the hold first, the rest above it charged to the card.
+
+    A rental without a hold (a cancelled reservation) is charged directly; a hold of a trip that
+    cost nothing is released.
+    """
+    if total < 0:
+        raise ValueError("a total cannot be negative")
+    if hold_amount is None:
+        return (PlannedPayment(SettlementStep.CHARGE, total),) if total else ()
+    if total == 0:
+        return (PlannedPayment(SettlementStep.VOID, None),)
+    captured = min(total, hold_amount)
+    steps = [PlannedPayment(SettlementStep.CAPTURE, captured)]
+    if total > captured:
+        steps.append(PlannedPayment(SettlementStep.EXTRA, total - captured))
+    return tuple(steps)
+
+
+def payment_key(rental_id: uuid.UUID, step: SettlementStep | str) -> str:
+    return f"rental:{rental_id}:{step}"
+
+
+def debt_key(rental_id: uuid.UUID, attempt: int) -> str:
+    return f"rental:{rental_id}:debt:{attempt}"
+
+
+def hold_key(rental_id: uuid.UUID, attempt: int) -> str:
+    return f"rental:{rental_id}:hold:{attempt}"
+
+
+@dataclass(frozen=True)
+class ChargeRetryRules:
+    max_attempts: int
+    interval: timedelta
+
+
+def next_charge_attempt(attempts: int, rules: ChargeRetryRules, now: datetime) -> datetime | None:
+    """When the worker retries a declined debt next; None once the attempts are spent.
+
+    A debt left after them waits for the client, or for an operator (#112).
+    """
+    if attempts >= rules.max_attempts:
+        return None
+    return now + rules.interval
+
+
+class TripWarning(StrEnum):
+    LOW_BATTERY = "low_battery"
+    LOW_RANGE = "low_range"
+
+
+@dataclass(frozen=True)
+class TripWarningRules:
+    low_battery_pct: int
+    low_range_km: int
+
+
+def trip_warnings(
+    battery_pct: int | None, range_km: int | None, rules: TripWarningRules
+) -> tuple[TripWarning, ...]:
+    """What the trip screen warns about; nothing without telemetry rather than a false alarm."""
+    warnings = []
+    if battery_pct is not None and battery_pct < rules.low_battery_pct:
+        warnings.append(TripWarning.LOW_BATTERY)
+    if range_km is not None and range_km < rules.low_range_km:
+        warnings.append(TripWarning.LOW_RANGE)
+    return tuple(warnings)
+
+
+@dataclass(frozen=True)
+class ReceiptCard:
+    brand: str
+    last4: str
+
+
+@dataclass(frozen=True)
+class Receipt:
+    """Issued once, when the rental ends; the database refuses to change it later."""
+
+    rental_id: uuid.UUID
+    tariff_version_id: uuid.UUID
+    quote: Quote
+    # The card the hold or the charge went to; None if the client had no card left.
+    card: ReceiptCard | None
+    issued_at: datetime

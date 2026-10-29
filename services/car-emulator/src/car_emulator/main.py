@@ -9,7 +9,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI
 
-from car_emulator.api import HEALTH_PATH, router
+from car_emulator.api import HEALTH_PATH, demo_router, router
 from car_emulator.config import Settings
 from car_emulator.domain import SimulationParams, seed_fleet
 from car_emulator.fleet import FleetService, Simulation
@@ -35,6 +35,8 @@ def build_simulation(settings: Settings) -> Simulation | None:
         charge_below_pct=settings.charge_below_pct,
         charge_until_pct=settings.charge_until_pct,
         charge_rate_pct_per_h=settings.charge_rate_pct_per_h,
+        rental_trip_km=settings.rental_trip_km,
+        rental_rest=timedelta(seconds=settings.rental_rest_s),
     )
     # Derived from EMULATOR_SEED but apart from seed_fleet's stream, so cars start where they did.
     rng = random.Random(f"{settings.seed}:simulation")  # noqa: S311 - not used for security
@@ -78,7 +80,10 @@ def create_app(settings: Settings, clock: Clock = utc_now) -> FastAPI:
     )
     app.state.fleet = fleet
     app.state.clock = clock
+    app.state.demo_rest = timedelta(seconds=settings.demo_park_rest_s)
     app.include_router(router)
+    if settings.demo_endpoints:
+        app.include_router(demo_router)
     app.add_middleware(
         SignatureMiddleware,
         secret=settings.command_secret.get_secret_value().encode(),

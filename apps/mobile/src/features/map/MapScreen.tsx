@@ -1,6 +1,6 @@
 import { spacing } from '@flagman/design-tokens';
-import { useRouter } from 'expo-router';
-import { Suspense, useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppState, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -10,6 +10,7 @@ import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { useKycApplication, useKycState } from '../kyc/KycProvider';
+import { DebtBanner } from '../rental/DebtBanner';
 import { RentalBanner } from '../rental/RentalBanner';
 import { useRentalStore, useRestoredRental } from '../rental/RentalProvider';
 import { CarCard, type Reservation } from './CarCard';
@@ -105,6 +106,13 @@ function LiveMap() {
     };
   }, [store]);
 
+  // Back from a receipt or a cancel: a debt the worker has paid meanwhile leaves the banner.
+  useFocusEffect(
+    useCallback(() => {
+      void rentalStore.loadDebts();
+    }, [rentalStore]),
+  );
+
   const notice = mapNotice(state, status === 'denied');
   const selectedCar = state.selected?.car ?? null;
   const reservation: Reservation = {
@@ -170,6 +178,13 @@ function LiveMap() {
             reservation={reservation}
             onClose={() => {
               store.clearSelection();
+            }}
+          />
+        ) : rentalState.debts.length > 0 ? (
+          <DebtBanner
+            debts={rentalState.debts}
+            onOpen={(id) => {
+              router.push({ pathname: '/rental/receipt', params: { id } });
             }}
           />
         ) : notice !== null ? (

@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -9,6 +10,8 @@ from car_emulator.ports import Clock
 from car_emulator.schemas import CarState, CommandRequest, CommandResult, Health
 
 router = APIRouter()
+# Only with EMULATOR_DEMO_ENDPOINTS: signed like every other route, never part of a real provider.
+demo_router = APIRouter(prefix="/demo")
 
 HEALTH_PATH = "/health"
 
@@ -19,6 +22,10 @@ def get_fleet(request: Request) -> FleetService:
 
 def get_clock(request: Request) -> Clock:
     return cast(Clock, request.app.state.clock)
+
+
+def get_demo_rest(request: Request) -> timedelta:
+    return cast(timedelta, request.app.state.demo_rest)
 
 
 Fleet = Annotated[FleetService, Depends(get_fleet)]
@@ -56,3 +63,19 @@ async def execute_command(
     except CommandRejectedError as exc:
         raise HTTPException(status.HTTP_409_CONFLICT, f"command_rejected:{exc.reason}") from None
     return CommandResult(command_id=command.command_id, car=CarState.from_domain(car))
+
+
+@demo_router.post("/cars/{car_id}/park")
+async def park_for_demo(
+    car_id: uuid.UUID,
+    fleet: Fleet,
+    clock: ClockDep,
+    rest: Annotated[timedelta, Depends(get_demo_rest)],
+) -> CarState:
+    """Stops the rented car with the ignition off, so the rental can be finished now."""
+    try:
+        return CarState.from_domain(fleet.park_for_demo(car_id, rest, clock()))
+    except CarNotFoundError:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "car_not_found") from None
+    except CommandRejectedError as exc:
+        raise HTTPException(status.HTTP_409_CONFLICT, f"command_rejected:{exc.reason}") from None

@@ -24,13 +24,14 @@ from flagman.audit.domain import (
     AuditTargetType,
     RequestOrigin,
 )
-from flagman.core.config import Settings
+from flagman.core.config import PaymentsSettings, Settings
 from flagman.payments import repository
 from flagman.payments.domain import (
     BINDING_TTL,
     CardBinding,
     CardBindingNotFoundError,
     CardBindingStatus,
+    CardDetails,
     DeclineReason,
     IdempotencyKeyReusedError,
     NoUsableCardError,
@@ -79,7 +80,7 @@ class Gateway:
     token_key: bytes
 
 
-def gateway(settings: Settings) -> Gateway:
+def gateway(settings: PaymentsSettings) -> Gateway:
     """Raises PaymentsUnavailableError when PAYMENTS_PROVIDER is not set."""
     provider = fake_provider(settings)
     key = settings.payments_token_key
@@ -88,7 +89,7 @@ def gateway(settings: Settings) -> Gateway:
     return Gateway(provider=provider, token_key=key)
 
 
-def fake_provider(settings: Settings) -> FakeProvider:
+def fake_provider(settings: PaymentsSettings) -> FakeProvider:
     # The settings check that the secret and the key come with the provider.
     secret = settings.payments_webhook_secret
     if settings.payments_provider != "fake" or secret is None:
@@ -276,6 +277,27 @@ async def get_operation(db: AsyncSession, operation_id: UUID) -> PaymentOperatio
     if operation is None:
         raise PaymentOperationNotFoundError
     return operation
+
+
+async def find_operation(db: AsyncSession, idempotency_key: str) -> PaymentOperation | None:
+    """The operation made with the key, if any: how a caller tells what it has paid already."""
+    async with db.begin():
+        return await repository.get_operation_by_key(db, idempotency_key)
+
+
+async def card_of(db: AsyncSession, operation_id: UUID) -> CardDetails | None:
+    """The card an operation went to, for a receipt; within the caller's transaction."""
+    operation = await repository.get_operation(db, operation_id)
+    if operation is None:
+        return None
+    card = await repository.get_card(db, operation.card_id)
+    return card.details if card else None
+
+
+async def default_card(db: AsyncSession, user_id: UUID) -> CardDetails | None:
+    """The card a charge without a hold goes to; within the caller's transaction."""
+    found = await repository.default_card(db, user_id)
+    return found[0].details if found else None
 
 
 @dataclass(frozen=True)
