@@ -22,6 +22,7 @@ import { useRentalState, useRentalStore } from './RentalProvider';
 // The order the client walks around the car; after them, any angle that shows damage.
 const angles = ['front', 'rear', 'left', 'right', 'interior'] as const;
 const sides: readonly DamageSide[] = ['front', 'rear', 'left', 'right', 'roof', 'interior'];
+// The server's limit (DAMAGE_COMMENT_MAX_LENGTH): the field stops there instead of a refusal.
 const commentMaxLength = 300;
 const previewHeight = 180;
 
@@ -161,7 +162,7 @@ function PhotoStep({ inspection }: { inspection: Inspection }) {
       {photo !== null ? (
         <Image
           source={{ uri: photo }}
-          accessibilityLabel={t('rental.inspection.uploadProgress')}
+          accessibilityLabel={t('rental.inspection.preview')}
           resizeMode="contain"
           style={[styles.preview, { backgroundColor: colors.border }]}
         />
@@ -271,7 +272,7 @@ function Damages({ inspection }: { inspection: Inspection }) {
 function Submit({ inspection }: { inspection: Inspection }) {
   const { t } = useTranslation();
   const store = useRentalStore();
-  const { pending } = useRentalState();
+  const { pending, uploading } = useRentalState();
   const [error, setError] = useState<RentalError | null>(null);
   const missing = Math.max(0, inspection.min_photos - inspection.photos.length);
 
@@ -283,7 +284,8 @@ function Submit({ inspection }: { inspection: Inspection }) {
       <RentalErrorMessage error={error} />
       <Button
         title={t('rental.inspection.submit')}
-        disabled={missing > 0 || pending !== null}
+        // A photo still on its way would be refused once the inspection is closed, and lost.
+        disabled={missing > 0 || pending !== null || uploading > 0}
         onPress={() => {
           setError(null);
           void store.submitInspection().then(setError);

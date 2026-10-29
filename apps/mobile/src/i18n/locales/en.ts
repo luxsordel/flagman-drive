@@ -263,6 +263,7 @@ export const en: Translation = {
       },
       takePhoto: 'Take a photo',
       fromLibrary: 'Choose from gallery',
+      preview: 'The photo of the car just taken',
       uploadProgress: 'Photo upload',
       uploading: 'Uploading the photo… {{percent}} %',
       retryUpload: 'Send again',
@@ -310,6 +311,8 @@ export const en: Translation = {
         'No access to the camera. Allow it in the phone settings or choose a photo from the gallery',
       locationDenied:
         'Without your location the car cannot be opened: the server checks that you are next to it. Allow access in the phone settings',
+      locationUnavailable:
+        'Could not find your location. Turn on location services or step outside and try again',
       tooFar: 'Come closer: the car opens and locks only when you stand next to it',
       carLocationUnknown: 'The car has not reported for a while. Try again in a minute',
       carRefused: 'The car did not carry out the command. Try again',

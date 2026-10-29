@@ -185,6 +185,8 @@ def test_the_inspection_after_waits_for_the_trip(person: Person, rental: str) ->
         {"side": "left", "comment": "x" * 301},
         {"side": "wheel", "comment": "flat"},
         {"side": "left", "comment": "dent", "photo": "x"},
+        {"side": "left", "comment": "dent\u0000"},
+        {"side": "left", "comment": "\u202edent"},
     ],
 )
 def test_damages_are_checked(person: Person, rental: str, body: dict[str, str]) -> None:

@@ -124,4 +124,16 @@ describe('InspectionScreen', () => {
     expect(api.submitInspection).toHaveBeenCalledWith('rental-1');
     expect(mockRouter.dismissTo).toHaveBeenCalledWith('/rental');
   });
+
+  it('waits for a photo on its way before the inspection can be finished', async () => {
+    const { uploads } = await renderScreen(4);
+
+    await fireEvent.press(screen.getByRole('button', { name: 'Сделать фото' }));
+    expect(screen.getByRole('button', { name: 'Завершить осмотр' })).toBeDisabled();
+
+    await act(() => {
+      uploads[0]?.finish(ok(inspection(5)));
+    });
+    expect(screen.getByRole('button', { name: 'Завершить осмотр' })).toBeEnabled();
+  });
 });

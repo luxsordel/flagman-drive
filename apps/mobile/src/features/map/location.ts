@@ -65,6 +65,8 @@ export function useClientLocation(): ClientLocation {
   return state;
 }
 
+export const fixTimeoutMs = 15_000;
+
 export type LocationFix =
   | { kind: 'located'; location: LatLon }
   | { kind: 'denied' }
@@ -79,7 +81,13 @@ export async function locateOnce(): Promise<LocationFix> {
   try {
     const { status } = await requestForegroundPermissionsAsync();
     if (status !== PermissionStatus.GRANTED) return { kind: 'denied' };
-    const { coords } = await getCurrentPositionAsync({ accuracy: Accuracy.High });
+    const position = await Promise.race([
+      getCurrentPositionAsync({ accuracy: Accuracy.High }),
+      // Indoors a precise fix may never come; the buttons of the screen wait for it meanwhile.
+      new Promise<null>((resolve) => setTimeout(resolve, fixTimeoutMs, null)),
+    ]);
+    if (position === null) return { kind: 'unavailable' };
+    const { coords } = position;
     return { kind: 'located', location: { lat: coords.latitude, lon: coords.longitude } };
   } catch {
     return { kind: 'unavailable' };

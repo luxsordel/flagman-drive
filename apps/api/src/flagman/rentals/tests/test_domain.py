@@ -225,6 +225,12 @@ def test_an_inspection_needs_the_minimum_of_photos() -> None:
     )
 
 
+@pytest.mark.parametrize("comment", ["dent\x00", "\u202edent", "zero\u200bwidth"])
+def test_damage_comments_refuse_invisible_characters(comment: str) -> None:
+    with pytest.raises(ValueError, match="control or format"):
+        normalize_damage_comment(comment)
+
+
 def test_damage_comments_are_squeezed() -> None:
     assert normalize_damage_comment("  scratch \n on   the door ") == "scratch on the door"
 

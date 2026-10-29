@@ -24,6 +24,8 @@ export interface RentalState {
   inspection: Inspection | null;
   /** What is being sent right now: its button waits, the others too. */
   pending: RentalAction | null;
+  /** Photos of the inspection still on their way: it is not submitted before they arrive. */
+  uploading: number;
   /** Why the last action or load failed. */
   error: RentalError | null;
 }
@@ -34,6 +36,7 @@ const initialState: RentalState = {
   offsetMs: 0,
   inspection: null,
   pending: null,
+  uploading: 0,
   error: null,
 };
 
@@ -71,10 +74,13 @@ export class RentalStore {
     const result = await this.api.current();
     if (generation !== this.generation) return;
     if (result.ok) {
-      // A rental that ended while the app was closed stays on screen until dismissed.
-      const ended = this.state.rental !== null && !isActive(this.state.rental);
+      const known = this.state.rental;
       if (result.value !== null) this.acceptRental(result.value);
-      else if (!ended) this.setState({ ...this.state, rental: null, inspection: null });
+      // Ended while the app was in the background: the client is told how, not "not found".
+      else if (known !== null && isActive(known)) await this.refresh();
+      // One that ended before stays on screen until dismissed.
+      else if (known === null) this.setState({ ...this.state, inspection: null });
+      if (generation !== this.generation) return;
       this.setState({ ...this.state, restored: true, error: null });
     } else {
       // The map still works without it; the next restore tries again.
@@ -133,9 +139,11 @@ export class RentalStore {
     }
     const generation = this.generation;
     const upload = this.api.uploadPhoto(rental.id, photoUri, onProgress);
+    this.setState({ ...this.state, uploading: this.state.uploading + 1 });
     return {
       done: upload.done.then(async (result) => {
         if (generation !== this.generation) return result;
+        this.setState({ ...this.state, uploading: Math.max(0, this.state.uploading - 1) });
         if (result.ok) this.setState({ ...this.state, inspection: result.value });
         else if (result.error !== null && isStale(result.error)) await this.refresh();
         return result;
@@ -182,7 +190,9 @@ export class RentalStore {
     const fix = await this.locate();
     if (generation !== this.generation) return null;
     if (fix.kind !== 'located') {
-      const error: RentalError = { kind: fix.kind === 'denied' ? 'locationDenied' : 'network' };
+      const error: RentalError = {
+        kind: fix.kind === 'denied' ? 'locationDenied' : 'locationUnavailable',
+      };
       this.setState({ ...this.state, pending: null, error });
       return error;
     }

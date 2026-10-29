@@ -154,4 +154,39 @@ describe('RentalStore', () => {
 
     expect(store.getState().inspection?.photos).toHaveLength(1);
   });
+
+  it('tells how a reservation ended while the app was in the background', async () => {
+    const { api, store } = setup();
+    api.current.mockResolvedValueOnce(ok(rental()));
+    await store.restore();
+    api.current.mockResolvedValueOnce(ok(null));
+    api.get.mockResolvedValue(ok(rental({ status: 'cancelled', cancel_reason: 'expired' })));
+
+    await store.restore();
+
+    expect(api.get).toHaveBeenCalledWith('rental-1');
+    expect(store.getState().rental?.cancel_reason).toBe('expired');
+  });
+
+  it('blames the location, not the network, when there is no fix', async () => {
+    const { api, store } = setup({ kind: 'unavailable' });
+    api.reserve.mockResolvedValue(ok(rental()));
+    await store.reserve('car-1');
+
+    expect(await store.command('open')).toEqual({ kind: 'locationUnavailable' });
+    expect(api.command).not.toHaveBeenCalled();
+  });
+
+  it('counts the photos on their way', async () => {
+    const { api, uploads, store } = setup();
+    api.reserve.mockResolvedValue(ok(rental()));
+    await store.reserve('car-1');
+
+    const upload = store.uploadPhoto('file:///photo.jpg');
+    expect(store.getState().uploading).toBe(1);
+    uploads[0]?.finish({ ok: false, error: { kind: 'network' } });
+    await upload.done;
+
+    expect(store.getState().uploading).toBe(0);
+  });
 });

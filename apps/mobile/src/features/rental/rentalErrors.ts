@@ -22,6 +22,7 @@ export type RentalErrorKind =
   | 'storageUnavailable'
   | 'cameraDenied'
   | 'locationDenied'
+  | 'locationUnavailable'
   | 'tooFar'
   | 'carLocationUnknown'
   | 'carRefused'
@@ -85,6 +86,7 @@ export function isRetryable(error: RentalError): boolean {
     'rateLimited',
     'storageUnavailable',
     'busy',
+    'locationUnavailable',
     'carLocationUnknown',
     'carUnreachable',
     'unknown',

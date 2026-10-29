@@ -161,6 +161,17 @@ async def set_command_until(
     )
 
 
+async def release_command(
+    db: AsyncSession, rental_id: UUID, held_until: datetime, now: datetime
+) -> None:
+    """Ends the hold of one command; a later command that took over the hold keeps it."""
+    await db.execute(
+        update(RentalRow)
+        .where(RentalRow.id == rental_id, RentalRow.command_until == held_until)
+        .values(command_until=None, updated_at=now)
+    )
+
+
 @dataclass(frozen=True)
 class InspectionRecord:
     id: UUID

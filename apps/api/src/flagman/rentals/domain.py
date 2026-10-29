@@ -4,6 +4,7 @@ The machine is drawn in docs/02-architecture.md; the reasons behind the reservat
 in docs/adr/0022.
 """
 
+import unicodedata
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -329,7 +330,19 @@ class Inspection:
             raise InspectionIncompleteError
 
 
+def _is_refused_in_comment(char: str) -> bool:
+    return char not in {"\n", "\r", "\t"} and unicodedata.category(char).startswith("C")
+
+
 def normalize_damage_comment(comment: str) -> str:
+    """Squeezes the spaces; raises ValueError for control and format characters.
+
+    Operators read the comment next to the photos: invisible characters (bidi overrides,
+    zero-width) could make it read differently there, and NUL is refused by Postgres.
+    """
+    # Line breaks and tabs from a multiline field are spaces like any other.
+    if any(_is_refused_in_comment(char) for char in comment):
+        raise ValueError("the comment must not contain control or format characters")
     return " ".join(comment.split())
 
 

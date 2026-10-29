@@ -6,12 +6,17 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+from structlog.testing import capture_logs
 
 from flagman.audit import service as audit
 from flagman.audit.domain import ActorType, AuditAction, AuditEventFilter
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import (
     CarCommand,
     CarCommandRejectedError,
@@ -20,11 +25,13 @@ from flagman.fleet.domain import (
     TelematicsTimeoutError,
     TelematicsUnavailableError,
 )
-from flagman.fleet.tests.conftest import FakeGateway, add_car
+from flagman.fleet.tests.conftest import FakeGateway, add_car, run_in_db
+from flagman.geo import service as geo
 from flagman.rentals import api, service
 from flagman.rentals.tests.conftest import (
     CAR_POINT,
     FAR_FROM_CAR,
+    NEAR_CAR,
     Person,
     car_status,
     execute,
@@ -217,6 +224,12 @@ def test_one_command_at_a_time(
     assert gateway.calls == []
 
 
+def _use_gateway(app_client: TestClient, gateway: FakeGateway) -> None:
+    app = app_client.app
+    assert isinstance(app, FastAPI)
+    app.dependency_overrides[api.get_telematics_gateway] = lambda: gateway
+
+
 @dataclass
 class TimeoutJobDuringCommand(FakeGateway):
     """The car answers only after the reservation's end, and the timeout job runs meanwhile."""
@@ -242,7 +255,7 @@ def test_a_command_holds_the_reservation_while_the_car_thinks(
     integration_settings: Settings, app_client: TestClient, person: Person, inspected: str
 ) -> None:
     gateway = TimeoutJobDuringCommand(outcome=opened_state(), settings=integration_settings)
-    app_client.app.dependency_overrides[api.get_telematics_gateway] = lambda: gateway  # type: ignore[attr-defined]
+    _use_gateway(app_client, gateway)
     execute(
         integration_settings,
         "UPDATE rentals SET reserved_at = now() - interval '45 minutes', "
@@ -327,3 +340,85 @@ def test_commands_are_rate_limited(person: Person, inspected: str) -> None:
 
     assert responses[-1].status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert "Retry-After" in responses[-1].headers
+
+
+@dataclass
+class AnswersAfterTheHold(FakeGateway):
+    """The car answers once the hold and the reservation have both run out."""
+
+    settings: Settings | None = None
+    rental_id: uuid.UUID | None = None
+
+    async def send(
+        self, telematics_id: uuid.UUID, command_id: uuid.UUID, command: CarCommand
+    ) -> CarState | None:
+        assert self.settings is not None
+        engine = create_engine(self.settings)
+        try:
+            async with create_session_factory(engine)() as db, db.begin():
+                await db.execute(
+                    text(
+                        "UPDATE rentals SET command_until = now() - interval '1 second', "
+                        "reserved_at = now() - interval '46 minutes', "
+                        "free_wait_until = now() - interval '31 minutes', "
+                        "expires_at = now() - interval '1 second' WHERE id = :id"
+                    ),
+                    {"id": self.rental_id},
+                )
+        finally:
+            await engine.dispose()
+        return await super().send(telematics_id, command_id, command)
+
+
+def test_an_opened_car_starts_the_trip_even_after_the_hold_ran_out(
+    integration_settings: Settings,
+    app_client: TestClient,
+    person: Person,
+    inspected: str,
+    car: str,
+) -> None:
+    gateway = AnswersAfterTheHold(
+        outcome=opened_state(), settings=integration_settings, rental_id=uuid.UUID(inspected)
+    )
+    _use_gateway(app_client, gateway)
+
+    response = person.command(inspected, "open")
+
+    assert response.json()["status"] == "in_trip"
+    assert car_status(integration_settings, car) == CarStatus.IN_RENTAL
+
+
+def _north_of_car(settings: Settings, meters: float) -> GeoPoint:
+    """A point `meters` north of the car as PostGIS measures it, the measure the API uses."""
+
+    async def measure(db: AsyncSession) -> float:
+        return await geo.distance_m(db, CAR_POINT, GeoPoint(CAR_POINT.lat + 0.001, CAR_POINT.lon))
+
+    per_millidegree = run_in_db(settings, measure)
+    return GeoPoint(lat=CAR_POINT.lat + 0.001 * meters / per_millidegree, lon=CAR_POINT.lon)
+
+
+@pytest.mark.parametrize(
+    ("meters", "opens"), [(49.5, True), (50.5, False)], ids=["inside", "outside"]
+)
+def test_the_reach_of_the_car_is_fifty_meters(
+    integration_settings: Settings, person: Person, inspected: str, meters: float, opens: bool
+) -> None:
+    response = person.command(inspected, "open", at=_north_of_car(integration_settings, meters))
+
+    if opens:
+        assert response.status_code == HTTPStatus.OK
+    else:
+        assert response.status_code == HTTPStatus.CONFLICT
+        assert problem_type(response) == "too-far-from-car"
+
+
+def test_the_clients_location_stays_out_of_the_logs(person: Person, inspected: str) -> None:
+    with capture_logs() as logs:
+        assert person.command(inspected, "open").status_code == HTTPStatus.OK
+        person.command(inspected, "close", at=FAR_FROM_CAR)
+
+    written = repr(logs)
+    for point in (NEAR_CAR, FAR_FROM_CAR):
+        assert str(point.lat)[:7] not in written
+        assert str(point.lon)[:7] not in written

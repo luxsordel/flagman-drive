@@ -394,9 +394,8 @@ class RentalService:
                     state.recorded_at if state else None, distance, self.rules.commands, now
                 )
                 # Holds the rental while the car thinks: the timeout and a cancel wait for it.
-                await repository.set_command_until(
-                    self.db, rental.id, now + self.rules.command_hold, now
-                )
+                hold_until = now + self.rules.command_hold
+                await repository.set_command_until(self.db, rental.id, hold_until, now)
         if _was_expired(rental):
             raise ReservationExpiredError
 
@@ -410,12 +409,17 @@ class RentalService:
             await commander.send(car_request, now)
         except Exception:
             async with self.db.begin():
-                await repository.set_command_until(self.db, rental.id, None, self.clock())
+                await repository.release_command(self.db, rental.id, hold_until, self.clock())
             raise
 
         done_at = self.clock()
         async with self.db.begin():
-            rental = await self._lock(user_id, rental_id, done_at)
+            # Not expired here even if the car answered after the hold ran out: it has opened for
+            # this reservation, and cancelling now would put an open car back on the map.
+            locked = await repository.get_rental(self.db, rental_id, user_id, for_update=True)
+            if locked is None:
+                raise RentalNotFoundError
+            rental = locked
             if request.command is RentalCommand.OPEN and rental.status is RentalStatus.RESERVED:
                 status = apply_transition(rental.status, RentalTransition.START_TRIP)
                 await fleet.change_status(
@@ -424,7 +428,7 @@ class RentalService:
                 await repository.start_trip(self.db, rental.id, status, done_at)
                 logger.info("rental_trip_started", rental_id=str(rental.id))
             else:
-                await repository.set_command_until(self.db, rental.id, None, done_at)
+                await repository.release_command(self.db, rental.id, hold_until, done_at)
             rental = await repository.get_rental(self.db, rental.id, user_id) or rental
             return await self._view(rental)
 
