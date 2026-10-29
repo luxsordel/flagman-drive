@@ -1,6 +1,7 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
 import type { AuthSession } from '../auth/session/authSession';
+import type { RentalStore } from '../rental/rentalStore';
 import type { NotificationsApi } from './notificationsApi';
 import type { PushDeps } from './pushRegistration';
 
@@ -15,6 +16,8 @@ export interface NotificationsDeps {
 export interface PushListenersProps {
   session: AuthSession;
   deps: NotificationsDeps;
+  /** The first reservation is when the client is asked to allow notifications. */
+  rentals: Pick<RentalStore, 'subscribe' | 'getState'>;
 }
 
 const NotificationsContext = createContext<NotificationsDeps | null>(null);

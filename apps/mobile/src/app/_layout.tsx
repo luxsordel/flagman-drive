@@ -58,7 +58,7 @@ export default function RootLayout() {
                   <PaymentsProvider deps={payments}>
                     <NotificationsProvider deps={notifications}>
                       <StatusBar style="auto" />
-                      <PushListeners session={session} deps={notifications} />
+                      <PushListeners session={session} deps={notifications} rentals={rentalStore} />
                       <Stack screenOptions={{ headerShown: false }}>
                         <Stack.Protected guard={signedIn}>
                           <Stack.Screen name="index" />
