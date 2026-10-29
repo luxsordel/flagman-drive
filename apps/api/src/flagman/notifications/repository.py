@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import CTE, delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -179,9 +179,14 @@ async def withdraw(
     )
 
 
+async def _count(db: AsyncSession, changed: CTE) -> int:
+    # Counted by Postgres: the changed rows themselves never travel to the worker.
+    return await db.scalar(select(func.count()).select_from(changed)) or 0
+
+
 async def expire_overdue(db: AsyncSession, now: datetime) -> int:
     """Gives up on pending notifications that are too late to be of use; returns how many."""
-    expired = await db.scalars(
+    statement = (
         update(OutboxNotification)
         .where(
             OutboxNotification.status == OutboxStatus.PENDING.value,
@@ -190,7 +195,7 @@ async def expire_overdue(db: AsyncSession, now: datetime) -> int:
         .values(status=OutboxStatus.UNDELIVERED.value, finished_at=now)
         .returning(OutboxNotification.id)
     )
-    return len(expired.all())
+    return await _count(db, statement.cte("expired"))
 
 
 async def finish(
@@ -213,7 +218,7 @@ async def retry_at(db: AsyncSession, outbox_id: UUID, at: datetime) -> None:
 
 
 async def delete_finished_before(db: AsyncSession, before: datetime) -> int:
-    deleted = await db.scalars(
+    statement = (
         delete(OutboxNotification)
         .where(
             OutboxNotification.status != OutboxStatus.PENDING.value,
@@ -221,4 +226,4 @@ async def delete_finished_before(db: AsyncSession, before: datetime) -> int:
         )
         .returning(OutboxNotification.id)
     )
-    return len(deleted.all())
+    return await _count(db, statement.cte("deleted"))
