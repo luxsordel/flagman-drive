@@ -1,7 +1,9 @@
 import type { LocationFix } from '../map/location';
 import type {
   DamageSide,
+  Debt,
   Inspection,
+  InspectionStage,
   PhotoUpload,
   Rental,
   RentalApi,
@@ -9,9 +11,10 @@ import type {
   RentalResult,
 } from './rentalApi';
 import { isStale, type RentalError } from './rentalErrors';
-import { clockOffsetMs, isActive } from './rentalTime';
+import { clockOffsetMs, isActive, isOnTrip } from './rentalTime';
 
-export type RentalAction = 'reserve' | 'cancel' | 'damage' | 'submit' | RentalCommand;
+export type RentalAction =
+  'reserve' | 'cancel' | 'damage' | 'submit' | 'park' | 'resume' | 'finish' | 'pay' | RentalCommand;
 
 export interface RentalState {
   /** False until the server has said whether the client has an active rental. */
@@ -20,8 +23,10 @@ export interface RentalState {
   rental: Rental | null;
   /** Server clock minus the phone's, for the countdowns (see clockOffsetMs). */
   offsetMs: number;
-  /** The inspection before the trip; loaded by the inspection screen. */
+  /** The inspection of the rental's stage, before or after the trip; loaded by its screen. */
   inspection: Inspection | null;
+  /** What the client owes for earlier rentals; empty when nothing. */
+  debts: Debt[];
   /** What is being sent right now: its button waits, the others too. */
   pending: RentalAction | null;
   /** Photos of the inspection still on their way: it is not submitted before they arrive. */
@@ -35,6 +40,7 @@ const initialState: RentalState = {
   rental: null,
   offsetMs: 0,
   inspection: null,
+  debts: [],
   pending: null,
   uploading: 0,
   error: null,
@@ -82,10 +88,32 @@ export class RentalStore {
       else if (known === null) this.setState({ ...this.state, inspection: null });
       if (generation !== this.generation) return;
       this.setState({ ...this.state, restored: true, error: null });
+      await this.loadDebts();
     } else {
       // The map still works without it; the next restore tries again.
       this.setState({ ...this.state, restored: true, error: result.error });
     }
+  }
+
+  /** Shows a rental by its id, e.g. the one a tapped notification is about. */
+  async open(id: string): Promise<void> {
+    if (this.state.rental?.id === id) {
+      await this.refresh();
+      return;
+    }
+    const generation = this.generation;
+    const result = await this.api.get(id);
+    if (generation !== this.generation) return;
+    if (result.ok) this.acceptRental(result.value);
+    else if (result.error !== null) this.setState({ ...this.state, error: result.error });
+  }
+
+  async loadDebts(): Promise<void> {
+    const generation = this.generation;
+    const result = await this.api.debts();
+    if (generation !== this.generation) return;
+    // The map works without them: a failure keeps what was known.
+    if (result.ok) this.setState({ ...this.state, debts: result.value });
   }
 
   /** Reloads the rental: its deadlines and status may have changed on the server. */
@@ -126,7 +154,7 @@ export class RentalStore {
     const rental = this.state.rental;
     if (rental === null) return;
     const generation = this.generation;
-    const result = await this.api.inspection(rental.id);
+    const result = await this.api.inspection(rental.id, stageOf(rental));
     if (generation !== this.generation) return;
     if (result.ok) this.setState({ ...this.state, inspection: result.value, error: null });
     else if (result.error !== null) this.setState({ ...this.state, error: result.error });
@@ -138,7 +166,7 @@ export class RentalStore {
       return { done: Promise.resolve({ ok: false, error: { kind: 'notFound' } }), abort: () => {} };
     }
     const generation = this.generation;
-    const upload = this.api.uploadPhoto(rental.id, photoUri, onProgress);
+    const upload = this.api.uploadPhoto(rental.id, stageOf(rental), photoUri, onProgress);
     this.setState({ ...this.state, uploading: this.state.uploading + 1 });
     return {
       done: upload.done.then(async (result) => {
@@ -157,7 +185,7 @@ export class RentalStore {
     if (rental === null) return Promise.resolve(null);
     return this.run(
       'damage',
-      () => this.api.addDamage(rental.id, side, comment),
+      () => this.api.addDamage(rental.id, stageOf(rental), side, comment),
       (inspection) => {
         this.setState({ ...this.state, inspection });
       },
@@ -167,18 +195,45 @@ export class RentalStore {
   submitInspection(): Promise<RentalError | null> {
     const rental = this.state.rental;
     if (rental === null) return Promise.resolve(null);
+    const stage = stageOf(rental);
     return this.run(
       'submit',
-      () => this.api.submitInspection(rental.id),
+      () => this.api.submitInspection(rental.id, stage),
       (inspection) => {
         const current = this.state.rental;
+        const submitted =
+          stage === 'before'
+            ? { inspection_submitted: true }
+            : { after_inspection_submitted: true };
         this.setState({
           ...this.state,
           inspection,
-          rental: current === null ? null : { ...current, inspection_submitted: true },
+          rental: current === null ? null : { ...current, ...submitted },
         });
       },
     );
+  }
+
+  /** Parked time costs the parked price; the server answers a repeat as it is. */
+  park(): Promise<RentalError | null> {
+    return this.change('park', (id) => this.api.park(id));
+  }
+
+  resume(): Promise<RentalError | null> {
+    return this.change('resume', (id) => this.api.resume(id));
+  }
+
+  /** Checks and locks the car on the server; safe to repeat after a lost answer. */
+  async finish(): Promise<RentalError | null> {
+    const error = await this.change('finish', (id) => this.api.finish(id));
+    if (error === null) await this.loadDebts();
+    return error;
+  }
+
+  async payDebt(): Promise<RentalError | null> {
+    const error = await this.change('pay', (id) => this.api.payDebt(id));
+    await this.loadDebts();
+    return error;
   }
 
   /** Locates the client first: the server opens the car only within reach of it. */
@@ -219,6 +274,21 @@ export class RentalStore {
     this.setState(initialState);
   }
 
+  private change(
+    action: RentalAction,
+    request: (id: string) => Promise<RentalResult<Rental>>,
+  ): Promise<RentalError | null> {
+    const rental = this.state.rental;
+    if (rental === null) return Promise.resolve(null);
+    return this.run(
+      action,
+      () => request(rental.id),
+      (changed) => {
+        this.acceptRental(changed);
+      },
+    );
+  }
+
   private async run<T>(
     action: RentalAction,
     request: () => Promise<RentalResult<T>>,
@@ -254,4 +324,9 @@ export class RentalStore {
     this.state = state;
     for (const listener of this.listeners) listener();
   }
+}
+
+/** Before the trip the car is inspected at the reservation, after it at the end of the trip. */
+export function stageOf(rental: Rental): InspectionStage {
+  return isOnTrip(rental) ? 'after' : 'before';
 }

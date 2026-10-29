@@ -10,6 +10,7 @@ import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { useKycApplication, useKycState } from '../kyc/KycProvider';
+import { DebtBanner } from '../rental/DebtBanner';
 import { RentalBanner } from '../rental/RentalBanner';
 import { useRentalStore, useRestoredRental } from '../rental/RentalProvider';
 import { CarCard, type Reservation } from './CarCard';
@@ -170,6 +171,13 @@ function LiveMap() {
             reservation={reservation}
             onClose={() => {
               store.clearSelection();
+            }}
+          />
+        ) : rentalState.debts.length > 0 ? (
+          <DebtBanner
+            debts={rentalState.debts}
+            onOpen={(id) => {
+              router.push({ pathname: '/rental/receipt', params: { id } });
             }}
           />
         ) : notice !== null ? (

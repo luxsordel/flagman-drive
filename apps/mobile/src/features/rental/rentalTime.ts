@@ -53,3 +53,14 @@ export const activeStatuses: readonly Rental['status'][] = ['reserved', 'in_trip
 export function isActive(rental: Rental): boolean {
   return activeStatuses.includes(rental.status);
 }
+
+export function isOnTrip(rental: Rental): boolean {
+  return rental.status === 'in_trip' || rental.status === 'parked';
+}
+
+/** How long the trip has lasted by the server's clock; zero before it starts. */
+export function tripElapsedMs(rental: Rental, serverNowMs: number): number {
+  if (rental.trip_started_at === null) return 0;
+  const end = rental.ended_at === null ? serverNowMs : Date.parse(rental.ended_at);
+  return Math.max(0, end - Date.parse(rental.trip_started_at));
+}
