@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -85,6 +85,11 @@ async def get_rental(
         query = query.with_for_update()
     row = await db.scalar(query)
     return _to_rental(row) if row else None
+
+
+async def get_rentals(db: AsyncSession, rental_ids: Collection[UUID]) -> list[Rental]:
+    rows = await db.scalars(select(RentalRow).where(RentalRow.id.in_(rental_ids)))
+    return [_to_rental(row) for row in rows]
 
 
 async def get_active_rental(

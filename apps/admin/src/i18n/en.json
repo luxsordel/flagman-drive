@@ -114,6 +114,7 @@
       "staffTotpReset": "2FA reset",
       "staffPasswordChanged": "Staff password changed",
       "staffDisabled": "Staff member disabled",
+      "staffNameChanged": "Staff member name changed",
       "kycApproved": "Documents approved",
       "kycRejected": "Documents rejected",
       "kycDocumentViewed": "Document photo viewed",
@@ -125,7 +126,16 @@
       "tariffUpdated": "Tariff changed",
       "paymentSucceeded": "Payment succeeded",
       "paymentDeclined": "Payment declined",
-      "paymentFailed": "Payment got no answer from the provider"
+      "paymentFailed": "Payment got no answer from the provider",
+      "supportConversationTaken": "Conversation taken",
+      "supportMessageSent": "Support reply sent",
+      "supportConversationClosed": "Conversation closed",
+      "supportPhotoViewed": "Chat photo viewed",
+      "incidentTaken": "Incident taken",
+      "incidentResolved": "Incident resolved",
+      "incidentRejected": "Incident rejected",
+      "incidentCarSentToService": "Car sent to service from an incident",
+      "incidentPhotoViewed": "Incident photo viewed"
     },
     "targets": {
       "staffMember": "Staff member",
@@ -133,7 +143,9 @@
       "zone": "Zone",
       "car": "Car",
       "tariff": "Tariff",
-      "paymentOperation": "Payment operation"
+      "paymentOperation": "Payment operation",
+      "supportConversation": "Support conversation",
+      "incident": "Incident"
     },
     "noTarget": "none",
     "loading": "Loading the log…",

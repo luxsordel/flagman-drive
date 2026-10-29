@@ -345,3 +345,4 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - [ADR-0017](adr/0017-fleet-stream-websocket.md) — живой парк для сотрудников: WebSocket и уведомления Postgres
 - [ADR-0021](adr/0021-demo-stand-digitalocean-ghcr.md) — демо-стенд: DigitalOcean, образы в GHCR, выкладка по кнопке
 - [ADR-0022](adr/0022-rental-reservation-timeout.md) — бронь: истечение по сроку при обращении и воркером раз в минуту, удержание на время команды, гонки в индексах базы
+- [ADR-0023](adr/0023-support-chat-polling.md) — чат поддержки и инциденты: опрос по курсору вместо WebSocket, без автопаузы тарификации при ДТП

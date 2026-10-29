@@ -103,6 +103,13 @@ uv run flagman-staff set-password --email admin@flagman.by
 uv run flagman-staff reset-totp --email admin@flagman.by
 ```
 
+Имя, которое клиенты видят в чате поддержки рядом с «Поддержка FLAGMAN» (обычно только имя). Пока его нет,
+клиент видит только «Поддержка FLAGMAN»:
+
+```bash
+uv run flagman-staff set-name --email operator@flagman.by --name Анна
+```
+
 Сотрудник уволился или аккаунт взломан:
 
 ```bash

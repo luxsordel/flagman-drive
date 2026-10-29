@@ -36,6 +36,8 @@ from flagman.payments.api import webhook_router as payments_webhook_router
 from flagman.payments.fake_pages import router as fake_provider_router
 from flagman.pricing.api import router as pricing_router
 from flagman.rentals.api import router as rentals_router
+from flagman.support.api import router as support_router
+from flagman.support.api import staff_router as support_staff_router
 
 logger = structlog.get_logger(__name__)
 
@@ -127,5 +129,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(pricing_router)
     app.include_router(payments_router)
     app.include_router(payments_webhook_router)
+    app.include_router(support_router)
+    app.include_router(support_staff_router)
     app.include_router(fake_provider_router)
     return app

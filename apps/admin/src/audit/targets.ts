@@ -14,6 +14,8 @@ const labelKeys: Record<AuditTargetType, TargetLabelKey> = {
   tariff: 'tariff',
   car: 'car',
   payment_operation: 'paymentOperation',
+  support_conversation: 'supportConversation',
+  incident: 'incident',
 };
 
 export function isAuditTargetType(value: string): value is AuditTargetType {

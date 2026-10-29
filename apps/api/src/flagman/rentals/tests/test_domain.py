@@ -136,6 +136,20 @@ def _rental(**overrides: object) -> Rental:
     return replace(rental, **overrides)  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    ("status", "driving"),
+    [
+        (RentalStatus.RESERVED, False),
+        (RentalStatus.IN_TRIP, True),
+        (RentalStatus.PARKED, True),
+        (RentalStatus.FINISHED, False),
+        (RentalStatus.CANCELLED, False),
+    ],
+)
+def test_only_a_trip_or_a_stop_in_it_is_driving(status: RentalStatus, driving: bool) -> None:
+    assert _rental(status=status).is_driving is driving
+
+
 def test_a_reservation_expires_at_its_end_exactly() -> None:
     rental = _rental(expires_at=NOW)
 
