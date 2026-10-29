@@ -16,7 +16,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
 from flagman.rentals.domain import (
-    ACTIVE_STATUSES,
     DAMAGE_COMMENT_MAX_LENGTH,
     CancelReason,
     DamageSide,
@@ -32,7 +31,9 @@ def _listed(values: type[StrEnum] | frozenset[RentalStatus]) -> str:
     return ", ".join(f"'{value}'" for value in sorted(values))
 
 
-_ACTIVE = f"status IN ({_listed(ACTIVE_STATUSES)})"
+# A literal, not built from ACTIVE_STATUSES: Semgrep refuses text() over a computed string.
+# test_models.py keeps the two in step.
+_ACTIVE = "status IN ('in_trip', 'parked', 'reserved')"
 
 
 class Rental(Base):
