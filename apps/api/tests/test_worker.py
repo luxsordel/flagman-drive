@@ -251,7 +251,7 @@ async def test_receipts_job_is_skipped_while_another_worker_holds_it(
         await engine.dispose()
 
 
-async def test_receipts_are_checked_only_with_a_provider(
+async def test_receipts_are_checked_with_a_provider(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     stop = asyncio.Event()
@@ -327,20 +327,33 @@ async def test_notifications_go_out_on_their_own_short_interval(
 
 async def test_without_a_provider_nothing_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
     stop = asyncio.Event()
+    cleanups = 0
+    pushes = 0
 
-    async def idle_then_stop(*args: object) -> None:
-        stop.set()
+    # Stopping on the second round, not the first: the first has to reach every job, including
+    # the ones scheduled after the cleanup.
+    async def cleanup(*args: object) -> None:
+        nonlocal cleanups
+        cleanups += 1
+        if cleanups == 2:
+            stop.set()
 
-    async def dispatch(*args: object) -> None:
-        raise AssertionError("must not run")
+    # Counted, not raised: the worker logs a failed job and goes on, so a raise passes unnoticed.
+    async def push(*args: object) -> None:
+        nonlocal pushes
+        pushes += 1
 
-    monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
+    monkeypatch.setattr(worker, "run_auth_cleanup", cleanup)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
-    monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
-    monkeypatch.setattr(worker, "run_notifications_receipts", dispatch)
+    monkeypatch.setattr(worker, "run_notifications_dispatch", push)
+    monkeypatch.setattr(worker, "run_notifications_receipts", push)
+    at_once = dict.fromkeys(worker.INTERVALS, timedelta(0))
 
-    await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
+    await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=at_once), 5)
+
+    assert cleanups == 2
+    assert pushes == 0
 
 
 async def test_provider_follows_the_setting() -> None:

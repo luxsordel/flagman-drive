@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 import structlog
 from sqlalchemy import delete, select, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flagman.core.config import Settings
@@ -18,8 +19,9 @@ from flagman.notifications.domain import (
     NotificationEvent,
     OutboxStatus,
     PushPlatform,
+    token_digest,
 )
-from flagman.notifications.fake_provider import FakePushProvider
+from flagman.notifications.fake_provider import NOT_FAKE_TICKET, FakePushProvider
 from flagman.notifications.models import OutboxNotification, PushDevice
 from flagman.notifications.models import PushTicket as TicketRow
 from flagman.notifications.ports import (
@@ -602,7 +604,7 @@ async def test_a_delivered_receipt_keeps_the_device_and_drops_the_ticket(
 
     result = await _check(sessions, provider, sent_at + RECEIPT_READY)
 
-    assert result.delivered == 1
+    assert result.accepted == 1
     assert await _device(sessions, token) is not None
     assert await _tickets(sessions, token) == []
 
@@ -660,7 +662,20 @@ async def test_other_receipt_errors_are_only_counted(
     assert await _device(sessions, token) is not None
     assert await _tickets(sessions, token) == []
     [checked] = [log for log in logs if log["event"] == "push_receipts_checked"]
+    assert checked["log_level"] == "warning"
     assert checked["failed"] == {"MessageRateExceeded": 1}
+    assert token not in repr(logs)
+
+
+async def test_the_fake_fails_the_tickets_it_did_not_issue() -> None:
+    expo_ticket = str(uuid.uuid4())
+
+    receipts = await FakePushProvider().get_receipts([expo_ticket, "fake-unknown"])
+
+    assert receipts == {
+        expo_ticket: PushReceipt(PushReceiptStatus.FAILED, NOT_FAKE_TICKET),
+        "fake-unknown": PushReceipt(PushReceiptStatus.OK),
+    }
 
 
 async def test_a_device_registered_again_after_the_message_is_kept(
@@ -688,12 +703,15 @@ async def test_a_device_registered_again_after_the_message_is_kept(
 
 
 class _Asked(FakePushProvider):
-    def __init__(self) -> None:
-        super().__init__(receipts_ready=False)
+    def __init__(self, *, receipts_ready: bool = True, down: bool = False) -> None:
+        super().__init__(receipts_ready=receipts_ready)
+        self.down = down
         self.asked: list[list[str]] = []
 
-    async def get_receipts(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt]:
+    async def get_receipts(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt] | None:
         self.asked.append(list(ticket_ids))
+        if self.down:
+            return None
         return await super().get_receipts(ticket_ids)
 
 
@@ -703,31 +721,150 @@ async def test_receipts_are_asked_for_page_by_page(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(service, "RECEIPTS_BATCH", 2)
-    provider = _Asked()
+    provider = _Asked(receipts_ready=True)
+    sent_at = await _send_to_three(sessions, notifications_settings, provider)
+
+    result = await _check(sessions, provider, sent_at + RECEIPT_READY)
+
+    assert [len(batch) for batch in provider.asked] == [2, 1]
+    assert len({ticket for batch in provider.asked for ticket in batch}) == 3
+    assert result.accepted == 3
+
+
+async def test_a_page_with_no_receipt_ready_does_not_hold_back_the_next(
+    sessions: async_sessionmaker[AsyncSession],
+    notifications_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service, "RECEIPTS_BATCH", 2)
+    provider = _Asked(receipts_ready=False)
+    sent_at = await _send_to_three(sessions, notifications_settings, provider)
+
+    result = await _check(sessions, provider, sent_at + RECEIPT_READY)
+
+    # Each is asked for once per run, not again on the next page.
+    assert [len(batch) for batch in provider.asked] == [2, 1]
+    assert len({ticket for batch in provider.asked for ticket in batch}) == 3
+    assert result.not_ready == 3
+
+
+async def test_a_provider_with_no_answer_ends_the_run(
+    sessions: async_sessionmaker[AsyncSession],
+    notifications_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service, "RECEIPTS_BATCH", 2)
+    provider = _Asked(down=True)
+    sent_at = await _send_to_three(sessions, notifications_settings, provider)
+
+    result = await _check(sessions, provider, sent_at + RECEIPT_READY)
+
+    assert [len(batch) for batch in provider.asked] == [2]
+    assert result.not_ready == 2
+    assert len(await _all_tickets(sessions)) == 3
+
+
+async def _send_to_three(
+    sessions: async_sessionmaker[AsyncSession],
+    notifications_settings: Settings,
+    provider: FakePushProvider,
+) -> datetime:
     for _ in range(3):
         caller = await sign_in(sessions, notifications_settings)
         await _register(sessions, caller)
         await _notify(sessions, caller, _notification())
     sent_at = datetime.now(UTC)
     await _dispatch(sessions, provider, sent_at)
-
-    await _check(sessions, provider, sent_at + RECEIPT_READY)
-
-    # None is ready, yet each is asked for once per run, not again on the next page.
-    assert [len(batch) for batch in provider.asked] == [2, 1]
-    assert len({ticket for batch in provider.asked for ticket in batch}) == 3
+    return sent_at
 
 
-async def test_receipt_logs_hold_no_tokens(
+async def _all_tickets(sessions: async_sessionmaker[AsyncSession]) -> list[TicketRow]:
+    async with sessions() as db:
+        return list(await db.scalars(select(TicketRow)))
+
+
+async def test_a_device_registered_again_with_the_same_dead_token_is_deleted(
     sessions: async_sessionmaker[AsyncSession], caller: Caller
 ) -> None:
     token = await _register(sessions, caller)
     provider = FakePushProvider(unregistered_on_receipt={token})
     sent_at = await _send(sessions, caller, provider)
+    async with sessions() as db:
+        await service.register_device(
+            db,
+            user_id=caller.id,
+            session_id=caller.session_id,
+            token=token,
+            platform=PushPlatform.IOS,
+            now=sent_at + timedelta(minutes=1),
+        )
+
+    result = await _check(sessions, provider, sent_at + RECEIPT_READY)
+
+    assert result.unregistered_devices == 1
+    assert await _device(sessions, token) is None
+
+
+async def test_a_new_token_saved_by_a_request_older_than_the_message_is_kept(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    old_token = await _register(sessions, caller)
+    provider = FakePushProvider(unregistered_on_receipt={old_token})
+    sent_at = await _send(sessions, caller, provider)
+    new_token = push_token()
+    # The request started before the message went out, but committed after the worker had read
+    # the old token: its time says nothing about which token the message went to.
+    async with sessions() as db:
+        await service.register_device(
+            db,
+            user_id=caller.id,
+            session_id=caller.session_id,
+            token=new_token,
+            platform=PushPlatform.IOS,
+            now=sent_at - timedelta(seconds=1),
+        )
+
+    result = await _check(sessions, provider, sent_at + RECEIPT_READY)
+
+    assert result.unregistered_devices == 0
+    assert await _device(sessions, new_token) is not None
+
+
+async def test_tickets_of_a_device_deleted_meanwhile_are_left_out(
+    sessions: async_sessionmaker[AsyncSession], caller: Caller
+) -> None:
+    token = await _register(sessions, caller)
+    device = await _device(sessions, token)
+    assert device is not None
+
+    async with sessions() as db, db.begin():
+        await repository.save_tickets(
+            db,
+            {"kept": (device.id, token_digest(token)), "left-out": (uuid.uuid4(), "digest")},
+            datetime.now(UTC),
+        )
+
+    assert [ticket.id for ticket in await _all_tickets(sessions)] == ["kept"]
+
+
+async def test_tickets_not_saved_hold_back_no_batch(
+    sessions: async_sessionmaker[AsyncSession],
+    caller: Caller,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def broken(*args: object) -> None:
+        raise SQLAlchemyError("connection lost")
+
+    monkeypatch.setattr(service, "DISPATCH_BATCH", 1)
+    monkeypatch.setattr(repository, "save_tickets", broken)
+    token = await _register(sessions, caller)
+    for _ in range(2):
+        await _notify(sessions, caller, _notification())
+    provider = FakePushProvider()
 
     with structlog.testing.capture_logs() as logs:
-        await _check(sessions, provider, sent_at + RECEIPT_READY)
+        result = await _dispatch(sessions, provider)
 
-    logged = repr(logs)
-    assert token not in logged
-    assert str(caller.id) not in logged
+    assert result.sent == 2
+    assert len(_sent_to(provider, token)) == 2
+    assert [log["tickets"] for log in logs if log["event"] == "push_tickets_not_saved"] == [1, 1]

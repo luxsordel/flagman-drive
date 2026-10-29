@@ -260,6 +260,14 @@ async def run(
     try:
         async with httpx2.AsyncClient() as http:
             schedule = _schedule(intervals, push_provider(settings, http))
+            # The jobs actually scheduled: the notification ones only with a provider.
+            logger.info(
+                "worker_started",
+                intervals_seconds={
+                    scheduled.name: int(scheduled.interval.total_seconds())
+                    for scheduled in schedule
+                },
+            )
             due = {scheduled.name: time.monotonic() for scheduled in schedule}
             while not stop.is_set():
                 for scheduled in schedule:
@@ -291,12 +299,6 @@ async def _main() -> None:
     # still ends asyncio.run there.
     with suppress(NotImplementedError):
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
-    logger.info(
-        "worker_started",
-        intervals_seconds={
-            name: int(interval.total_seconds()) for name, interval in INTERVALS.items()
-        },
-    )
     await run(settings, stop)
     logger.info("worker_stopped")
 

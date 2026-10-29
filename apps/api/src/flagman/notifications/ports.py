@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import StrEnum
 from typing import Protocol
 
@@ -30,8 +30,8 @@ class PushTicketStatus(StrEnum):
 @dataclass(frozen=True)
 class PushTicket:
     status: PushTicketStatus
-    # Only for a message the provider took: its receipt, asked for later, tells whether the phone
-    # got it.
+    # Only for a message the provider took: its receipt, asked for later, tells whether APNs or
+    # FCM took it in turn.
     ticket_id: str | None = None
 
 
@@ -52,12 +52,24 @@ class PushReceipt:
 
 
 class PushProvider(Protocol):
+    @property
+    def receipt_delay(self) -> timedelta:
+        """How long after sending a receipt is worth asking for."""
+        ...
+
+    @property
+    def receipt_lifetime(self) -> timedelta:
+        """How long the provider keeps a receipt: an older ticket is never asked about."""
+        ...
+
     async def send(self, messages: Sequence[PushMessage]) -> list[PushTicket]:
         """One ticket per message, in order. Never raises: a provider that sends in several
         requests may get some through and not others, and only the rest may be tried again."""
         ...
 
-    async def get_receipts(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt]:
-        """The receipts that are ready, by ticket id. Never raises: a ticket missing from the
-        answer, not ready yet or lost to a failed request, is asked for again later."""
+    async def get_receipts(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt] | None:
+        """The receipts that are ready, by ticket id; None when the provider gave no usable
+        answer, so asking it for more now is no use either. Never raises: a ticket missing from
+        the answer is asked for again later. A ticket the provider cannot have issued, such as
+        one left by another provider, gets a FAILED receipt at once."""
         ...

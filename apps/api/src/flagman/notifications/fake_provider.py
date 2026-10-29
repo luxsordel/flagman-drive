@@ -1,5 +1,8 @@
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import timedelta
+from typing import ClassVar
+from uuid import uuid4
 
 import structlog
 
@@ -13,6 +16,9 @@ from flagman.notifications.ports import (
 
 logger = structlog.get_logger(__name__)
 
+TICKET_PREFIX = "fake-"
+NOT_FAKE_TICKET = "NotFakeTicket"
+
 
 @dataclass
 class FakePushProvider:
@@ -21,6 +27,9 @@ class FakePushProvider:
     Logs only what kind of event went out, never the token or the text.
     """
 
+    # As Expo's, so the same tickets wait for their receipts in development.
+    receipt_delay: ClassVar[timedelta] = timedelta(minutes=15)
+    receipt_lifetime: ClassVar[timedelta] = timedelta(hours=24)
     # Off in the worker: a long-running process must not pile up tokens and texts in memory.
     record: bool = True
     sent: list[PushMessage] = field(default_factory=list)
@@ -34,9 +43,8 @@ class FakePushProvider:
     unregistered_on_receipt: set[str] = field(default_factory=set)
     # Off: no receipt is ready yet, as in the first minutes after sending.
     receipts_ready: bool = True
-    # Which token each ticket went to, while recording; an unknown ticket gets an OK receipt.
+    # Which token each ticket went to, while recording; an unknown one of its own is OK.
     tickets: dict[str, str] = field(default_factory=dict)
-    issued: int = 0
 
     async def send(self, messages: Sequence[PushMessage]) -> list[PushTicket]:
         if self.failures_left > 0:
@@ -50,8 +58,8 @@ class FakePushProvider:
             if message.token in self.rejected_tokens:
                 tickets.append(PushTicket(PushTicketStatus.REJECTED))
                 continue
-            self.issued += 1
-            ticket_id = f"fake-{self.issued}"
+            # Unique across restarts, as Expo's are: tickets of an earlier run may still be stored.
+            ticket_id = f"{TICKET_PREFIX}{uuid4()}"
             if self.record:
                 self.sent.append(message)
                 self.tickets[ticket_id] = message.token
@@ -59,12 +67,15 @@ class FakePushProvider:
             logger.info("push_sent_fake", push_event=message.content.data.get("event"))
         return tickets
 
-    async def get_receipts(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt]:
+    async def get_receipts(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt] | None:
         if not self.receipts_ready:
             return {}
-        return {
-            ticket_id: PushReceipt(PushReceiptStatus.DEVICE_NOT_REGISTERED)
-            if self.tickets.get(ticket_id) in self.unregistered_on_receipt
-            else PushReceipt(PushReceiptStatus.OK)
-            for ticket_id in ticket_ids
-        }
+        return {ticket_id: self._receipt(ticket_id) for ticket_id in ticket_ids}
+
+    def _receipt(self, ticket_id: str) -> PushReceipt:
+        # Expo's tickets are still stored after switching from it to the fake.
+        if not ticket_id.startswith(TICKET_PREFIX):
+            return PushReceipt(PushReceiptStatus.FAILED, NOT_FAKE_TICKET)
+        if self.tickets.get(ticket_id) in self.unregistered_on_receipt:
+            return PushReceipt(PushReceiptStatus.DEVICE_NOT_REGISTERED)
+        return PushReceipt(PushReceiptStatus.OK)

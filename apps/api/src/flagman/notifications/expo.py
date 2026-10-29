@@ -3,13 +3,14 @@
 import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import timedelta
 from http import HTTPStatus
-from typing import Any
+from typing import Any, ClassVar, TypeGuard
+from uuid import UUID
 
 import httpx2
 import structlog
 
-from flagman.notifications.domain import PUSH_TICKET_ID_MAX_LENGTH
 from flagman.notifications.ports import (
     PushMessage,
     PushReceipt,
@@ -29,6 +30,8 @@ MAX_BATCH = 100
 # And at most 1000 receipt ids.
 MAX_RECEIPTS_BATCH = 1000
 _DEVICE_NOT_REGISTERED = "DeviceNotRegistered"
+# Not Expo's code: the receipt of a ticket Expo cannot have issued.
+NOT_EXPO_TICKET = "NotExpoTicket"
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,9 @@ class ExpoPushProvider:
     timeout_s: float
     url: str = EXPO_PUSH_URL
     receipts_url: str = EXPO_RECEIPTS_URL
+    # Expo has a receipt ready within about 15 minutes of sending, and keeps it for a day.
+    receipt_delay: ClassVar[timedelta] = timedelta(minutes=15)
+    receipt_lifetime: ClassVar[timedelta] = timedelta(hours=24)
 
     async def send(self, messages: Sequence[PushMessage]) -> list[PushTicket]:
         # Request by request: a failed one leaves the ones before it delivered.
@@ -47,12 +53,20 @@ class ExpoPushProvider:
             tickets += await self._send_batch(messages[start : start + MAX_BATCH])
         return tickets
 
-    async def get_receipts(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt]:
-        receipts: dict[str, PushReceipt] = {}
-        for start in range(0, len(ticket_ids), MAX_RECEIPTS_BATCH):
-            receipts |= await self._get_receipts_batch(
-                ticket_ids[start : start + MAX_RECEIPTS_BATCH]
-            )
+    async def get_receipts(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt] | None:
+        # Not Expo's, such as a fake provider's left from before a switch: Expo would never have
+        # its receipt, and might refuse the whole request over it.
+        ids = [ticket_id for ticket_id in ticket_ids if _is_ticket_id(ticket_id)]
+        receipts = {
+            ticket_id: PushReceipt(PushReceiptStatus.FAILED, NOT_EXPO_TICKET)
+            for ticket_id in ticket_ids
+            if not _is_ticket_id(ticket_id)
+        }
+        for start in range(0, len(ids), MAX_RECEIPTS_BATCH):
+            batch = await self._get_receipts_batch(ids[start : start + MAX_RECEIPTS_BATCH])
+            if batch is None:
+                return None
+            receipts |= batch
         return receipts
 
     async def _send_batch(self, messages: Sequence[PushMessage]) -> list[PushTicket]:
@@ -80,18 +94,14 @@ class ExpoPushProvider:
             return _not_sent(messages)
         return [_ticket(ticket) for ticket in tickets]
 
-    async def _get_receipts_batch(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt]:
+    async def _get_receipts_batch(self, ticket_ids: Sequence[str]) -> dict[str, PushReceipt] | None:
         receipts = await self._post(
             self.receipts_url, {"ids": list(ticket_ids)}, "expo_receipts", dict
         )
         if receipts is None:
-            return {}
+            return None
         # Expo answers only for the receipts it has ready.
-        return {
-            ticket_id: _receipt(receipt)
-            for ticket_id, receipt in receipts.items()
-            if isinstance(ticket_id, str)
-        }
+        return {ticket_id: _receipt(receipt) for ticket_id, receipt in receipts.items()}
 
     async def _post[T: (list[Any], dict[Any, Any])](
         self, url: str, body: Any, event: str, expected: type[T]
@@ -132,8 +142,11 @@ def _not_sent(messages: Sequence[PushMessage]) -> list[PushTicket]:
 def _ticket(ticket: Any) -> PushTicket:
     if isinstance(ticket, dict) and ticket.get("status") == "ok":
         ticket_id = ticket.get("id")
-        usable = isinstance(ticket_id, str) and 0 < len(ticket_id) <= PUSH_TICKET_ID_MAX_LENGTH
-        return PushTicket(PushTicketStatus.OK, ticket_id if usable else None)
+        if _is_ticket_id(ticket_id):
+            return PushTicket(PushTicketStatus.OK, ticket_id)
+        # The message went out, but a changed answer format would silently stop the receipts.
+        logger.warning("expo_push_ticket_id_unusable")
+        return PushTicket(PushTicketStatus.OK)
     error = _error(ticket)
     if error == _DEVICE_NOT_REGISTERED:
         return PushTicket(PushTicketStatus.DEVICE_NOT_REGISTERED)
@@ -155,3 +168,15 @@ def _error(answer: Any) -> str | None:
     details = answer.get("details") if isinstance(answer, dict) else None
     error = details.get("error") if isinstance(details, dict) else None
     return error if isinstance(error, str) else None
+
+
+def _is_ticket_id(value: Any) -> TypeGuard[str]:
+    # Expo's ticket ids are UUIDs as `str(UUID)` spells them, in either case. Any other spelling
+    # is refused: UUID() also takes braces, "urn:uuid:" prefixes and hyphens anywhere, some of
+    # them too long for the tickets table, and Expo might refuse a whole request over one.
+    if not isinstance(value, str):
+        return False
+    try:
+        return str(UUID(value)) == value.lower()
+    except ValueError:
+        return False

@@ -11,6 +11,7 @@ from flagman.core.db import Base
 from flagman.notifications.domain import (
     PUSH_TICKET_ID_MAX_LENGTH,
     PUSH_TOKEN_MAX_LENGTH,
+    TOKEN_DIGEST_LENGTH,
     NotificationCategory,
     NotificationEvent,
     OutboxStatus,
@@ -45,9 +46,11 @@ class PushDevice(Base):
 
 
 class PushTicket(Base):
-    """A message the provider took, until its receipt tells whether the phone got it."""
+    """A message the provider took, until its receipt tells whether APNs or FCM took it."""
 
     __tablename__ = "push_tickets"
+    # Receipts are asked for page by page in this order.
+    __table_args__ = (Index("ix_push_tickets_sent_at_id", "sent_at", "id"),)
 
     # The provider's ticket id; the token is not kept here, the device holds it.
     id: Mapped[str] = mapped_column(String(PUSH_TICKET_ID_MAX_LENGTH), primary_key=True)
@@ -55,7 +58,10 @@ class PushTicket(Base):
     device_id: Mapped[UUID] = mapped_column(
         ForeignKey("push_devices.id", ondelete="CASCADE"), index=True
     )
-    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    # Which token the message went to: the device may have a new one by the time the receipt
+    # says the old one is dead.
+    token_digest: Mapped[str] = mapped_column(String(TOKEN_DIGEST_LENGTH))
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class NotificationOptOut(Base):
