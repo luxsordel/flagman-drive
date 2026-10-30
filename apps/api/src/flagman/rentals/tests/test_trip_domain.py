@@ -1,9 +1,11 @@
 import uuid
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from flagman.core.errors import AppError
+from flagman.fleet.domain import Gear
 from flagman.pricing.domain import IntervalKind, TariffPrices, calculate
 from flagman.rentals.domain import (
     CarLockFailedError,
@@ -12,8 +14,10 @@ from flagman.rentals.domain import (
     DoorsOpenError,
     FinishCheck,
     FinishRules,
+    HeadlightsOnError,
     IgnitionOnError,
     InspectionRequiredError,
+    NotInParkError,
     OutsideEndZoneError,
     ParkCheck,
     PlannedPayment,
@@ -48,7 +52,13 @@ PRICES = TariffPrices(
     hold_amount=3000,
 )
 RULES = FinishRules(max_state_age=timedelta(seconds=60))
-FRESH = FinishCheck(recorded_at=NOW - timedelta(seconds=10), ignition_on=False, in_end_zone=True)
+FRESH = FinishCheck(
+    recorded_at=NOW - timedelta(seconds=10),
+    ignition_on=False,
+    in_end_zone=True,
+    headlights_on=False,
+    gear=Gear.PARK,
+)
 
 
 def _rental(
@@ -144,25 +154,50 @@ def test_the_cost_counts_the_paid_wait_the_driving_and_the_parking() -> None:
         (_rental(RentalStatus.PAID), True, FRESH, RentalTransitionNotAllowedError),
         (_rental(command_until=NOW + MINUTE), True, FRESH, RentalBusyError),
         (_rental(), False, FRESH, InspectionRequiredError),
+        (_rental(), True, replace(FRESH, recorded_at=None), CarStateStaleError),
         (
             _rental(),
             True,
-            FinishCheck(recorded_at=None, ignition_on=False, in_end_zone=True),
+            replace(FRESH, recorded_at=NOW - timedelta(seconds=61)),
             CarStateStaleError,
         ),
         (
             _rental(),
             True,
-            FinishCheck(NOW - timedelta(seconds=61), ignition_on=False, in_end_zone=True),
-            CarStateStaleError,
-        ),
-        (
-            _rental(),
-            True,
-            FinishCheck(NOW, ignition_on=False, in_end_zone=False),
+            replace(FRESH, in_end_zone=False, gear=Gear.DRIVE),
             OutsideEndZoneError,
         ),
-        (_rental(), True, FinishCheck(NOW, ignition_on=True, in_end_zone=True), IgnitionOnError),
+        (
+            _rental(),
+            True,
+            replace(FRESH, gear=Gear.DRIVE, ignition_on=True, headlights_on=True),
+            NotInParkError,
+        ),
+        (_rental(), True, replace(FRESH, gear=Gear.NEUTRAL), NotInParkError),
+        (_rental(), True, replace(FRESH, gear=None), NotInParkError),
+        (
+            _rental(),
+            True,
+            replace(FRESH, ignition_on=True, headlights_on=True),
+            IgnitionOnError,
+        ),
+        (_rental(), True, replace(FRESH, headlights_on=True), HeadlightsOnError),
+        (_rental(), True, replace(FRESH, headlights_on=None), HeadlightsOnError),
+    ],
+    ids=[
+        "reserved",
+        "paid",
+        "busy",
+        "no-inspection",
+        "no-state",
+        "stale",
+        "outside-zone",
+        "in-drive",
+        "in-neutral",
+        "gear-unknown",
+        "ignition-on",
+        "headlights-on",
+        "headlights-unknown",
     ],
 )
 def test_the_finish_is_checked_one_reason_at_a_time(
@@ -176,7 +211,7 @@ def test_the_finish_is_checked_one_reason_at_a_time(
 def test_a_trip_passing_every_check_may_finish(status: RentalStatus) -> None:
     ensure_finish_allowed(_rental(status), True, FRESH, RULES, NOW)
     ensure_finish_allowed(
-        _rental(status), True, FinishCheck(NOW - timedelta(seconds=60), False, True), RULES, NOW
+        _rental(status), True, replace(FRESH, recorded_at=NOW - timedelta(seconds=60)), RULES, NOW
     )
 
 

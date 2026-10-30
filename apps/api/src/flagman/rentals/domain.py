@@ -12,6 +12,7 @@ from enum import StrEnum
 from http import HTTPStatus
 
 from flagman.core.errors import AppError
+from flagman.fleet.domain import Gear
 from flagman.pricing.domain import Interval, IntervalKind, Quote
 
 
@@ -459,10 +460,22 @@ class OutsideEndZoneError(AppError):
     title = "The rental cannot be finished here; park the car within the zone"
 
 
+class NotInParkError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "not-in-park"
+    title = "Put the gear selector in P first"
+
+
 class IgnitionOnError(AppError):
     status = HTTPStatus.CONFLICT
     slug = "ignition-on"
     title = "Turn the ignition off first"
+
+
+class HeadlightsOnError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "headlights-on"
+    title = "Turn the headlights off first"
 
 
 class DoorsOpenError(AppError):
@@ -525,6 +538,9 @@ class FinishCheck:
     recorded_at: datetime | None
     ignition_on: bool
     in_end_zone: bool
+    # None is a car that has not told them: it is refused like a wrong value, never let through.
+    headlights_on: bool | None
+    gear: Gear | None
 
 
 def ensure_finish_allowed(
@@ -536,7 +552,8 @@ def ensure_finish_allowed(
 ) -> None:
     """The client's checks before the car is locked; the doors are told by the car when it locks.
 
-    One reason at a time, in the order the client fixes them: the photos, then the car itself.
+    One reason at a time, in the order the client fixes them: the photos, then the car itself,
+    as it is left: stopped within the zone, shifted to "P", the ignition off, then the headlights.
     """
     if rental.status not in _DRIVING:
         raise RentalTransitionNotAllowedError
@@ -548,8 +565,12 @@ def ensure_finish_allowed(
         raise CarStateStaleError
     if not check.in_end_zone:
         raise OutsideEndZoneError
+    if check.gear is not Gear.PARK:
+        raise NotInParkError
     if check.ignition_on:
         raise IgnitionOnError
+    if check.headlights_on is not False:
+        raise HeadlightsOnError
 
 
 @dataclass(frozen=True)

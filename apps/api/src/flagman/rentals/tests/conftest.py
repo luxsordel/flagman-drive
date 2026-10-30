@@ -20,7 +20,7 @@ from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.geo import GeoPoint
 from flagman.fleet import repository as fleet_repository
-from flagman.fleet.domain import CarState
+from flagman.fleet.domain import CarState, Gear
 from flagman.fleet.seed import DEMO_MODELS
 from flagman.fleet.tests.conftest import FakeGateway, add_car, bearer, run_in_db
 from flagman.identity.domain import AccessClaims, issue_access_token
@@ -100,7 +100,10 @@ class FakeStorage:
 
 
 def opened_state(point: GeoPoint = CAR_POINT) -> CarState:
-    return CarState(point, 80, False, False, False, datetime.now(UTC))
+    # A standing car tells it: lights off, in "P".
+    return CarState(
+        point, 80, False, False, False, datetime.now(UTC), headlights_on=False, gear=Gear.PARK
+    )
 
 
 @pytest.fixture(autouse=True)

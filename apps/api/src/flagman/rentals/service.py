@@ -1025,6 +1025,8 @@ class RentalService:
                     recorded_at=state.recorded_at if state else None,
                     ignition_on=state.ignition_on if state else False,
                     in_end_zone=in_zone,
+                    headlights_on=state.headlights_on if state else None,
+                    gear=state.gear if state else None,
                 )
                 submitted = after is not None and after.inspection.is_submitted
                 ensure_finish_allowed(rental, submitted, check, self.rules.finish, now)

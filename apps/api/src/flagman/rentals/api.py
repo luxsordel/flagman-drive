@@ -245,7 +245,8 @@ async def resume(client: Client, rental_id: UUID, service: Service) -> RentalOut
         HTTPStatus.CONFLICT: _problem(
             "One reason at a time: `urn:flagman:problem:inspection-required`; "
             "`car-state-stale`: no fresh telemetry, try again; `outside-end-zone`; "
-            "`ignition-on`; `doors-open`; `car-lock-failed`: `detail` is the car's reason; "
+            "`not-in-park`; `ignition-on`; `headlights-on`: also when the car has not told it; "
+            "`doors-open`; `car-lock-failed`: `detail` is the car's reason; "
             "`rental-command-in-progress`; `rental-transition-not-allowed`: not on a trip."
         ),
         HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,

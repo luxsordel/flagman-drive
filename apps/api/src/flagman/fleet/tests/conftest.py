@@ -12,7 +12,7 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.fleet import repository
-from flagman.fleet.domain import CarCommand, CarModelSpec, CarState, CarStatus
+from flagman.fleet.domain import CarCommand, CarModelSpec, CarState, CarStatus, Gear
 from flagman.fleet.models import Car as CarRow
 from flagman.fleet.seed import DEMO_MODELS
 from flagman.identity import service as identity
@@ -62,8 +62,16 @@ def add_car(  # noqa: PLR0913
                 )
                 assert await repository.add_car_if_absent(db, car, now)
                 if point is not None:
+                    # A car that tells its headlights and gear, standing like after a trip.
                     state = CarState(
-                        point, battery_pct, True, ignition_on, engine_locked, now - age
+                        point,
+                        battery_pct,
+                        True,
+                        ignition_on,
+                        engine_locked,
+                        now - age,
+                        headlights_on=False,
+                        gear=Gear.PARK,
                     )
                     await repository.apply_state(db, telematics_id, state, now)
                 car_id = await db.scalar(
