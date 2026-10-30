@@ -18,7 +18,7 @@ from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.core.signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, sign
 from flagman.fleet import repository, service
-from flagman.fleet.domain import CarState, CarStatus
+from flagman.fleet.domain import CarState, CarStatus, Gear
 from flagman.fleet.schemas import MAX_TELEMETRY_BODY_BYTES, MAX_TELEMETRY_CARS
 from flagman.fleet.seed import DEMO_MODELS
 
@@ -101,6 +101,8 @@ def snapshot(
         "doors_locked": True,
         "ignition_on": False,
         "engine_locked": False,
+        "headlights_on": False,
+        "gear": "P",
         "updated_at": at.isoformat(),
     }
 
@@ -154,7 +156,27 @@ def test_signed_batch_updates_the_car(client: TestClient, settings: Settings) ->
         ignition_on=False,
         engine_locked=False,
         recorded_at=at,
+        headlights_on=False,
+        gear=Gear.PARK,
     )
+
+
+def test_a_snapshot_without_headlights_and_gear_keeps_them_unknown(
+    client: TestClient, settings: Settings
+) -> None:
+    telematics_id = add_car(settings)
+    at = datetime.now(UTC) - timedelta(seconds=1)
+    told = post(client, batch(snapshot(telematics_id, at)))
+    # An emulator older than #144: the next snapshot must not keep the last known values.
+    old = snapshot(telematics_id, at + timedelta(milliseconds=500))
+    del old["headlights_on"], old["gear"]
+
+    response = post(client, batch(old))
+
+    assert (told.status_code, response.status_code) == (HTTPStatus.OK, HTTPStatus.OK)
+    state = state_of(settings, telematics_id)
+    assert state is not None
+    assert (state.headlights_on, state.gear) == (None, None)
 
 
 def test_query_string_is_part_of_the_signed_target(client: TestClient, settings: Settings) -> None:
