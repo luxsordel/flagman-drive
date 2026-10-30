@@ -744,6 +744,8 @@ def test_the_finish_needs_the_inspection_after(person: Person, car: str) -> None
             "outside-end-zone",
         ),
         ("UPDATE cars SET gear = 'D' WHERE id = :car", "not-in-park"),
+        ("UPDATE cars SET gear = 'N' WHERE id = :car", "not-in-park"),
+        ("UPDATE cars SET gear = 'R' WHERE id = :car", "not-in-park"),
         ("UPDATE cars SET ignition_on = true WHERE id = :car", "ignition-on"),
         ("UPDATE cars SET headlights_on = true WHERE id = :car", "headlights-on"),
         # A snapshot from before the car told these: unknown is not "off" or "P".
@@ -753,7 +755,9 @@ def test_the_finish_needs_the_inspection_after(person: Person, car: str) -> None
     ids=[
         "stale",
         "outside-zone",
-        "not-in-park",
+        "in-drive",
+        "in-neutral",
+        "in-reverse",
         "ignition-on",
         "headlights-on",
         "gear-unknown",

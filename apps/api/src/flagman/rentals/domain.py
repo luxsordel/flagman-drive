@@ -12,7 +12,6 @@ from enum import StrEnum
 from http import HTTPStatus
 
 from flagman.core.errors import AppError
-from flagman.fleet.domain import Gear
 from flagman.pricing.domain import Interval, IntervalKind, Quote
 
 
@@ -540,7 +539,7 @@ class FinishCheck:
     in_end_zone: bool
     # None is a car that has not told them: it is refused like a wrong value, never let through.
     headlights_on: bool | None
-    gear: Gear | None
+    in_park: bool | None
 
 
 def ensure_finish_allowed(
@@ -565,7 +564,7 @@ def ensure_finish_allowed(
         raise CarStateStaleError
     if not check.in_end_zone:
         raise OutsideEndZoneError
-    if check.gear is not Gear.PARK:
+    if check.in_park is not True:
         raise NotInParkError
     if check.ignition_on:
         raise IgnitionOnError

@@ -5,7 +5,6 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from flagman.core.errors import AppError
-from flagman.fleet.domain import Gear
 from flagman.pricing.domain import IntervalKind, TariffPrices, calculate
 from flagman.rentals.domain import (
     CarLockFailedError,
@@ -57,7 +56,7 @@ FRESH = FinishCheck(
     ignition_on=False,
     in_end_zone=True,
     headlights_on=False,
-    gear=Gear.PARK,
+    in_park=True,
 )
 
 
@@ -164,17 +163,16 @@ def test_the_cost_counts_the_paid_wait_the_driving_and_the_parking() -> None:
         (
             _rental(),
             True,
-            replace(FRESH, in_end_zone=False, gear=Gear.DRIVE),
+            replace(FRESH, in_end_zone=False, in_park=False),
             OutsideEndZoneError,
         ),
         (
             _rental(),
             True,
-            replace(FRESH, gear=Gear.DRIVE, ignition_on=True, headlights_on=True),
+            replace(FRESH, in_park=False, ignition_on=True, headlights_on=True),
             NotInParkError,
         ),
-        (_rental(), True, replace(FRESH, gear=Gear.NEUTRAL), NotInParkError),
-        (_rental(), True, replace(FRESH, gear=None), NotInParkError),
+        (_rental(), True, replace(FRESH, in_park=None), NotInParkError),
         (
             _rental(),
             True,
@@ -192,8 +190,7 @@ def test_the_cost_counts_the_paid_wait_the_driving_and_the_parking() -> None:
         "no-state",
         "stale",
         "outside-zone",
-        "in-drive",
-        "in-neutral",
+        "not-in-park",
         "gear-unknown",
         "ignition-on",
         "headlights-on",
