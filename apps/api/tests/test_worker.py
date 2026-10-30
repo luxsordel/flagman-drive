@@ -232,6 +232,53 @@ async def test_worker_stops_without_waiting_for_the_next_run(
 
 
 @pytest.mark.integration
+async def test_receipts_job_is_skipped_while_another_worker_holds_it(
+    integration_settings: Settings,
+) -> None:
+    engine = create_engine(integration_settings)
+    try:
+        async with engine.connect() as other_worker:
+            await other_worker.execute(
+                text("SELECT pg_advisory_lock(:key)"), {"key": worker.NOTIFICATIONS_RECEIPTS_LOCK}
+            )
+            await other_worker.commit()
+
+            result = await worker.run_notifications_receipts(
+                engine, create_session_factory(engine), FakePushProvider(), datetime.now(UTC)
+            )
+
+            await other_worker.execute(
+                text("SELECT pg_advisory_unlock(:key)"), {"key": worker.NOTIFICATIONS_RECEIPTS_LOCK}
+            )
+        assert result is None
+    finally:
+        await engine.dispose()
+
+
+async def test_receipts_are_checked_with_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+    checks = 0
+
+    async def check(*args: object) -> None:
+        nonlocal checks
+        checks += 1
+        stop.set()
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_notifications_dispatch", _idle_job)
+    monkeypatch.setattr(worker, "run_notifications_receipts", check)
+    settings = _offline_settings().model_copy(update={"notifications_provider": "fake"})
+
+    await asyncio.wait_for(worker.run(settings, stop), 5)
+
+    assert checks == 1
+
+
+@pytest.mark.integration
 async def test_dispatch_job_is_skipped_while_another_worker_holds_it(
     integration_settings: Settings,
 ) -> None:
@@ -271,6 +318,7 @@ async def test_notifications_go_out_on_their_own_short_interval(
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
+    monkeypatch.setattr(worker, "run_notifications_receipts", _idle_job)
     settings = _offline_settings().model_copy(
         update={"notifications_provider": "fake", "notifications_dispatch_interval_seconds": 0.01}
     )
@@ -283,19 +331,33 @@ async def test_notifications_go_out_on_their_own_short_interval(
 
 async def test_without_a_provider_nothing_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
     stop = asyncio.Event()
+    cleanups = 0
+    pushes = 0
 
-    async def idle_then_stop(*args: object) -> None:
-        stop.set()
+    # Stopping on the second round, not the first: the first has to reach every job, including
+    # the ones scheduled after the cleanup.
+    async def cleanup(*args: object) -> None:
+        nonlocal cleanups
+        cleanups += 1
+        if cleanups == 2:
+            stop.set()
 
-    async def dispatch(*args: object) -> None:
-        raise AssertionError("must not run")
+    # Counted, not raised: the worker logs a failed job and goes on, so a raise passes unnoticed.
+    async def push(*args: object) -> None:
+        nonlocal pushes
+        pushes += 1
 
-    monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
+    monkeypatch.setattr(worker, "run_auth_cleanup", cleanup)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
-    monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
+    monkeypatch.setattr(worker, "run_notifications_dispatch", push)
+    monkeypatch.setattr(worker, "run_notifications_receipts", push)
+    at_once = dict.fromkeys(worker.INTERVALS, timedelta(0))
 
-    await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
+    await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=at_once), 5)
+
+    assert cleanups == 2
+    assert pushes == 0
 
 
 async def test_provider_follows_the_setting() -> None:

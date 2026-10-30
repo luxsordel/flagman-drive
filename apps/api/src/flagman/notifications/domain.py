@@ -1,5 +1,6 @@
 """Push notifications to clients, see docs/adr/0020: what is sent, in which words, how often."""
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -15,6 +16,9 @@ from flagman.identity.domain import Language
 # `ExpoPushToken[...]`. Anything else is not something Expo can deliver to.
 PUSH_TOKEN_RE = re.compile(r"Expo(nent)?PushToken\[[A-Za-z0-9_-]{1,200}\]")
 PUSH_TOKEN_MAX_LENGTH = 255
+# The tickets table's column; the Expo adapter keeps only ids that are UUIDs, well within it.
+PUSH_TICKET_ID_MAX_LENGTH = 64
+TOKEN_DIGEST_LENGTH = 64
 
 # A failed delivery is tried again after 30 s, 1 min, 2 min, 4 min: a provider outage of a few
 # minutes still gets through, while a reminder that comes an hour late is no use to anyone.
@@ -133,6 +137,22 @@ class PushDevice:
     user_id: UUID
     session_id: UUID
     token: str
+
+
+def token_digest(token: str) -> str:
+    """Tells which token a message went to without keeping the token: Postgres computes the same
+    one as `encode(sha256(convert_to(token, 'UTF8')), 'hex')`."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class SentTicket:
+    """A message the provider took for a device, its receipt not asked for yet."""
+
+    id: str
+    device_id: UUID
+    token_digest: str
+    sent_at: datetime
 
 
 @dataclass(frozen=True)

@@ -42,6 +42,8 @@ TRIP_WATCH = "trip_watch"
 RENTAL_CHARGES = "rental_charges"
 # Scheduled only with NOTIFICATIONS_PROVIDER set, every NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS.
 NOTIFICATIONS_DISPATCH = "notifications_dispatch"
+# Also only with NOTIFICATIONS_PROVIDER set.
+NOTIFICATIONS_RECEIPTS = "notifications_receipts"
 INTERVALS: Mapping[str, timedelta] = {
     AUTH_CLEANUP: timedelta(hours=1),
     # A reservation is cancelled within a minute of its end even if nobody asks for it, so the
@@ -53,6 +55,9 @@ INTERVALS: Mapping[str, timedelta] = {
     TRIP_WATCH: timedelta(minutes=1),
     # An unknown outcome is retried after a minute; a declined debt by its own retry time.
     RENTAL_CHARGES: timedelta(minutes=1),
+    # Receipts are asked for 15 minutes after sending at the earliest; a few more minutes for a
+    # dead token to linger cost nothing.
+    NOTIFICATIONS_RECEIPTS: timedelta(minutes=5),
 }
 # Sooner after a failure: on a fresh database the first run comes before the migrations, and
 # waiting a whole hour after them would look like the worker does nothing.
@@ -64,6 +69,7 @@ NOTIFICATIONS_DISPATCH_LOCK = 4_600_003
 OUTBOX_CLEANUP_LOCK = 4_600_004
 RENTAL_CHARGES_LOCK = 4_600_005
 TRIP_WATCH_LOCK = 4_600_006
+NOTIFICATIONS_RECEIPTS_LOCK = 4_600_007
 
 
 async def _with_lock[T](
@@ -216,6 +222,20 @@ async def run_notifications_dispatch(
     return await _with_lock(engine, NOTIFICATIONS_DISPATCH_LOCK, NOTIFICATIONS_DISPATCH, dispatch)
 
 
+async def run_notifications_receipts(
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    provider: PushProvider,
+    now: datetime,
+) -> notifications.ReceiptsResult | None:
+    """Returns None when another copy of the worker holds the job."""
+
+    async def check() -> notifications.ReceiptsResult:
+        return await notifications.check_receipts(session_factory, provider, now)
+
+    return await _with_lock(engine, NOTIFICATIONS_RECEIPTS_LOCK, NOTIFICATIONS_RECEIPTS, check)
+
+
 def push_provider(settings: WorkerSettings, http: httpx2.AsyncClient) -> PushProvider | None:
     match settings.notifications_provider:
         case "expo":
@@ -273,6 +293,7 @@ def _schedule(
         logger.warning("notifications_not_sent", reason="NOTIFICATIONS_PROVIDER is not set")
     else:
         dispatch = run_notifications_dispatch
+        receipts = run_notifications_receipts
 
         async def send(
             engine: AsyncEngine,
@@ -282,7 +303,16 @@ def _schedule(
         ) -> object:
             return await dispatch(engine, session_factory, provider, now)
 
+        async def check(
+            engine: AsyncEngine,
+            session_factory: async_sessionmaker[AsyncSession],
+            settings: WorkerSettings,
+            now: datetime,
+        ) -> object:
+            return await receipts(engine, session_factory, provider, now)
+
         jobs[NOTIFICATIONS_DISPATCH] = send
+        jobs[NOTIFICATIONS_RECEIPTS] = check
     return [_Scheduled(name, intervals[name], job) for name, job in jobs.items()]
 
 
@@ -304,6 +334,14 @@ async def run(
         async with httpx2.AsyncClient() as http:
             schedule = _schedule(
                 intervals, push_provider(settings, http), payments_gateway(settings)
+            )
+            # The jobs actually scheduled: some only with their provider set.
+            logger.info(
+                "worker_started",
+                intervals_seconds={
+                    scheduled.name: int(scheduled.interval.total_seconds())
+                    for scheduled in schedule
+                },
             )
             due = {scheduled.name: time.monotonic() for scheduled in schedule}
             while not stop.is_set():
@@ -336,12 +374,6 @@ async def _main() -> None:
     # still ends asyncio.run there.
     with suppress(NotImplementedError):
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
-    logger.info(
-        "worker_started",
-        intervals_seconds={
-            name: int(interval.total_seconds()) for name, interval in INTERVALS.items()
-        },
-    )
     await run(settings, stop)
     logger.info("worker_stopped")
 
