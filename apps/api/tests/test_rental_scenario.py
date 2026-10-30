@@ -221,7 +221,11 @@ def test_a_whole_rental_from_the_map_to_the_receipt(
 
         # The demo stops it; the client photographs the car and finishes.
         stopped = emulator.request("POST", f"/demo/cars/{emulated['id']}/park")
-        assert stopped["ignition_on"] is False
+        assert (stopped["ignition_on"], stopped["headlights_on"], stopped["gear"]) == (
+            False,
+            False,
+            "P",
+        )
         _relay_telemetry(client, emulator)
         for index in range(4):
             uploaded = person.upload(rental_id, photo(index), stage="after")

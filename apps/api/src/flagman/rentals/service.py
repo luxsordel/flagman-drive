@@ -33,6 +33,7 @@ from flagman.fleet.domain import (
     CarCommandRejectedError,
     CarNotFoundError,
     CarTransition,
+    Gear,
     range_left_km,
 )
 from flagman.geo import service as geo
@@ -1021,10 +1022,13 @@ class RentalService:
                 after = await repository.get_inspection(self.db, rental.id, InspectionStage.AFTER)
                 state = (await fleet.get_car(self.db, rental.car_id)).state
                 in_zone = state is not None and await geo.can_end_rental_at(self.db, state.location)
+                gear = state.gear if state else None
                 check = FinishCheck(
                     recorded_at=state.recorded_at if state else None,
                     ignition_on=state.ignition_on if state else False,
                     in_end_zone=in_zone,
+                    headlights_on=state.headlights_on if state else None,
+                    in_park=None if gear is None else gear is Gear.PARK,
                 )
                 submitted = after is not None and after.inspection.is_submitted
                 ensure_finish_allowed(rental, submitted, check, self.rules.finish, now)

@@ -37,6 +37,15 @@ class CarStatus(StrEnum):
     OFFLINE = "offline"
 
 
+class Gear(StrEnum):
+    """The selector position. Values are stored as is: renaming one needs a migration."""
+
+    PARK = "P"
+    REVERSE = "R"
+    NEUTRAL = "N"
+    DRIVE = "D"
+
+
 class CarTransition(StrEnum):
     RESERVE = "reserve"
     CANCEL_RESERVATION = "cancel_reservation"
@@ -219,6 +228,9 @@ class CarState:
     # The immobilizer: a locked engine does not start, a running one is not stopped by it.
     engine_locked: bool
     recorded_at: datetime
+    # None is "unknown": snapshots stored before the car told these, or a car that does not tell.
+    headlights_on: bool | None = None
+    gear: Gear | None = None
 
     def __post_init__(self) -> None:
         if not 0 <= self.battery_pct <= 100:  # noqa: PLR2004

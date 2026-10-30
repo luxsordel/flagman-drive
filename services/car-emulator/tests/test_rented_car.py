@@ -16,6 +16,7 @@ from car_emulator.domain import (
     CarMode,
     CommandRejectedError,
     CommandType,
+    Gear,
     SimulationParams,
     apply_command,
     distance_km,
@@ -73,13 +74,14 @@ def test_an_opened_car_rests_then_drives_a_short_hop() -> None:
 
     _live(car, NOW + REST + 2 * TICK)
     assert (_mode(car), car.ignition_on, car.driven_by_client) == (CarMode.DRIVING, True, True)
+    assert (car.headlights_on, car.gear) == (True, Gear.DRIVE)
     destination = car.destination
     assert destination is not None
     hop = distance_km(*start, destination.lat, destination.lon)
     assert MIN_CLIENT_TRIP_KM <= hop <= PARAMS.rental_trip_km + 0.01
 
 
-def test_a_clients_hop_ends_with_the_ignition_off_and_the_doors_open() -> None:
+def test_a_clients_hop_ends_in_park_with_the_lights_off_and_the_doors_open() -> None:
     car = _opened()
     charge = car.charge_pct
     now = _live(car, NOW + REST + 2 * TICK)
@@ -94,6 +96,7 @@ def test_a_clients_hop_ends_with_the_ignition_off_and_the_doors_open() -> None:
             break
 
     assert (_mode(car), car.ignition_on, car.doors_locked) == (CarMode.PARKED, False, False)
+    assert (car.headlights_on, car.gear) == (False, Gear.PARK)
     assert car.rest_until == now + REST
     assert car.charge_pct < charge
 
@@ -138,6 +141,7 @@ def test_the_demo_stops_a_rented_car_on_the_spot() -> None:
         False,
         False,
     )
+    assert (stopped.headlights_on, stopped.gear) == (False, Gear.PARK)
     assert stopped.rest_until == at + timedelta(minutes=10)
 
 
@@ -185,5 +189,6 @@ async def test_the_demo_endpoint_parks_an_opened_car(clock: FakeClock) -> None:
     refused = await _park(app, clock, idle)
 
     assert parked.status_code == 200
-    assert json.loads(parked.content)["ignition_on"] is False
+    body = json.loads(parked.content)
+    assert (body["ignition_on"], body["headlights_on"], body["gear"]) == (False, False, "P")
     assert (refused.status_code, refused.json()["detail"]) == (409, "command_rejected:not_rented")

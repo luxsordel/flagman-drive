@@ -22,7 +22,15 @@ import { isOnTrip } from './rentalTime';
 const mapHeight = 260;
 
 /** In the order the server checks them: it tells the first one that fails, never the rest. */
-const checks = ['inspection', 'telemetry', 'zone', 'ignition', 'doors'] as const;
+const checks = [
+  'inspection',
+  'telemetry',
+  'zone',
+  'park',
+  'ignition',
+  'headlights',
+  'doors',
+] as const;
 type Check = (typeof checks)[number];
 type CheckState = 'passed' | 'failed' | 'unchecked';
 
@@ -31,7 +39,9 @@ const checkOfError: Partial<Record<RentalErrorKind, Check>> = {
   carStateStale: 'telemetry',
   carLocationUnknown: 'telemetry',
   outsideZone: 'zone',
+  notInPark: 'park',
   ignitionOn: 'ignition',
+  headlightsOn: 'headlights',
   doorsOpen: 'doors',
   lockFailed: 'doors',
 };
