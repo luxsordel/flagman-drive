@@ -35,7 +35,9 @@ export type RentalErrorKind =
   | 'paymentsUnavailable'
   | 'carStateStale'
   | 'outsideZone'
+  | 'notInPark'
   | 'ignitionOn'
+  | 'headlightsOn'
   | 'doorsOpen'
   | 'lockFailed'
   | 'notFound'
@@ -79,7 +81,9 @@ const kindByProblem: Readonly<Record<string, RentalErrorKind>> = {
   'payments-unavailable': 'paymentsUnavailable',
   'car-state-stale': 'carStateStale',
   'outside-end-zone': 'outsideZone',
+  'not-in-park': 'notInPark',
   'ignition-on': 'ignitionOn',
+  'headlights-on': 'headlightsOn',
   'doors-open': 'doorsOpen',
   'car-lock-failed': 'lockFailed',
 };

@@ -20,6 +20,7 @@ from flagman.fleet.domain import (
     CarModelSpec,
     CarState,
     CarStatus,
+    Gear,
     MapQuery,
     SnapshotOutcome,
     StoredCarModel,
@@ -65,6 +66,8 @@ def _to_car(row: CarRow, model: CarModel, lat: float | None, lon: float | None) 
             ignition_on=row.ignition_on,
             engine_locked=row.engine_locked,
             recorded_at=row.state_at,
+            headlights_on=row.headlights_on,
+            gear=None if row.gear is None else Gear(row.gear),
         )
     return Car(
         id=row.id,
@@ -203,6 +206,8 @@ async def apply_state(
             doors_locked=state.doors_locked,
             ignition_on=state.ignition_on,
             engine_locked=state.engine_locked,
+            headlights_on=state.headlights_on,
+            gear=state.gear,
             state_at=state.recorded_at,
             updated_at=now,
         )

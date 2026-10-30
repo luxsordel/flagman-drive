@@ -39,6 +39,13 @@ class CommandRejectedError(Exception):
         self.reason = reason
 
 
+class Gear(StrEnum):
+    PARK = "P"
+    REVERSE = "R"
+    NEUTRAL = "N"
+    DRIVE = "D"
+
+
 class CarMode(StrEnum):
     PARKED = "parked"
     DRIVING = "driving"
@@ -62,6 +69,8 @@ class Car:
     ignition_on: bool
     engine_locked: bool
     updated_at: datetime
+    headlights_on: bool = False
+    gear: Gear = Gear.PARK
     mode: CarMode = CarMode.PARKED
     destination: Destination | None = None
     # The current drive is a client's, in a rented car: it ends with the doors left open.
@@ -201,10 +210,10 @@ def is_rented(car: Car) -> bool:
 
 
 def stop_for_client(car: Car, rest: timedelta, now: datetime) -> None:
-    """Ends a client's drive where the car is: ignition off, the doors still open."""
+    """Ends a client's drive where the car is: in "P", lights and ignition off, doors still open."""
     car.mode = CarMode.PARKED
     car.destination = None
-    car.ignition_on = False
+    _switch_off(car)
     car.driven_by_client = False
     car.rest_until = now + rest
     car.updated_at = now
@@ -237,18 +246,34 @@ def start_trip(car: Car, destination: Destination, now: datetime) -> None:
     car.mode = CarMode.DRIVING
     car.destination = destination
     car.ignition_on = True
+    car.headlights_on = True
+    car.gear = Gear.DRIVE
     car.updated_at = now
+
+
+def _switch_off(car: Car) -> None:
+    car.gear = Gear.PARK
+    car.ignition_on = False
+    car.headlights_on = False
 
 
 def _park(car: Car) -> None:
     car.mode = CarMode.PARKED
     car.destination = None
-    car.ignition_on = False
+    _switch_off(car)
     car.doors_locked = True
 
 
-def _visible_state(car: Car) -> tuple[float, float, int, bool, bool]:
-    return car.lat, car.lon, car.battery_pct, car.doors_locked, car.ignition_on
+def _visible_state(car: Car) -> tuple[float, float, int, bool, bool, bool, Gear]:
+    return (
+        car.lat,
+        car.lon,
+        car.battery_pct,
+        car.doors_locked,
+        car.ignition_on,
+        car.headlights_on,
+        car.gear,
+    )
 
 
 def step_car(car: Car, elapsed: timedelta, params: SimulationParams, now: datetime) -> None:

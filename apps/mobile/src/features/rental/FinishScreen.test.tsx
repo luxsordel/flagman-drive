@@ -61,7 +61,9 @@ describe('checkStates', () => {
       inspection: 'passed',
       telemetry: 'passed',
       zone: 'passed',
+      park: 'passed',
       ignition: 'failed',
+      headlights: 'unchecked',
       doors: 'unchecked',
     });
   });
@@ -71,7 +73,9 @@ describe('checkStates', () => {
       inspection: 'failed',
       telemetry: 'unchecked',
       zone: 'unchecked',
+      park: 'unchecked',
       ignition: 'unchecked',
+      headlights: 'unchecked',
       doors: 'unchecked',
     });
   });
@@ -121,7 +125,9 @@ describe('FinishScreen', () => {
   });
 
   it.each([
+    ['notInPark', 'Селектор в положении «P»', 'Сначала переведите селектор в положение «P»'],
     ['ignitionOn', 'Зажигание выключено', 'Сначала выключите зажигание'],
+    ['headlightsOn', 'Фары выключены', 'Сначала выключите фары'],
     ['doorsOpen', 'Двери закрыты, машина запирается', 'Сначала закройте все двери'],
   ] as const)('explains %s on its own line', async (kind, line, message) => {
     const api = await renderScreen();

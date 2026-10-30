@@ -5,13 +5,14 @@ the outbox together with the change it tells of, or not at all. `flagman-worker`
 so a provider that is down never fails a rental or a payment.
 """
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
 import structlog
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from flagman.identity import service as identity
@@ -26,12 +27,15 @@ from flagman.notifications.domain import (
     OutboxStatus,
     PushDevice,
     PushPlatform,
+    SentTicket,
     render,
     retry_delay,
+    token_digest,
 )
 from flagman.notifications.ports import (
     PushMessage,
     PushProvider,
+    PushReceiptStatus,
     PushTicketStatus,
 )
 
@@ -41,6 +45,8 @@ DISPATCH_BATCH = 100
 # Longer than a send of a whole batch may take: a request to Expo per 100 messages, each with
 # its own timeout.
 DISPATCH_LEASE = timedelta(minutes=2)
+# Tickets read and settled per transaction, with one call to the provider for each page.
+RECEIPTS_BATCH = 1000
 
 
 async def notify_client(
@@ -162,7 +168,8 @@ async def _dispatch_batch(
         return DispatchResult(0, 0, 0), 0
 
     addressed, no_device = _address(claimed)
-    statuses = await provider.send([a.message for a in addressed]) if addressed else []
+    tickets = await provider.send([a.message for a in addressed]) if addressed else []
+    statuses = [ticket.status for ticket in tickets]
     outcome = _outcome(addressed, no_device, statuses, now)
 
     async with session_factory() as db, db.begin():
@@ -171,6 +178,23 @@ async def _dispatch_batch(
         await repository.finish(db, outcome.gave_up, OutboxStatus.UNDELIVERED, now)
         for outbox_id, at in outcome.retry.items():
             await repository.retry_at(db, outbox_id, at)
+
+    sent_tickets = {
+        ticket.ticket_id: (a.device.id, token_digest(a.message.token))
+        for a, ticket in zip(addressed, tickets, strict=True)
+        if ticket.ticket_id is not None
+    }
+    if sent_tickets:
+        # A transaction of its own, after the outbox is settled, and its failure swallowed: it
+        # costs only a dead token kept a little longer, and must neither send the notifications a
+        # second time nor hold back the batches still due.
+        try:
+            async with session_factory() as db, db.begin():
+                await repository.save_tickets(db, sent_tickets, now)
+        except SQLAlchemyError as error:
+            logger.warning(
+                "push_tickets_not_saved", tickets=len(sent_tickets), error=type(error).__name__
+            )
 
     result = DispatchResult(
         sent=len(outcome.delivered), retried=len(outcome.retry), undelivered=len(outcome.gave_up)
@@ -292,3 +316,90 @@ async def clean_up_outbox(db: AsyncSession, now: datetime, retention: timedelta)
     async with db.begin():
         await _expire_overdue(db, now)
         return await repository.delete_finished_before(db, now - retention)
+
+
+@dataclass(frozen=True)
+class ReceiptsResult:
+    # Taken on by APNs or FCM, which is not yet on the phone.
+    accepted: int
+    unregistered_devices: int
+    # By the provider's error code; "unknown" for a failure without one.
+    failed: dict[str, int]
+    not_ready: int
+    # Too old for the provider to still have a receipt: never asked for again.
+    expired: int
+
+
+async def check_receipts(
+    session_factory: async_sessionmaker[AsyncSession],
+    provider: PushProvider,
+    now: datetime,
+) -> ReceiptsResult:
+    """Asks for the receipts of messages sent long enough ago to have one, and deletes the
+    devices the provider says the app is gone from: often it tells that only here, not when it
+    takes the message."""
+    async with session_factory() as db, db.begin():
+        expired = await repository.delete_tickets_sent_before(db, now - provider.receipt_lifetime)
+    accepted = unregistered_devices = not_ready = 0
+    failed: Counter[str] = Counter()
+    after: SentTicket | None = None
+    while True:
+        # Read in one transaction and settled in another: the provider is called in between.
+        async with session_factory() as db, db.begin():
+            tickets = await repository.get_tickets_sent_between(
+                db,
+                now - provider.receipt_lifetime,
+                now - provider.receipt_delay,
+                after,
+                RECEIPTS_BATCH,
+            )
+        if not tickets:
+            break
+        receipts = await provider.get_receipts([ticket.id for ticket in tickets])
+        if receipts is None:
+            # Most likely the provider is down: asking page after page, each up to its timeout,
+            # would only hold up the other jobs. A page merely not ready must not end the run,
+            # or receipts lost for the oldest tickets would hold back all the others for a day.
+            not_ready += len(tickets)
+            break
+        dead: set[tuple[UUID, str]] = set()
+        answered: list[str] = []
+        for ticket in tickets:
+            receipt = receipts.get(ticket.id)
+            if receipt is None:
+                not_ready += 1
+                continue
+            answered.append(ticket.id)
+            if receipt.status is PushReceiptStatus.OK:
+                accepted += 1
+            elif receipt.status is PushReceiptStatus.DEVICE_NOT_REGISTERED:
+                dead.add((ticket.device_id, ticket.token_digest))
+            else:
+                failed[receipt.error or "unknown"] += 1
+        async with session_factory() as db, db.begin():
+            unregistered_devices += await repository.delete_devices_with_tokens(db, dead)
+            await repository.delete_tickets(db, answered)
+        if len(tickets) < RECEIPTS_BATCH:
+            break
+        after = tickets[-1]
+
+    result = ReceiptsResult(
+        accepted=accepted,
+        unregistered_devices=unregistered_devices,
+        failed=dict(failed),
+        not_ready=not_ready,
+        expired=expired,
+    )
+    # Every five minutes: only the runs that came across a ticket are worth a line in the log.
+    # A failed receipt may mean broken FCM or APNs credentials, so that no push gets through.
+    if accepted or unregistered_devices or failed or not_ready or expired:
+        log = logger.warning if failed else logger.info
+        log(
+            "push_receipts_checked",
+            accepted=result.accepted,
+            unregistered_devices=result.unregistered_devices,
+            failed=result.failed,
+            not_ready=result.not_ready,
+            expired=result.expired,
+        )
+    return result

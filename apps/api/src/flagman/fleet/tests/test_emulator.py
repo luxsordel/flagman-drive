@@ -10,6 +10,7 @@ from flagman.core.geo import GeoPoint
 from flagman.core.signing import SIGNATURE_HEADER, TIMESTAMP_HEADER, sign
 from flagman.fleet.domain import (
     CarState,
+    Gear,
     TelemetrySignatureInvalidError,
     TelemetrySnapshot,
 )
@@ -34,6 +35,8 @@ def car(**overrides: Any) -> dict[str, Any]:
         "doors_locked": True,
         "ignition_on": False,
         "engine_locked": False,
+        "headlights_on": True,
+        "gear": "D",
         "updated_at": (NOW - timedelta(seconds=2)).isoformat(),
     } | overrides
 
@@ -64,6 +67,8 @@ def test_batch_becomes_snapshots() -> None:
                 ignition_on=False,
                 engine_locked=False,
                 recorded_at=NOW - timedelta(seconds=2),
+                headlights_on=True,
+                gear=Gear.DRIVE,
             ),
         )
     ]
@@ -82,11 +87,12 @@ def test_signature_is_checked_before_the_body() -> None:
         batch(car(lat=91)),
         batch(car(lon=float("inf"))),
         batch(car(battery_pct=101)),
+        batch(car(gear="X")),
         batch(car(updated_at="2026-10-25T12:00:00")),
         batch(car(vin="WVWZZZ3CZWE123456")),
         batch(*[car()] * (MAX_TELEMETRY_CARS + 1)),
     ],
-    ids=["not-json", "lat", "inf", "battery", "naive-time", "extra-field", "too-many-cars"],
+    ids=["not-json", "lat", "inf", "battery", "gear", "naive-time", "extra-field", "too-many-cars"],
 )
 def test_invalid_batch_is_refused(body: bytes) -> None:
     with pytest.raises(ValidationError):

@@ -16,6 +16,7 @@ from flagman.fleet.domain import (
     CarCommandDuplicateError,
     CarCommandRejectedError,
     CarState,
+    Gear,
     TelematicsTimeoutError,
     TelematicsUnavailableError,
 )
@@ -41,6 +42,8 @@ def _car_state(**overrides: Any) -> dict[str, Any]:
         "doors_locked": False,
         "ignition_on": False,
         "engine_locked": False,
+        "headlights_on": False,
+        "gear": "P",
         "updated_at": NOW.isoformat(),
     } | overrides
 
@@ -114,6 +117,8 @@ def test_the_car_state_after_the_command_is_returned() -> None:
         ignition_on=False,
         engine_locked=True,
         recorded_at=NOW,
+        headlights_on=False,
+        gear=Gear.PARK,
     )
 
 

@@ -68,6 +68,8 @@ def _state(car: EmulatorCarState) -> CarState:
         ignition_on=car.ignition_on,
         engine_locked=car.engine_locked,
         recorded_at=car.updated_at,
+        headlights_on=car.headlights_on,
+        gear=car.gear,
     )
 
 
