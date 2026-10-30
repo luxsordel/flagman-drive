@@ -213,6 +213,7 @@ export const en: Translation = {
       reserved: 'Car reserved',
       inTrip: 'Trip in progress',
       open: 'Go',
+      receipt: 'View receipt',
     },
     title: 'Your reservation',
     plate: 'Plate: {{plate}}',
@@ -309,6 +310,7 @@ export const en: Translation = {
       open: 'Pay',
     },
     ended: {
+      title: 'Reservation ended',
       expired: 'The reservation time is over: it is cancelled and the car is free again',
       client: 'The reservation is cancelled',
       other: 'The rental has ended',
@@ -461,9 +463,12 @@ export const en: Translation = {
     categoriesTitle: 'What to send',
     mandatory: 'Cannot be switched off: it is about your trip and your money',
     categories: {
-      reservation: { name: 'Reservation', hint: 'Your reservation ends soon or has ended' },
+      reservation: {
+        name: 'Reservation',
+        hint: 'Your reservation ends soon or has ended with nothing to pay',
+      },
       trip: { name: 'Trip', hint: 'Low battery, trip finished' },
-      payment: { name: 'Payment', hint: 'A payment failed' },
+      payment: { name: 'Payment', hint: 'Charges and failed payments' },
     },
     device: {
       title: 'This phone',

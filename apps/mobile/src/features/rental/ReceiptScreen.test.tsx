@@ -4,7 +4,7 @@ import { initI18n } from '../../i18n';
 import { ReceiptScreen } from './ReceiptScreen';
 import { RentalProvider } from './RentalProvider';
 import { RentalStore } from './rentalStore';
-import { fakeRentalApi, nearCar, ok, paidRental, serverNow } from './testing';
+import { fakeRentalApi, nearCar, ok, paidRental, rental, serverNow } from './testing';
 
 initI18n('ru');
 
@@ -39,6 +39,50 @@ describe('ReceiptScreen', () => {
     });
 
     expect(fake.api.get).toHaveBeenCalledWith('rental-1');
+    expect(screen.getByText(/^Итого: 8,64\sBYN$/)).toBeOnTheScreen();
+  });
+
+  it('explains a reservation that expired with nothing to bill', async () => {
+    const { fake, store } = setupStore();
+    fake.api.get.mockResolvedValue(
+      ok(rental({ status: 'cancelled', cancel_reason: 'expired', ended_at: serverNow })),
+    );
+
+    await render(
+      <RentalProvider store={store}>
+        <ReceiptScreen />
+      </RentalProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByText('Время брони вышло: бронь отменена, машина снова свободна'),
+    ).toBeOnTheScreen();
+    expect(screen.getByText('Бронь окончена')).toBeOnTheScreen();
+    expect(screen.queryByText('Чек')).toBeNull();
+    expect(screen.queryByText(/^Итого/)).toBeNull();
+  });
+
+  it('explains the receipt of an expired reservation', async () => {
+    const { fake, store } = setupStore();
+    fake.api.get.mockResolvedValue(
+      ok(paidRental({ status: 'cancelled', cancel_reason: 'expired' })),
+    );
+
+    await render(
+      <RentalProvider store={store}>
+        <ReceiptScreen />
+      </RentalProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      screen.getByText('Время брони вышло: бронь отменена, машина снова свободна'),
+    ).toBeOnTheScreen();
     expect(screen.getByText(/^Итого: 8,64\sBYN$/)).toBeOnTheScreen();
   });
 
