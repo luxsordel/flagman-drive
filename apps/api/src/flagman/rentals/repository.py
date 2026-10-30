@@ -169,17 +169,20 @@ async def get_reservations_ending(db: AsyncSession, now: datetime, until: dateti
     return [_to_rental(row) for row in await db.scalars(query)]
 
 
-async def cancel(db: AsyncSession, ended: Rental, now: datetime) -> None:
-    """Its end is the rental's own, not `now`: an expired reservation ends at its deadline."""
+async def cancel(  # noqa: PLR0913 - the fields of one cancellation
+    db: AsyncSession,
+    rental_id: UUID,
+    status: RentalStatus,
+    *,
+    reason: CancelReason,
+    ended_at: datetime,
+    now: datetime,
+) -> None:
+    """`ended_at` is not always `now`: an expired reservation ends at its deadline."""
     await db.execute(
         update(RentalRow)
-        .where(RentalRow.id == ended.id)
-        .values(
-            status=ended.status,
-            cancel_reason=ended.cancel_reason,
-            ended_at=ended.ended_at,
-            updated_at=now,
-        )
+        .where(RentalRow.id == rental_id)
+        .values(status=status, cancel_reason=reason, ended_at=ended_at, updated_at=now)
     )
 
 

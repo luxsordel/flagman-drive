@@ -23,6 +23,7 @@ from flagman.payments import service as payments
 from flagman.payments.domain import DeclineReason, OperationStatus
 from flagman.payments.fake_provider import FakeProvider
 from flagman.payments.ports import OperationRequest, OperationResult, PaymentProviderError
+from flagman.pricing.seed import DEMO_PRICES
 from flagman.rentals import service
 from flagman.rentals.tests.conftest import (
     CAR_POINT,
@@ -161,12 +162,20 @@ def _run[T](settings: Settings, job: Callable[[AsyncSession], Awaitable[T]]) -> 
     return asyncio.run(run())
 
 
-def _retry_charges(settings: Settings, at: datetime) -> int:
-    """How many it tried in the whole database: other tests' rentals may be due as well, so the
-    tests check their own rental after it."""
+_CHARGE_RUNS = 20
+
+
+def _retry_charges(settings: Settings, at: datetime) -> None:
+    """Runs the charge job until nothing is due at `at`: other tests' rentals may be due as well
+    and fill a batch before this test's one, so the tests check their own rental after it."""
     gateway = payments.gateway(settings)
     rules = service.settlement_rules(settings)
-    return _run(settings, lambda db: service.retry_charges(db, gateway, rules, at))
+    # Every rental it tries is put off past `at`, so the runs end; a bug that keeps one due
+    # must fail the test, not hang it.
+    for _ in range(_CHARGE_RUNS):
+        if not _run(settings, lambda db: service.retry_charges(db, gateway, rules, at)):
+            return
+    pytest.fail(f"the charge job still finds rentals due after {_CHARGE_RUNS} runs")
 
 
 # Reservation and the hold
@@ -275,13 +284,24 @@ def _expire_reservations(settings: Settings) -> int:
     return _run(settings, lambda db: service.expire_reservations(db, datetime.now(UTC)))
 
 
-def _free_wait(settings: Settings, rental_id: str) -> None:
-    """The whole reservation is free: the car's model has a tariff of its own (`add_priced_car`)."""
+def _paid_wait(settings: Settings) -> int:
+    """Minutes of a whole reservation past the free wait of the demo tariff (`add_priced_car`)."""
+    return settings.rental_max_reservation_minutes - DEMO_PRICES.free_waiting_minutes
+
+
+def _free_wait(settings: Settings, car: str) -> None:
+    """A new version of the tariff of the car's own model (`add_priced_car`) where the whole
+    reservation is free; a version a rental took is never changed (docs/adr/0018)."""
     execute(
         settings,
-        "UPDATE tariff_versions SET free_waiting_minutes = 45 "
-        "WHERE id = (SELECT tariff_version_id FROM rentals WHERE id = :id)",
-        id=uuid.UUID(rental_id),
+        "INSERT INTO tariff_versions (id, tariff_id, number, driving_per_minute, "
+        "parked_per_minute, waiting_per_minute, free_waiting_minutes, hold_amount, valid_from) "
+        "SELECT gen_random_uuid(), v.tariff_id, v.number + 1, v.driving_per_minute, "
+        "v.parked_per_minute, v.waiting_per_minute, :minutes, v.hold_amount, now() "
+        "FROM tariff_versions v JOIN tariffs t ON t.id = v.tariff_id "
+        "JOIN cars c ON c.model_id = t.model_id WHERE c.id = :car",
+        car=uuid.UUID(car),
+        minutes=settings.rental_max_reservation_minutes,
     )
 
 
@@ -292,19 +312,25 @@ def test_the_timeout_job_charges_the_paid_wait_until_the_end_of_the_reservation(
     # The reservation ended 15 minutes before the job got to it.
     _shift(integration_settings, rental_id, 60)
 
-    assert _expire_reservations(integration_settings) >= 1
+    _expire_reservations(integration_settings)
 
-    body = person.get(rental_id).json()
-    assert (body["status"], body["cancel_reason"]) == ("cancelled", "expired")
-    [line] = body["receipt"]["cost"]["lines"]
-    # 45 minutes of the reservation, 15 of them free: the lateness of the job is not billed.
-    assert (line["kind"], line["minutes"], line["free_minutes"]) == ("waiting", 30, 15)
-    total = body["receipt"]["cost"]["total"]
-    assert total == line["amount"] > 0
+    # Checked before any request to the rental: a request would expire it by itself.
+    row = _rental_row(integration_settings, rental_id)
+    assert (row.status, row.charge_status) == ("cancelled", "pending")
+    # The lateness of the job is not billed.
+    total = _paid_wait(integration_settings) * DEMO_PRICES.waiting_per_minute
     assert _queued(integration_settings, rental_id) == [("reservation_expired", {"amount": total})]
-    assert _rental_row(integration_settings, rental_id).charge_status == "pending"
+    body = person.get(rental_id).json()
+    assert body["cancel_reason"] == "expired"
+    [line] = body["receipt"]["cost"]["lines"]
+    assert (line["kind"], line["minutes"], line["free_minutes"]) == (
+        "waiting",
+        _paid_wait(integration_settings),
+        DEMO_PRICES.free_waiting_minutes,
+    )
+    assert body["receipt"]["cost"]["total"] == line["amount"] == total
 
-    assert _retry_charges(integration_settings, datetime.now(UTC)) >= 1
+    _retry_charges(integration_settings, datetime.now(UTC))
 
     assert _rental_row(integration_settings, rental_id).charge_status == "paid"
     [charge] = _operations(integration_settings, rental_id)
@@ -322,8 +348,8 @@ def test_a_reservation_expired_on_access_charges_the_paid_wait(
     assert body["status"] == "cancelled"
     assert body["charge_status"] == "pending"
     [line] = body["receipt"]["cost"]["lines"]
-    assert line["minutes"] == 30
-    assert _retry_charges(integration_settings, datetime.now(UTC)) >= 1
+    assert line["minutes"] == _paid_wait(integration_settings)
+    _retry_charges(integration_settings, datetime.now(UTC))
     assert person.get(rental_id).json()["charge_status"] == "paid"
 
 
@@ -335,7 +361,7 @@ def test_an_expired_reservation_takes_the_paid_wait_from_the_hold(
     _shift(integration_settings, rental_id, 60)
 
     total = person.get(rental_id).json()["receipt"]["cost"]["total"]
-    assert _retry_charges(integration_settings, datetime.now(UTC)) >= 1
+    _retry_charges(integration_settings, datetime.now(UTC))
 
     assert _rental_row(integration_settings, rental_id).charge_status == "paid"
     operations = _operations(integration_settings, rental_id)
@@ -351,7 +377,7 @@ def test_a_declined_charge_of_an_expired_reservation_is_a_debt(
     _shift(integration_settings, rental_id, 60)
     assert person.get(rental_id).json()["status"] == "cancelled"
 
-    assert _retry_charges(integration_settings, datetime.now(UTC)) >= 1
+    _retry_charges(integration_settings, datetime.now(UTC))
 
     body = person.get(rental_id).json()
     assert (body["status"], body["charge_status"]) == ("cancelled", "failed")
@@ -371,8 +397,8 @@ def test_a_declined_charge_of_an_expired_reservation_is_a_debt(
 def test_a_free_expiry_charges_nothing(
     integration_settings: Settings, person: Person, car: str
 ) -> None:
+    _free_wait(integration_settings, car)
     rental_id = str(person.reserve(car).json()["id"])
-    _free_wait(integration_settings, rental_id)
     _shift(integration_settings, rental_id, 60)
 
     body = person.get(rental_id).json()
@@ -385,15 +411,15 @@ def test_a_free_expiry_charges_nothing(
 def test_a_free_expiry_releases_the_hold_of_a_failed_opening(
     integration_settings: Settings, person: Person, gateway: FakeGateway, car: str
 ) -> None:
+    _free_wait(integration_settings, car)
     rental_id = str(person.reserve(car).json()["id"])
     _hold_and_fail_to_open(person, gateway, rental_id)
-    _free_wait(integration_settings, rental_id)
     _shift(integration_settings, rental_id, 60)
 
     body = person.get(rental_id).json()
     assert (body["status"], body["receipt"]) == ("cancelled", None)
     assert _rental_row(integration_settings, rental_id).charge_status == "pending"
-    assert _retry_charges(integration_settings, datetime.now(UTC)) >= 1
+    _retry_charges(integration_settings, datetime.now(UTC))
 
     assert _rental_row(integration_settings, rental_id).charge_status == "paid"
     assert _kinds(integration_settings, rental_id) == [
@@ -724,11 +750,11 @@ def test_a_declined_charge_is_a_debt_until_paid(
     # The worker tries again when the time comes, with a key of its own each time.
     row = _rental_row(integration_settings, rental_id)
     assert row.charge_next_at is not None
-    assert _retry_charges(integration_settings, row.charge_next_at) >= 1
+    _retry_charges(integration_settings, row.charge_next_at)
     assert _rental_row(integration_settings, rental_id).charge_attempts == 1
     _make_default(person, "4242")
     later = _rental_row(integration_settings, rental_id).charge_next_at
-    assert _retry_charges(integration_settings, later) >= 1
+    _retry_charges(integration_settings, later)
 
     paid = person.get(rental_id).json()
     assert (paid["status"], paid["charge_status"]) == ("paid", "paid")
@@ -781,7 +807,7 @@ def test_an_unknown_outcome_is_retried_with_the_same_key(
 
     assert (body["status"], body["charge_status"]) == ("finished", "pending")
     row = _rental_row(integration_settings, rental_id)
-    assert _retry_charges(integration_settings, row.charge_next_at) >= 1
+    _retry_charges(integration_settings, row.charge_next_at)
     assert _rental_row(integration_settings, rental_id).status == "paid"
     captures = [op for op in _operations(integration_settings, rental_id) if op.kind == "capture"]
     assert [(op.idempotency_key, op.status) for op in captures] == [
@@ -832,7 +858,7 @@ def test_a_rental_the_charge_job_fails_on_waits_like_a_debt(
         raise RuntimeError("a bug")
 
     monkeypatch.setattr(service, "settle", broken)
-    assert _retry_charges(integration_settings, at) >= 1
+    _retry_charges(integration_settings, at)
 
     row = _rental_row(integration_settings, rental_id)
     assert row.charge_status == "pending"

@@ -246,11 +246,12 @@ async def _current_tariff(db: AsyncSession, car: Car) -> TariffVersion:
 
 
 async def _issue_receipt(
-    db: AsyncSession, ended: Rental, now: datetime, settle_at: datetime, *, receipt_always: bool
-) -> Receipt | None:
+    db: AsyncSession, ended: Rental, now: datetime, *, settle_at: datetime, receipt_always: bool
+) -> tuple[Rental, Receipt | None]:
     """Issues the receipt of a rental that has just ended and leaves its money to settle.
 
     A cancelled reservation gets a receipt only for a paid wait; a hold is released either way.
+    Returns the rental with its money as the row now has it, and the receipt.
     """
     tariff = await pricing.get_version(db, ended.tariff_version_id)
     intervals = await repository.get_intervals(db, ended.id)
@@ -270,24 +271,32 @@ async def _issue_receipt(
             issued_at=now,
         )
         await repository.add_receipt(db, receipt)
-    if quote.total or ended.hold_id:
-        await repository.set_charge(
-            db, ended.id, ChargeState(ChargeStatus.PENDING, 0, settle_at), now
-        )
-    return receipt
+    if not quote.total and not ended.hold_id:
+        return ended, receipt
+    charge = ChargeState(ChargeStatus.PENDING, 0, settle_at)
+    await repository.set_charge(db, ended.id, charge, now)
+    billed = replace(
+        ended,
+        charge_status=charge.status,
+        charge_attempts=charge.attempts,
+        charge_next_at=charge.next_at,
+    )
+    return billed, receipt
 
 
 async def _expire(db: AsyncSession, rental: Rental, now: datetime) -> Rental:
     status = apply_transition(rental.status, RentalTransition.EXPIRE)
     # The wait is billed until the deadline: a late job or a late look must not cost the client.
-    ended = replace(
-        rental, status=status, cancel_reason=CancelReason.EXPIRED, ended_at=rental.expires_at
+    ended_at = rental.expires_at
+    await repository.cancel(
+        db, rental.id, status, reason=CancelReason.EXPIRED, ended_at=ended_at, now=now
     )
-    await repository.cancel(db, ended, now)
+    ended = replace(rental, status=status, cancel_reason=CancelReason.EXPIRED, ended_at=ended_at)
     await fleet.change_status(db, rental.car_id, CarTransition.CANCEL_RESERVATION, now)
     # The charge job takes the money within a minute: an expiry happens in the timeout job and
-    # inside the transaction of any request to the rental, and none of them can pay after it.
-    receipt = await _issue_receipt(db, ended, now, now, receipt_always=False)
+    # inside the transaction of any request to the rental, and paying after the commit in each
+    # of those places is not worth that minute (docs/adr/0024).
+    billed, receipt = await _issue_receipt(db, ended, now, settle_at=now, receipt_always=False)
     logger.info("rental_reservation_expired", rental_id=str(rental.id))
     await notifications.withdraw(db, rental.id, _RESERVATION_REMINDERS, now)
     amount = receipt.quote.total if receipt else 0
@@ -295,10 +304,8 @@ async def _expire(db: AsyncSession, rental: Rental, now: datetime) -> Rental:
         NotificationEvent.RESERVATION_EXPIRED, rental.id, {"amount": amount}
     )
     await notifications.notify_client(db, rental.user_id, notification, now)
-    if receipt is None and rental.hold_id is None:
-        return ended
     # The caller answers with this rental: it must show the money as owed, as the row does.
-    return replace(ended, charge_status=ChargeStatus.PENDING, charge_attempts=0, charge_next_at=now)
+    return billed
 
 
 async def _expire_if_due(db: AsyncSession, rental: Rental, now: datetime) -> Rental:
@@ -700,7 +707,10 @@ class RentalService:
     async def _bill(self, ended: Rental, now: datetime, *, receipt_always: bool) -> Receipt | None:
         """Settled right away by the caller; the charge job is only the fallback."""
         settle_at = now + self.rules.settlement.pending_retry
-        return await _issue_receipt(self.db, ended, now, settle_at, receipt_always=receipt_always)
+        _, receipt = await _issue_receipt(
+            self.db, ended, now, settle_at=settle_at, receipt_always=receipt_always
+        )
+        return receipt
 
     async def _settle(self, rental_id: UUID) -> None:
         """Right away when payments are configured; the charge job does it otherwise."""
@@ -774,13 +784,15 @@ class RentalService:
                     # The car may be opening for the client right now.
                     raise RentalBusyError
                 status = apply_transition(rental.status, RentalTransition.CANCEL)
-                ended = replace(
-                    rental, status=status, cancel_reason=CancelReason.CLIENT, ended_at=now
+                await repository.cancel(
+                    self.db, rental.id, status, reason=CancelReason.CLIENT, ended_at=now, now=now
                 )
-                await repository.cancel(self.db, ended, now)
                 await notifications.withdraw(self.db, rental.id, _RESERVATION_REMINDERS, now)
                 await fleet.change_status(
                     self.db, rental.car_id, CarTransition.CANCEL_RESERVATION, now
+                )
+                ended = replace(
+                    rental, status=status, cancel_reason=CancelReason.CLIENT, ended_at=now
                 )
                 await self._bill(ended, now, receipt_always=False)
                 to_settle = bool(await repository.get_receipt(self.db, rental.id) or rental.hold_id)
