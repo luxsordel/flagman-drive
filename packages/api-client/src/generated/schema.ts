@@ -7727,7 +7727,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description One reason at a time: `urn:flagman:problem:inspection-required`; `car-state-stale`: no fresh telemetry, try again; `outside-end-zone`; `ignition-on`; `doors-open`; `car-lock-failed`: `detail` is the car's reason; `rental-command-in-progress`; `rental-transition-not-allowed`: not on a trip. */
+      /** @description One reason at a time: `urn:flagman:problem:inspection-required`; `car-state-stale`: no fresh telemetry, try again; `outside-end-zone`; `not-in-park`; `ignition-on`; `headlights-on`: also when the car has not told it; `doors-open`; `car-lock-failed`: `detail` is the car's reason; `rental-command-in-progress`; `rental-transition-not-allowed`: not on a trip. */
       409: {
         headers: {
           [name: string]: unknown;
