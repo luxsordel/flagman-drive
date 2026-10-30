@@ -99,6 +99,10 @@ class Notification:
 
     @property
     def category(self) -> NotificationCategory:
+        # A paid expiry is the client's only news of the charge, so it cannot be switched off
+        # with the reservation reminders (docs/adr/0024).
+        if _is_paid_expiry(self):
+            return NotificationCategory.PAYMENT
         return CATEGORY_OF[self.event]
 
     @property
@@ -107,6 +111,9 @@ class Notification:
         reservation that is already over, delivered after a worker outage, only confuses."""
         if self.event is NotificationEvent.RESERVATION_EXPIRING:
             return timedelta(minutes=self.params["minutes_left"])
+        if _is_paid_expiry(self):
+            # News of money stays true long after the reservation is over.
+            return _MONEY_NEWS_LIFETIME
         return _LIFETIMES[self.event]
 
     @property
@@ -115,11 +122,19 @@ class Notification:
         return f"{self.event}:{self.rental_id}"
 
 
+def _is_paid_expiry(notification: Notification) -> bool:
+    """An expiry that billed the paid wait (docs/adr/0024): news of money, not of a reservation."""
+    expired = notification.event is NotificationEvent.RESERVATION_EXPIRED
+    return expired and notification.params["amount"] > 0
+
+
+_MONEY_NEWS_LIFETIME = timedelta(days=1)
+
 _LIFETIMES = {
     NotificationEvent.RESERVATION_EXPIRED: timedelta(minutes=15),
     NotificationEvent.TRIP_LOW_BATTERY: timedelta(minutes=30),
-    NotificationEvent.TRIP_FINISHED: timedelta(days=1),
-    NotificationEvent.PAYMENT_FAILED: timedelta(days=1),
+    NotificationEvent.TRIP_FINISHED: _MONEY_NEWS_LIFETIME,
+    NotificationEvent.PAYMENT_FAILED: _MONEY_NEWS_LIFETIME,
 }
 
 _PARAMS: dict[NotificationEvent, frozenset[str]] = {
@@ -250,7 +265,7 @@ _FREE_EXPIRY: dict[Language, tuple[str, str]] = {
 def _template(notification: Notification, language: Language) -> tuple[str, str]:
     """A free expiry has no receipt to point to, nor a sum worth naming."""
     expired = notification.event is NotificationEvent.RESERVATION_EXPIRED
-    if expired and notification.params["amount"] == 0:
+    if expired and not _is_paid_expiry(notification):
         return _FREE_EXPIRY[language]
     return _TEMPLATES[notification.event][language]
 

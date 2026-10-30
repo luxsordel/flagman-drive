@@ -48,7 +48,7 @@ def test_text_follows_the_client_language() -> None:
 
 
 def test_an_expired_reservation_names_its_paid_wait() -> None:
-    expired = EXAMPLES[1]
+    expired = Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {"amount": 600})
 
     assert render(expired, Language.RU).body == (
         "Время брони вышло. Платное ожидание: 6,00 BYN. Чек — в истории поездок."
@@ -65,6 +65,20 @@ def test_a_free_expiry_mentions_no_money() -> None:
     assert (
         render(expired, Language.EN).body == "Your reservation time is up; the car is free again."
     )
+
+
+def test_a_paid_expiry_is_news_of_money_that_cannot_be_switched_off() -> None:
+    paid = Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {"amount": 600})
+    free = Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {"amount": 0})
+
+    assert (paid.category, paid.lifetime) == (NotificationCategory.PAYMENT, timedelta(days=1))
+    assert (free.category, free.lifetime) == (
+        NotificationCategory.RESERVATION,
+        timedelta(minutes=15),
+    )
+    switched_off = NotificationPreferences(disabled=frozenset({NotificationCategory.RESERVATION}))
+    assert switched_off.is_enabled(paid.category)
+    assert not switched_off.is_enabled(free.category)
 
 
 def test_an_expiry_without_its_amount_is_refused() -> None:
