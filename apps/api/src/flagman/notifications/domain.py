@@ -99,6 +99,10 @@ class Notification:
 
     @property
     def category(self) -> NotificationCategory:
+        # A paid expiry is the client's only news of the charge, so it cannot be switched off
+        # with the reservation reminders (docs/adr/0024).
+        if _is_paid_expiry(self):
+            return NotificationCategory.PAYMENT
         return CATEGORY_OF[self.event]
 
     @property
@@ -107,6 +111,9 @@ class Notification:
         reservation that is already over, delivered after a worker outage, only confuses."""
         if self.event is NotificationEvent.RESERVATION_EXPIRING:
             return timedelta(minutes=self.params["minutes_left"])
+        if _is_paid_expiry(self):
+            # News of money stays true long after the reservation is over.
+            return _MONEY_NEWS_LIFETIME
         return _LIFETIMES[self.event]
 
     @property
@@ -115,16 +122,25 @@ class Notification:
         return f"{self.event}:{self.rental_id}"
 
 
+def _is_paid_expiry(notification: Notification) -> bool:
+    """An expiry that billed the paid wait (docs/adr/0024): news of money, not of a reservation."""
+    expired = notification.event is NotificationEvent.RESERVATION_EXPIRED
+    return expired and notification.params["amount"] > 0
+
+
+_MONEY_NEWS_LIFETIME = timedelta(days=1)
+
 _LIFETIMES = {
     NotificationEvent.RESERVATION_EXPIRED: timedelta(minutes=15),
     NotificationEvent.TRIP_LOW_BATTERY: timedelta(minutes=30),
-    NotificationEvent.TRIP_FINISHED: timedelta(days=1),
-    NotificationEvent.PAYMENT_FAILED: timedelta(days=1),
+    NotificationEvent.TRIP_FINISHED: _MONEY_NEWS_LIFETIME,
+    NotificationEvent.PAYMENT_FAILED: _MONEY_NEWS_LIFETIME,
 }
 
 _PARAMS: dict[NotificationEvent, frozenset[str]] = {
     NotificationEvent.RESERVATION_EXPIRING: frozenset({"minutes_left"}),
-    NotificationEvent.RESERVATION_EXPIRED: frozenset(),
+    # The paid wait the expiry is billed for (docs/adr/0024); zero when it was all free.
+    NotificationEvent.RESERVATION_EXPIRED: frozenset({"amount"}),
     NotificationEvent.TRIP_LOW_BATTERY: frozenset({"battery_pct"}),
     NotificationEvent.TRIP_FINISHED: frozenset({"total"}),
     NotificationEvent.PAYMENT_FAILED: frozenset({"amount"}),
@@ -209,8 +225,15 @@ _TEMPLATES: dict[NotificationEvent, dict[Language, tuple[str, str]]] = {
         Language.EN: ("Reservation ends soon", "Your reservation ends in {minutes_left}."),
     },
     NotificationEvent.RESERVATION_EXPIRED: {
-        Language.RU: ("Бронь истекла", "Время брони вышло, машина снова доступна другим."),
-        Language.EN: ("Reservation expired", "Your reservation time is up; the car is free again."),
+        Language.RU: (
+            "Бронь истекла",
+            "Время брони вышло. Платное ожидание: {amount}. Чек — в истории поездок.",
+        ),
+        Language.EN: (
+            "Reservation expired",
+            "Your reservation time is up. Paid waiting: {amount}. "
+            "The receipt is in your trip history.",
+        ),
     },
     NotificationEvent.TRIP_LOW_BATTERY: {
         Language.RU: (
@@ -233,10 +256,24 @@ _TEMPLATES: dict[NotificationEvent, dict[Language, tuple[str, str]]] = {
 }
 
 
+_FREE_EXPIRY: dict[Language, tuple[str, str]] = {
+    Language.RU: ("Бронь истекла", "Время брони вышло, машина снова доступна другим."),
+    Language.EN: ("Reservation expired", "Your reservation time is up; the car is free again."),
+}
+
+
+def _template(notification: Notification, language: Language) -> tuple[str, str]:
+    """A free expiry has no receipt to point to, nor a sum worth naming."""
+    expired = notification.event is NotificationEvent.RESERVATION_EXPIRED
+    if expired and not _is_paid_expiry(notification):
+        return _FREE_EXPIRY[language]
+    return _TEMPLATES[notification.event][language]
+
+
 def render(notification: Notification, language: Language) -> PushContent:
     """The text is built here, on the server, in the client's language: the app sends nothing
     but its token."""
-    title, template = _TEMPLATES[notification.event][language]
+    title, template = _template(notification, language)
     body = template.format_map(_values(notification.params, language))
     return PushContent(
         title=title,

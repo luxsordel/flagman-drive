@@ -5,11 +5,7 @@ describe('notificationRoute', () => {
     expect(notificationRoute({ event, rental_id: 'r-1' })).toBe('/rental');
   });
 
-  it('opens the map for an expired reservation', () => {
-    expect(notificationRoute({ event: 'reservation_expired', rental_id: 'r-1' })).toBe('/');
-  });
-
-  it.each(['trip_finished', 'payment_failed'])(
+  it.each(['reservation_expired', 'trip_finished', 'payment_failed'])(
     'opens the receipt of the rental for %s',
     (event) => {
       expect(notificationRoute({ event, rental_id: 'r-1' })).toEqual({

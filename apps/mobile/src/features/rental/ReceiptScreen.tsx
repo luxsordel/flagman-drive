@@ -10,8 +10,9 @@ import { Screen } from '../../ui/Screen';
 import { ReceiptView } from './ReceiptView';
 import { RentalErrorMessage } from './RentalErrorMessage';
 import { useRentalState, useRentalStore } from './RentalProvider';
+import { endedText } from './rentalText';
 
-/** The receipt of one rental by its id: where a tapped «trip finished» or «payment failed» leads. */
+/** The receipt of one rental by its id: where a tapped push about an ended rental leads. */
 export function ReceiptScreen() {
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -29,9 +30,12 @@ export function ReceiptScreen() {
     router.dismissTo('/');
   };
   const shown = [viewed, rental].find((candidate) => candidate?.id === id) ?? null;
+  // A reservation that expired or was cancelled in its free wait has no receipt.
+  const title =
+    shown !== null && shown.receipt === null ? 'rental.ended.title' : 'rental.receipt.title';
   return (
     <Screen>
-      <AppText variant="title">{t('rental.receipt.title')}</AppText>
+      <AppText variant="title">{t(title)}</AppText>
       {shown === null ? (
         error === null ? (
           <>
@@ -43,6 +47,8 @@ export function ReceiptScreen() {
         )
       ) : (
         <>
+          {/* A cancelled reservation may have a receipt for its paid wait or none at all. */}
+          {shown.status === 'cancelled' && <AppText>{t(endedText(shown))}</AppText>}
           <ReceiptView rental={shown} pending={pending} />
           <RentalErrorMessage error={error} />
         </>

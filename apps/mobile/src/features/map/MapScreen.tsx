@@ -169,6 +169,9 @@ function LiveMap() {
             onOpen={() => {
               router.push('/rental');
             }}
+            onReceipt={(id) => {
+              router.push({ pathname: '/rental/receipt', params: { id } });
+            }}
           />
         ) : state.selected !== null ? (
           <CarCard

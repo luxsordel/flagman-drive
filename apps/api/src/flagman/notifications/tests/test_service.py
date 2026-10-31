@@ -62,7 +62,7 @@ def _notification(
 ) -> Notification:
     defaults = {
         NotificationEvent.RESERVATION_EXPIRING: {"minutes_left": 5},
-        NotificationEvent.RESERVATION_EXPIRED: {},
+        NotificationEvent.RESERVATION_EXPIRED: {"amount": 600},
         NotificationEvent.TRIP_LOW_BATTERY: {"battery_pct": 15},
         NotificationEvent.TRIP_FINISHED: {"total": 1250},
         NotificationEvent.PAYMENT_FAILED: {"amount": 990},

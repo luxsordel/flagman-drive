@@ -8,9 +8,9 @@ from fastapi.testclient import TestClient
 
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
-from flagman.fleet.tests.conftest import add_car
+from flagman.pricing.seed import DEMO_PRICES
 from flagman.rentals import service
-from flagman.rentals.tests.conftest import CAR_POINT, Person, execute, query
+from flagman.rentals.tests.conftest import CAR_POINT, Person, add_priced_car, execute, query
 
 pytestmark = pytest.mark.integration
 
@@ -24,7 +24,7 @@ def person(integration_settings: Settings, app_client: TestClient) -> Person:
 
 @pytest.fixture
 def car(integration_settings: Settings) -> str:
-    return add_car(integration_settings, CAR_POINT)
+    return add_priced_car(integration_settings, CAR_POINT)
 
 
 def _ends_in(settings: Settings, rental_id: str, seconds: int) -> None:
@@ -104,7 +104,10 @@ def test_the_timeout_job_tells_the_client_the_reservation_expired(
     _run(integration_settings, "expire")
 
     [row] = _queued(integration_settings, rental["id"])
-    assert (row.user_id, row.event, row.params) == (person.id, "reservation_expired", {})
+    assert (row.user_id, row.event) == (person.id, "reservation_expired")
+    # `_ends_in` gives the reservation 45 minutes; the free ones are the demo tariff's.
+    paid = 45 - DEMO_PRICES.free_waiting_minutes
+    assert row.params == {"amount": paid * DEMO_PRICES.waiting_per_minute}
 
 
 def test_a_reservation_expired_on_access_is_told_once(

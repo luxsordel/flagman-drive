@@ -255,6 +255,7 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - Квитанции Expo опрашивает задача воркера `notifications_receipts` раз в 5 минут: устройство, о котором
   квитанция говорит `DeviceNotRegistered`, удаляется (таблица `push_tickets`, ADR-0020).
 - Настройки — `GET/PATCH /me/notification-preferences`: бронь можно отключить, поездку и оплату нельзя.
+  Истечение брони с платным ожиданием — новость о списании: оно идёт в категории оплаты (ADR-0024).
 
 ## Карта клиента
 
