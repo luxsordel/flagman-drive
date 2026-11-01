@@ -93,6 +93,7 @@ export function IncidentPage() {
   }
 
   const decidable = incident.status === 'in_progress';
+  const closed = incident.status === 'resolved' || incident.status === 'rejected';
   const noComment = !comment.trim();
   return (
     <>
@@ -192,7 +193,7 @@ export function IncidentPage() {
             {t('support.take')}
           </button>
         )}
-        {incident.car_id && !incident.sent_to_service && (
+        {incident.car_id && !incident.sent_to_service && !closed && (
           <button
             type="button"
             className="button"

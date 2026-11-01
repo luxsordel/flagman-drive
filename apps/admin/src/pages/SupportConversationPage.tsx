@@ -87,9 +87,7 @@ export function SupportConversationPage() {
     event.preventDefault();
     const answer = text.trim();
     if (!answer) return;
-    void act(async () => {
-      append([await support.reply(conversationId, answer, lastSeq.current)]);
-    }).then((sent) => {
+    void act(() => support.reply(conversationId, answer, lastSeq.current)).then((sent) => {
       if (sent) setText('');
     });
   };

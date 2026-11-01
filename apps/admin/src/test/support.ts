@@ -98,9 +98,11 @@ export function fakeSupportApi({
       }),
     ),
     take: vi.fn<SupportApi['take']>(() => Promise.resolve(card)),
-    reply: vi.fn<SupportApi['reply']>((_id, text) =>
-      Promise.resolve(staffMessage({ author: 'staff', text })),
-    ),
+    reply: vi.fn<SupportApi['reply']>((_id, text) => {
+      const sent = staffMessage({ author: 'staff', text });
+      messages.push(sent);
+      return Promise.resolve(sent);
+    }),
     close: vi.fn<SupportApi['close']>(() => Promise.resolve(card)),
     messagePhotoUrl: vi.fn<SupportApi['messagePhotoUrl']>(() =>
       Promise.resolve({ url: 'http://storage.test/photo.jpg', expires_in: 300 }),
