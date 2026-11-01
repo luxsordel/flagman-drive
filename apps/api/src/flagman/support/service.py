@@ -31,6 +31,8 @@ from flagman.core.storage import ObjectStorage
 from flagman.fleet import service as fleet
 from flagman.fleet.domain import CarTransition
 from flagman.identity import service as identity
+from flagman.notifications import service as notifications
+from flagman.notifications.domain import Notification, NotificationEvent
 from flagman.rentals import service as rentals
 from flagman.support import repository
 from flagman.support.domain import (
@@ -597,6 +599,14 @@ class StaffSupportService:
                     staff_id=staff.staff_id,
                     body=text,
                 ),
+            )
+            await notifications.notify_client(
+                self.db,
+                conversation.user_id,
+                Notification(
+                    NotificationEvent.SUPPORT_REPLY, conversation.rental_id, {"seq": message.seq}
+                ),
+                now,
             )
             # A client message that came after the operator's last poll stays unread: they
             # answered without having seen it.

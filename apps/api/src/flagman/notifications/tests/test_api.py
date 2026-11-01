@@ -108,6 +108,7 @@ def test_everything_is_on_by_default(client: TestClient, caller: Caller) -> None
         "reservation": (True, False),
         "trip": (True, True),
         "payment": (True, True),
+        "support": (True, False),
     }
 
 

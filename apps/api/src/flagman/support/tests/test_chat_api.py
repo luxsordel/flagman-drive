@@ -13,7 +13,14 @@ from flagman.core.db import create_engine
 from flagman.core.photos import MAX_UPLOAD_BYTES
 from flagman.fleet.tests.conftest import Staff, add_car, bearer, staff_token
 from flagman.identity.domain import StaffRole
-from flagman.rentals.tests.conftest import CAR_POINT, FakeStorage, Person, photo, problem_type
+from flagman.rentals.tests.conftest import (
+    CAR_POINT,
+    FakeStorage,
+    Person,
+    photo,
+    problem_type,
+    query,
+)
 from flagman.support.service import MESSAGE_LIMIT, STAFF_MESSAGE_LIMIT, UPLOAD_LIMIT
 from flagman.support.tests.conftest import (
     audit_actions,
@@ -407,6 +414,37 @@ def test_the_queue_shows_the_last_message_and_who_took_the_conversation(
     send_photo(person, photo())
     card = _staff_conversation(app_client, operator, conversation).json()
     assert card["last_message_text"] is None
+
+
+def _support_pushes(settings: Settings, person: Person) -> list[Any]:
+    rows = query(
+        settings,
+        "SELECT event, rental_id, params FROM notification_outbox WHERE user_id = :id "
+        "ORDER BY created_at",
+        id=person.id,
+    )
+    return [row for row in rows if row.event == "support_reply"]
+
+
+def test_every_answer_of_an_operator_is_a_push_without_its_text(
+    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    write(person, "Hello")
+    conversation = _conversation_id(person)
+
+    reply(app_client, operator, conversation, "Secret detail", 0)
+    reply(app_client, operator, conversation, "One more", 0)
+
+    pushes = _support_pushes(integration_settings, person)
+    assert len(pushes) == 2
+    assert all(push.rental_id is None for push in pushes)
+    assert "Secret" not in str(pushes[0].params)
+
+
+def test_a_client_message_is_not_a_push(integration_settings: Settings, person: Person) -> None:
+    write(person, "Hello")
+
+    assert _support_pushes(integration_settings, person) == []
 
 
 def _write_once(person: Person, text: str, client_message_id: uuid.UUID) -> Any:

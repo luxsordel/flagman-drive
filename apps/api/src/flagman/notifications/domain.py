@@ -35,6 +35,7 @@ class NotificationCategory(StrEnum):
     RESERVATION = "reservation"
     TRIP = "trip"
     PAYMENT = "payment"
+    SUPPORT = "support"
 
 
 # What the client must know about money and the car they drive cannot be switched off.
@@ -47,6 +48,7 @@ class NotificationEvent(StrEnum):
     TRIP_LOW_BATTERY = "trip_low_battery"
     TRIP_FINISHED = "trip_finished"
     PAYMENT_FAILED = "payment_failed"
+    SUPPORT_REPLY = "support_reply"
 
 
 CATEGORY_OF = {
@@ -55,6 +57,7 @@ CATEGORY_OF = {
     NotificationEvent.TRIP_LOW_BATTERY: NotificationCategory.TRIP,
     NotificationEvent.TRIP_FINISHED: NotificationCategory.TRIP,
     NotificationEvent.PAYMENT_FAILED: NotificationCategory.PAYMENT,
+    NotificationEvent.SUPPORT_REPLY: NotificationCategory.SUPPORT,
 }
 
 
@@ -83,7 +86,8 @@ class Notification:
     """
 
     event: NotificationEvent
-    rental_id: UUID
+    # None for a conversation with support: it need not be about a rental.
+    rental_id: UUID | None
     params: Mapping[str, int]
 
     def __post_init__(self) -> None:
@@ -118,7 +122,12 @@ class Notification:
 
     @property
     def dedup_key(self) -> str:
-        """Each event happens once per rental: a second call with the same key is dropped."""
+        """Each event happens once per rental: a second call with the same key is dropped.
+
+        Support answers many times, so each answer is its own event, known by its `seq`.
+        """
+        if self.event is NotificationEvent.SUPPORT_REPLY:
+            return f"{self.event}:{self.params['seq']}"
         return f"{self.event}:{self.rental_id}"
 
 
@@ -135,6 +144,7 @@ _LIFETIMES = {
     NotificationEvent.TRIP_LOW_BATTERY: timedelta(minutes=30),
     NotificationEvent.TRIP_FINISHED: _MONEY_NEWS_LIFETIME,
     NotificationEvent.PAYMENT_FAILED: _MONEY_NEWS_LIFETIME,
+    NotificationEvent.SUPPORT_REPLY: timedelta(days=1),
 }
 
 _PARAMS: dict[NotificationEvent, frozenset[str]] = {
@@ -143,6 +153,7 @@ _PARAMS: dict[NotificationEvent, frozenset[str]] = {
     NotificationEvent.RESERVATION_EXPIRED: frozenset({"amount"}),
     NotificationEvent.TRIP_LOW_BATTERY: frozenset({"battery_pct"}),
     NotificationEvent.TRIP_FINISHED: frozenset({"total"}),
+    NotificationEvent.SUPPORT_REPLY: frozenset({"seq"}),
     NotificationEvent.PAYMENT_FAILED: frozenset({"amount"}),
 }
 
@@ -220,6 +231,11 @@ def _values(params: Mapping[str, int], language: Language) -> dict[str, str]:
 
 # (title, body) per event and language; the placeholders are the event's params.
 _TEMPLATES: dict[NotificationEvent, dict[Language, tuple[str, str]]] = {
+    # No text of the answer: a push shows on a locked screen.
+    NotificationEvent.SUPPORT_REPLY: {
+        Language.RU: ("Поддержка FLAGMAN", "Вам ответили в чате поддержки."),
+        Language.EN: ("FLAGMAN Support", "You have a new answer in the support chat."),
+    },
     NotificationEvent.RESERVATION_EXPIRING: {
         Language.RU: ("Бронь скоро истечёт", "Бронь закончится через {minutes_left}."),
         Language.EN: ("Reservation ends soon", "Your reservation ends in {minutes_left}."),
@@ -275,11 +291,10 @@ def render(notification: Notification, language: Language) -> PushContent:
     but its token."""
     title, template = _template(notification, language)
     body = template.format_map(_values(notification.params, language))
-    return PushContent(
-        title=title,
-        body=body,
-        data={"event": notification.event.value, "rental_id": str(notification.rental_id)},
-    )
+    data = {"event": notification.event.value}
+    if notification.rental_id is not None:
+        data["rental_id"] = str(notification.rental_id)
+    return PushContent(title=title, body=body, data=data)
 
 
 def battery_crossed_low(previous_pct: int | None, current_pct: int, threshold_pct: int) -> bool:

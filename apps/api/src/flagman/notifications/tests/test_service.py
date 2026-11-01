@@ -66,6 +66,7 @@ def _notification(
         NotificationEvent.TRIP_LOW_BATTERY: {"battery_pct": 15},
         NotificationEvent.TRIP_FINISHED: {"total": 1250},
         NotificationEvent.PAYMENT_FAILED: {"amount": 990},
+        NotificationEvent.SUPPORT_REPLY: {"seq": 7},
     }
     return Notification(event, uuid.uuid4(), params or defaults[event])
 
@@ -490,14 +491,15 @@ async def test_a_withdrawn_notification_is_not_sent(
     sessions: async_sessionmaker[AsyncSession], caller: Caller
 ) -> None:
     token = await _register(sessions, caller)
-    reminder = _notification(NotificationEvent.RESERVATION_EXPIRING, minutes_left=5)
-    other = Notification(NotificationEvent.TRIP_FINISHED, reminder.rental_id, {"total": 100})
+    rental_id = uuid.uuid4()
+    reminder = Notification(NotificationEvent.RESERVATION_EXPIRING, rental_id, {"minutes_left": 5})
+    other = Notification(NotificationEvent.TRIP_FINISHED, rental_id, {"total": 100})
     await _notify(sessions, caller, reminder)
     await _notify(sessions, caller, other)
 
     async with sessions() as db, db.begin():
         await service.withdraw(
-            db, reminder.rental_id, [NotificationEvent.RESERVATION_EXPIRING], datetime.now(UTC)
+            db, rental_id, [NotificationEvent.RESERVATION_EXPIRING], datetime.now(UTC)
         )
     provider = FakePushProvider()
     await _dispatch(sessions, provider)

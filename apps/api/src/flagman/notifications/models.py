@@ -98,7 +98,7 @@ class OutboxNotification(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     event: Mapped[str] = mapped_column(String(ENUM_LENGTH))
-    rental_id: Mapped[UUID]
+    rental_id: Mapped[UUID | None]
     # The template's numbers only (flagman.notifications.domain.Notification).
     params: Mapped[dict[str, Any]] = mapped_column(JSONB)
     # The same event for the same rental is stored once, however many times it is reported.
