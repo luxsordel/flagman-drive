@@ -7,7 +7,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import case, func, select, text, tuple_, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.support.domain import (
@@ -162,6 +162,16 @@ async def list_messages(
             .limit(limit)
         )
     ).all()
+
+
+async def last_messages(db: AsyncSession, conversation_ids: Sequence[UUID]) -> dict[UUID, Message]:
+    rows = await db.scalars(
+        select(Message)
+        .where(Message.conversation_id.in_(conversation_ids))
+        .ext(distinct_on(Message.conversation_id))
+        .order_by(Message.conversation_id, Message.seq.desc())
+    )
+    return {message.conversation_id: message for message in rows}
 
 
 async def get_message(db: AsyncSession, conversation_id: UUID, message_id: UUID) -> Message | None:

@@ -108,9 +108,11 @@ class ConversationOut(BaseModel):
     car_plate: str | None
     status: ConversationStatus
     assigned_staff_id: UUID | None
+    assigned_staff_name: str | None
     unread: int = Field(description="Client messages no staff member has read yet.")
     first_name: str | None
     last_name: str | None
+    last_message_text: str | None = Field(description="None when the last message is a photo.")
     created_at: datetime
     last_message_at: datetime
 
@@ -146,6 +148,13 @@ class IncidentIn(BaseModel):
     type: IncidentType
     description: IncidentDescription
     location: LocationIn | None = None
+    rental_id: UUID | None = Field(
+        default=None,
+        description=(
+            "A finished rental of the client the report is about; an active one is attached "
+            "without it and wins."
+        ),
+    )
 
 
 class IncidentCommentIn(BaseModel):
@@ -162,6 +171,7 @@ class IncidentPhotoOut(BaseModel):
 class IncidentEventOut(BaseModel):
     action: IncidentEventAction
     staff_id: UUID | None
+    staff_name: str | None
     comment: str | None
     created_at: datetime
 
@@ -190,6 +200,9 @@ class StaffIncidentOut(IncidentOut):
     last_name: str | None
     priority: int = Field(description="0 for an accident during a rental, 1 otherwise.")
     assigned_staff_id: UUID | None
+    assigned_staff_name: str | None
+    rental_status: RentalStatus | None
+    car_plate: str | None
     sent_to_service: bool
     events: list[IncidentEventOut]
 

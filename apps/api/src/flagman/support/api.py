@@ -57,7 +57,12 @@ from flagman.support.schemas import (
     StaffMessagePageOut,
     UnreadOut,
 )
-from flagman.support.service import ClientSupportService, StaffRef, StaffSupportService
+from flagman.support.service import (
+    ClientSupportService,
+    IncidentReport,
+    StaffRef,
+    StaffSupportService,
+)
 
 _PAGE_DEFAULT = 50
 
@@ -239,15 +244,15 @@ async def get_photo_url(
         "ended and its billing is not paused: the operator decides (docs/adr/0023)."
     ),
     responses={
+        HTTPStatus.NOT_FOUND: _problem("`urn:flagman:problem:rental-not-found`."),
         HTTPStatus.CONFLICT: _problem("`urn:flagman:problem:too-many-open-incidents`."),
         HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
 async def report_incident(client: Client, body: IncidentIn, service: ClientService) -> IncidentOut:
     location = (body.location.lat, body.location.lon) if body.location else None
-    return await service.report_incident(
-        client.user_id, body.type, body.description, location, datetime.now(UTC)
-    )
+    report = IncidentReport(body.type, body.description, location, body.rental_id)
+    return await service.report_incident(client.user_id, report, datetime.now(UTC))
 
 
 @router.get("/incidents", summary="The client's incidents, the newest first")

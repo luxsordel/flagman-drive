@@ -391,6 +391,24 @@ def test_a_photo_over_the_size_limit_is_refused(person: Person, storage: FakeSto
     assert storage.objects == {}
 
 
+def test_the_queue_shows_the_last_message_and_who_took_the_conversation(
+    person: Person, operator: Staff, app_client: TestClient, storage: FakeStorage
+) -> None:
+    name_staff(operator, "Anna")
+    write(person, "First")
+    write(person, "Second")
+    conversation = _conversation_id(person)
+    app_client.post(f"/admin/support/conversations/{conversation}/take", headers=operator.headers)
+
+    card = _staff_conversation(app_client, operator, conversation).json()
+    assert card["last_message_text"] == "Second"
+    assert card["assigned_staff_name"] == "Anna"
+
+    send_photo(person, photo())
+    card = _staff_conversation(app_client, operator, conversation).json()
+    assert card["last_message_text"] is None
+
+
 def _write_once(person: Person, text: str, client_message_id: uuid.UUID) -> Any:
     body = {"text": text, "client_message_id": str(client_message_id)}
     return person.client.post("/support/messages", json=body, headers=person.headers)

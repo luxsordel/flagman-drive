@@ -23,7 +23,7 @@ from flagman.rentals.tests.conftest import (
 )
 from flagman.support.domain import MAX_INCIDENT_PHOTOS, MAX_OPEN_INCIDENTS_PER_CLIENT
 from flagman.support.service import INCIDENT_LIMIT
-from flagman.support.tests.conftest import audit_actions, exhaust
+from flagman.support.tests.conftest import audit_actions, exhaust, name_staff
 
 pytestmark = pytest.mark.integration
 
@@ -80,6 +80,57 @@ def test_the_active_rental_is_attached_by_the_server(
     assert (incident["rental_id"], incident["car_id"]) == (rental, car)
     assert incident["status"] == "new"
     assert incident["location"] == _LOCATION
+
+
+def test_a_report_from_a_receipt_names_the_finished_rental(
+    person: Person, rented_car: tuple[str, str]
+) -> None:
+    car, rental = rented_car
+    person.cancel(rental)
+
+    incident = _report(person, "accident", rental_id=rental).json()
+
+    assert (incident["rental_id"], incident["car_id"]) == (rental, car)
+
+
+def test_the_active_rental_wins_over_the_named_one(
+    person: Person, rented_car: tuple[str, str]
+) -> None:
+    _, active = rented_car
+
+    incident = _report(person, rental_id=str(uuid.uuid4())).json()
+
+    assert incident["rental_id"] == active
+
+
+def test_another_clients_rental_cannot_be_named(
+    integration_settings: Settings,
+    person: Person,
+    app_client: TestClient,
+    rented_car: tuple[str, str],
+) -> None:
+    _, rental = rented_car
+    other = Person(integration_settings, app_client)
+
+    response = _report(other, rental_id=rental)
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert problem_type(response) == "rental-not-found"
+
+
+def test_the_staff_see_names_and_the_car_of_an_incident(
+    person: Person, operator: Staff, app_client: TestClient, rented_car: tuple[str, str]
+) -> None:
+    name_staff(operator, "Anna")
+    incident = _report(person).json()["id"]
+    _staff_post(app_client, operator, incident, "take")
+
+    card = app_client.get(f"/admin/support/incidents/{incident}", headers=operator.headers).json()
+
+    assert card["assigned_staff_name"] == "Anna"
+    assert [event["staff_name"] for event in card["events"]] == ["Anna"]
+    assert card["car_plate"]
+    assert card["rental_status"] == "reserved"
 
 
 def test_an_accident_during_a_trip_comes_first_and_does_not_end_it(

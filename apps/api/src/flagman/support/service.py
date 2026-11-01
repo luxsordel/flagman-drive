@@ -108,6 +108,14 @@ _NORMAL = 1
 
 
 @dataclass(frozen=True)
+class IncidentReport:
+    type: IncidentType
+    description: str
+    location: tuple[float, float] | None
+    rental_id: UUID | None
+
+
+@dataclass(frozen=True)
 class StaffRef:
     staff_id: UUID
     admin: bool
@@ -339,12 +347,7 @@ class ClientSupportService:
         return await _signed(storage, message.object_key)
 
     async def report_incident(
-        self,
-        user_id: UUID,
-        type_: IncidentType,
-        description: str,
-        location: tuple[float, float] | None,
-        now: datetime,
+        self, user_id: UUID, report: IncidentReport, now: datetime
     ) -> IncidentOut:
         await self.limiter.hit(INCIDENT_LIMIT, str(user_id))
         async with self.db.begin():
@@ -355,23 +358,32 @@ class ClientSupportService:
                 raise TooManyOpenIncidentsError
             # The rental is found by the server: the client cannot attach someone else's car.
             rental = await rentals.get_client_active_rental(self.db, user_id, now)
+            if rental is None and report.rental_id is not None:
+                # From a receipt: only the client's own rental, whichever id the app sent.
+                rental = await rentals.get_client_rental(self.db, user_id, report.rental_id)
+                if rental is None:
+                    raise SupportRentalNotFoundError
             # Before the trip nobody is on the road: an accident by a reserved car waits its turn.
-            urgent = type_ is IncidentType.ACCIDENT and rental is not None and rental.is_driving
+            urgent = (
+                report.type is IncidentType.ACCIDENT and rental is not None and rental.is_driving
+            )
             incident = await repository.create_incident(
                 self.db,
                 repository.NewIncident(
                     user_id=user_id,
                     rental_id=rental.id if rental else None,
                     car_id=rental.car_id if rental else None,
-                    type=type_,
+                    type=report.type,
                     priority=_URGENT if urgent else _NORMAL,
-                    description=description,
-                    location=location,
+                    description=report.description,
+                    location=report.location,
                     at=now,
                 ),
             )
             out = await _incident_out(self.db, incident)
-        logger.info("support_incident_reported", incident_id=str(incident.id), type=type_.value)
+        logger.info(
+            "support_incident_reported", incident_id=str(incident.id), type=report.type.value
+        )
         return out
 
     async def incidents(self, user_id: UUID, cursor: str | None, limit: int) -> IncidentListOut:
@@ -472,11 +484,17 @@ class StaffSupportService:
         )
         car_ids = {rental.car_id for rental in attached.values()}
         cars = {car.id: car for car in await fleet.get_cars(self.db, car_ids)} if car_ids else {}
+        names = await identity.get_staff_display_names(
+            self.db,
+            {item.assigned_staff_id for item in conversations if item.assigned_staff_id},
+        )
+        last_messages = await repository.last_messages(self.db, [item.id for item in conversations])
         items = []
         for item in conversations:
             person = people.get(item.user_id)
             rental = attached.get(item.rental_id) if item.rental_id else None
             car = cars.get(rental.car_id) if rental else None
+            last = last_messages.get(item.id)
             items.append(
                 ConversationOut(
                     id=item.id,
@@ -487,9 +505,13 @@ class StaffSupportService:
                     car_plate=car.plate if car else None,
                     status=ConversationStatus(item.status),
                     assigned_staff_id=item.assigned_staff_id,
+                    assigned_staff_name=(
+                        names.get(item.assigned_staff_id) if item.assigned_staff_id else None
+                    ),
                     unread=item.staff_unread,
                     first_name=person.first_name if person else None,
                     last_name=person.last_name if person else None,
+                    last_message_text=last.body if last else None,
                     created_at=item.created_at,
                     last_message_at=item.last_message_at,
                 )
@@ -626,9 +648,21 @@ class StaffSupportService:
         events = await repository.events_by_incident(
             self.db, [incident.id for incident in incidents]
         )
+        staff_ids = {item.assigned_staff_id for item in incidents if item.assigned_staff_id}
+        staff_ids |= {
+            event.staff_id for page in events.values() for event in page if event.staff_id
+        }
+        names = await identity.get_staff_display_names(self.db, staff_ids)
+        attached = await rentals.get_rentals(
+            self.db, {item.rental_id for item in incidents if item.rental_id}
+        )
+        car_ids = {item.car_id for item in incidents if item.car_id}
+        cars = {car.id: car for car in await fleet.get_cars(self.db, car_ids)} if car_ids else {}
         items = []
         for incident, base in zip(incidents, bases, strict=True):
             person = people.get(incident.user_id)
+            rental = attached.get(incident.rental_id) if incident.rental_id else None
+            car = cars.get(incident.car_id) if incident.car_id else None
             items.append(
                 StaffIncidentOut(
                     **base.model_dump(),
@@ -637,11 +671,19 @@ class StaffSupportService:
                     last_name=person.last_name if person else None,
                     priority=incident.priority,
                     assigned_staff_id=incident.assigned_staff_id,
+                    assigned_staff_name=(
+                        names.get(incident.assigned_staff_id)
+                        if incident.assigned_staff_id
+                        else None
+                    ),
+                    rental_status=rental.status if rental else None,
+                    car_plate=car.plate if car else None,
                     sent_to_service=incident.sent_to_service,
                     events=[
                         IncidentEventOut(
                             action=IncidentEventAction(event.action),
                             staff_id=event.staff_id,
+                            staff_name=names.get(event.staff_id) if event.staff_id else None,
                             comment=event.comment,
                             created_at=event.created_at,
                         )
