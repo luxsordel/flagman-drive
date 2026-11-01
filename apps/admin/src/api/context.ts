@@ -6,6 +6,7 @@ import type { FleetApi } from '../fleet/api';
 import type { OpenFleetStream } from '../fleet/stream';
 import type { KycReviewApi } from '../kyc/api';
 import type { StaffListApi } from '../staff/api';
+import type { SupportApi } from '../support/api';
 import type { TariffsApi } from '../tariffs/api';
 import type { ZonesApi } from '../zones/api';
 
@@ -18,6 +19,7 @@ export interface AdminApis {
   kycReview: KycReviewApi;
   staffList: StaffListApi;
   staffSignIn: StaffSignInApi;
+  support: SupportApi;
   tariffs: TariffsApi;
   zones: ZonesApi;
 }

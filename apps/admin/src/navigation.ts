@@ -4,7 +4,11 @@ import type { StaffRole } from './auth/staff';
 import type ru from './i18n/ru.json';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { KycApplicationPage } from './pages/KycApplicationPage';
+import { IncidentPage } from './pages/IncidentPage';
+import { IncidentsPage } from './pages/IncidentsPage';
 import { KycQueuePage } from './pages/KycQueuePage';
+import { SupportConversationPage } from './pages/SupportConversationPage';
+import { SupportQueuePage } from './pages/SupportQueuePage';
 import { TariffsPage } from './pages/TariffsPage';
 
 // The map library is large: it loads with the map pages, not with the sign-in page.
@@ -45,6 +49,20 @@ export const sections: readonly Section[] = [
   { key: 'fleet', path: '/fleet', roles: everyone, page: FleetPage },
   { key: 'rentals', path: '/rentals', roles: support },
   { key: 'clients', path: '/clients', roles: support },
+  {
+    key: 'support',
+    path: '/support',
+    roles: support,
+    page: SupportQueuePage,
+    subpages: [{ path: ':conversationId', page: SupportConversationPage }],
+  },
+  {
+    key: 'incidents',
+    path: '/incidents',
+    roles: support,
+    page: IncidentsPage,
+    subpages: [{ path: ':incidentId', page: IncidentPage }],
+  },
   // Everyone sees the zones; only an admin changes them, inside the page and in the API.
   { key: 'zones', path: '/zones', roles: everyone, page: ZonesPage },
   // Operators see the tariffs to answer clients; only an admin changes them, here and in the API.

@@ -13,6 +13,8 @@
     "fleet": "Fleet",
     "rentals": "Rentals",
     "clients": "Clients",
+    "support": "Support",
+    "incidents": "Incidents",
     "zones": "Zones",
     "tariffs": "Tariffs and fines",
     "audit": "Audit log"
@@ -465,6 +467,95 @@
       "invalid": "The API did not accept the prices. Check the values.",
       "forbidden": "Only an admin changes tariffs.",
       "failed": "Could not save. Check the connection and try again."
+    }
+  },
+  "support": {
+    "loading": "Loading…",
+    "failed": "Could not load. Check your connection.",
+    "retry": "Try again",
+    "stale": "No connection: this may be out of date.",
+    "empty": "No open conversations.",
+    "noName": "No name",
+    "noRental": "No rental",
+    "nobody": "Not taken",
+    "client": "Client",
+    "operator": "Support",
+    "rental": "Rental",
+    "messages": "Conversation messages",
+    "photo": "Photo",
+    "showPhoto": "Show photo",
+    "photoFailed": "Could not open the photo.",
+    "answer": "Answer",
+    "send": "Send",
+    "take": "Take",
+    "close": "Close conversation",
+    "closed": "The conversation is closed.",
+    "columns": {
+      "client": "Client",
+      "lastMessage": "Last message",
+      "unread": "New",
+      "car": "Car",
+      "operator": "Staff member",
+      "time": "Time (Minsk)"
+    },
+    "problems": {
+      "closed": "The conversation is already closed.",
+      "taken": "Another operator has this conversation.",
+      "rateLimited": "Too many messages. Wait a minute.",
+      "failed": "That did not work. Try again."
+    },
+    "rentalStatus": {
+      "reserved": "Reserved",
+      "in_trip": "In trip",
+      "parked": "Parked",
+      "finished": "Finished",
+      "cancelled": "Cancelled",
+      "paid": "Paid",
+      "payment_failed": "Payment failed"
+    }
+  },
+  "incidents": {
+    "filters": "Incident filters",
+    "status": "Status",
+    "type": "Type",
+    "any": "All",
+    "created": "Created (Minsk)",
+    "empty": "No incidents.",
+    "urgent": "Urgent",
+    "more": "Show more",
+    "back": "Back to incidents",
+    "place": "Place",
+    "photos": "Photos",
+    "history": "Timeline",
+    "noHistory": "Nobody has taken it yet.",
+    "comment": "Comment",
+    "resolve": "Resolved",
+    "reject": "Reject",
+    "sendToService": "Send the car to service",
+    "sendConfirm": "Send the car to service? Clients will no longer see it on the map.",
+    "statuses": {
+      "new": "New",
+      "in_progress": "In progress",
+      "resolved": "Resolved",
+      "rejected": "Rejected"
+    },
+    "types": {
+      "accident": "Accident",
+      "damage": "Damage",
+      "malfunction": "Malfunction",
+      "other": "Other"
+    },
+    "actions": {
+      "take": "Taken",
+      "resolve": "Resolved",
+      "reject": "Rejected",
+      "sent_to_service": "Car sent to service"
+    },
+    "problems": {
+      "taken": "Another operator has this incident, or it is already decided.",
+      "carBusy": "A rental holds the car: end it first.",
+      "rateLimited": "Too many requests. Wait a minute.",
+      "failed": "That did not work. Try again."
     }
   }
 }

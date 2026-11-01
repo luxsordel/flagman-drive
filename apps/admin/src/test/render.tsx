@@ -11,6 +11,7 @@ import { fakeFleetApi, fakeFleetStream } from './fleet';
 import { fakeStaffAuthApi, fakeStaffSignInApi, testStaff } from './auth';
 import { fakeKycReviewApi } from './kyc';
 import { fakeStaffListApi } from './staff';
+import { fakeSupportApi } from './support';
 import { fakeTariffsApi } from './tariffs';
 import { fakeZonesApi } from './zones';
 
@@ -40,6 +41,7 @@ export function renderAt(
           kycReview: fakeKycReviewApi(),
           staffList: fakeStaffListApi(),
           staffSignIn: fakeStaffSignInApi(),
+          support: fakeSupportApi(),
           tariffs: fakeTariffsApi(),
           zones: fakeZonesApi(),
           ...apis,
