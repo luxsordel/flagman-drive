@@ -1,15 +1,20 @@
 import { createApiClient } from '@flagman/api-client';
 import { randomUUID } from 'expo-crypto';
-import { createContext, useContext, useSyncExternalStore, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useSyncExternalStore, type ReactNode } from 'react';
+import { AppState } from 'react-native';
 
 import { appApiUrl } from '../auth/session/AuthProvider';
 import type { AuthSession } from '../auth/session/authSession';
 import { ChatStore, type ChatState } from './chatStore';
 import { createSupportApi, type SupportApi } from './supportApi';
 
+/** How often waiting messages are tried again, on any screen of the app. */
+const resendEveryMs = 4000;
+
 export interface SupportDeps {
   api: SupportApi;
   chat: ChatStore;
+  newId: () => string;
 }
 
 export function createAppSupport(session: AuthSession): SupportDeps {
@@ -23,13 +28,37 @@ export function createAppSupport(session: AuthSession): SupportDeps {
   session.subscribe(() => {
     if (session.getStatus() === 'signedOut') chat.reset();
   });
-  return { api, chat };
+  return { api, chat, newId: randomUUID };
 }
 
 const SupportContext = createContext<SupportDeps | null>(null);
 
 export function SupportProvider({ deps, children }: { deps: SupportDeps; children: ReactNode }) {
-  return <SupportContext value={deps}>{children}</SupportContext>;
+  return (
+    <SupportContext value={deps}>
+      <ResendWaiting chat={deps.chat} />
+      {children}
+    </SupportContext>
+  );
+}
+
+/** Not the chat's poll: that one marks answers as read, so it runs only while they are on screen. */
+function ResendWaiting({ chat }: { chat: ChatStore }) {
+  const waiting = useSyncExternalStore(chat.subscribe, () =>
+    chat.getState().outgoing.some((item) => item.state === 'waiting'),
+  );
+
+  useEffect(() => {
+    if (!waiting) return undefined;
+    const timer = setInterval(() => {
+      if (AppState.currentState === 'active') void chat.resend();
+    }, resendEveryMs);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [chat, waiting]);
+
+  return null;
 }
 
 export function useSupport(): SupportDeps {

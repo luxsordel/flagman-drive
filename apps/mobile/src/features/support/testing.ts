@@ -37,7 +37,7 @@ export function fakeSupportApi() {
     sendText: jest.fn<ReturnType<SupportApi['sendText']>, [string, string | null, string]>((text) =>
       Promise.resolve(ok(message({ author: 'client', staff_name: null, text }))),
     ),
-    sendPhoto: jest.fn<ReturnType<SupportApi['sendPhoto']>, [string, string]>(() =>
+    sendPhoto: jest.fn<ReturnType<SupportApi['sendPhoto']>, [string, string | null, string]>(() =>
       Promise.resolve(
         ok(message({ author: 'client', staff_name: null, kind: 'photo', text: null })),
       ),

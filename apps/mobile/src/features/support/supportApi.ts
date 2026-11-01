@@ -19,6 +19,7 @@ export type SupportErrorKind =
   | 'photoLimit'
   | 'tooManyIncidents'
   | 'storageUnavailable'
+  | 'rejected'
   | 'unknown';
 
 export interface SupportError {
@@ -34,6 +35,8 @@ export interface NewIncident {
   location: LatLon | null;
   /** The rental of the receipt the client reports from; an active one the server finds itself. */
   rentalId: string | null;
+  /** Chosen once per report: a resend after a lost answer is not a second incident. */
+  clientReportId: string;
 }
 
 export interface SupportApi {
@@ -45,7 +48,11 @@ export interface SupportApi {
     rentalId: string | null,
     clientMessageId: string,
   ): Promise<SupportResult<SupportMessage>>;
-  sendPhoto(photoUri: string, clientMessageId: string): Promise<SupportResult<SupportMessage>>;
+  sendPhoto(
+    photoUri: string,
+    rentalId: string | null,
+    clientMessageId: string,
+  ): Promise<SupportResult<SupportMessage>>;
   /** A short-lived link; not kept anywhere. */
   photoUrl(messageId: string): Promise<SupportResult<string>>;
   reportIncident(incident: NewIncident): Promise<SupportResult<Incident>>;
@@ -72,6 +79,11 @@ const kindByProblem: Readonly<Record<string, SupportErrorKind>> = {
   'photo-storage-unavailable': 'storageUnavailable',
 };
 
+/** 4xx without a kind of its own, except those that pass by themselves. */
+function isRejected(status: number): boolean {
+  return status >= 400 && status < 500 && ![401, 408, 429].includes(status);
+}
+
 export function supportErrorFromResponse(
   body: unknown,
   status: number,
@@ -79,8 +91,8 @@ export function supportErrorFromResponse(
 ): SupportError {
   const slug = problemSlug(body);
   // A proxy in front of the API answers 413 itself, without Problem Details.
-  const kind =
-    slug === null ? (status === 413 ? 'tooLarge' : 'unknown') : (kindByProblem[slug] ?? 'unknown');
+  const known = slug === null ? (status === 413 ? 'tooLarge' : undefined) : kindByProblem[slug];
+  const kind = known ?? (isRejected(status) ? 'rejected' : 'unknown');
   if (kind !== 'rateLimited') return { kind };
   const retryAfter = parseRetryAfter(retryAfterHeader);
   return retryAfter === null ? { kind } : { kind, retryAfter };
@@ -149,11 +161,13 @@ export function createSupportApi({
         }),
         (body) => body,
       ),
-    sendPhoto: (photoUri, clientMessageId) =>
-      upload(
-        `${origin}/support/messages/photos?client_message_id=${encodeURIComponent(clientMessageId)}`,
+    sendPhoto: (photoUri, rentalId, clientMessageId) => {
+      const rental = rentalId === null ? '' : `&rental_id=${encodeURIComponent(rentalId)}`;
+      return upload(
+        `${origin}/support/messages/photos?client_message_id=${encodeURIComponent(clientMessageId)}${rental}`,
         photoUri,
-      ),
+      );
+    },
     photoUrl: (messageId) =>
       send(
         api.GET('/support/messages/{message_id}/photo-url', {
@@ -161,12 +175,13 @@ export function createSupportApi({
         }),
         (body) => body.url,
       ),
-    reportIncident: ({ type, description, location, rentalId }) =>
+    reportIncident: ({ type, description, location, rentalId, clientReportId }) =>
       send(
         api.POST('/support/incidents', {
           body: {
             type,
             description,
+            client_report_id: clientReportId,
             ...(location === null ? {} : { location }),
             ...(rentalId === null ? {} : { rental_id: rentalId }),
           },

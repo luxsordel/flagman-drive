@@ -20,12 +20,13 @@ const types: readonly IncidentType[] = ['accident', 'damage', 'malfunction', 'ot
 export function IncidentScreen() {
   const { t } = useTranslation();
   const router = useRouter();
-  const { api } = useSupport();
+  const { api, newId } = useSupport();
   const { rentalId } = useLocalSearchParams<{ rentalId?: string }>();
   const [type, setType] = useState<IncidentType>('damage');
   const [description, setDescription] = useState('');
   const [photos, setPhotos] = useState<string[]>([]);
   const [incidentId, setIncidentId] = useState<string | null>(null);
+  const [clientReportId] = useState(newId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<SupportError | null>(null);
   const [cameraDenied, setCameraDenied] = useState(false);
@@ -51,7 +52,10 @@ export function IncidentScreen() {
     if (picked.kind === 'picked') keep([...left.current, picked.uri]);
   };
 
-  /** Once the report is saved a retry sends only the photos left, not a second report. */
+  /**
+   * Once the report is saved a retry sends only the photos left, not a second report; if the answer
+   * was lost, `clientReportId` tells the server it already has this one.
+   */
   const submit = async () => {
     setBusy(true);
     setError(null);
@@ -64,6 +68,7 @@ export function IncidentScreen() {
           description: description.trim(),
           location: fix.kind === 'located' ? fix.location : null,
           rentalId: rentalId ?? null,
+          clientReportId,
         });
         if (!report.ok) {
           setError(report.error);

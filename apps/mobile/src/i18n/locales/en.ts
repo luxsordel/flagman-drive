@@ -475,8 +475,8 @@ export const en: Translation = {
     cameraDenied: 'No access to the camera. Allow it in the phone settings',
     outgoing: {
       sending: 'Sending…',
-      waiting: 'Not sent. We will send it when you are back online',
-      refused: 'This photo cannot be accepted',
+      waiting: 'Not sent yet. We will try again automatically',
+      refused: 'This message was not accepted',
     },
     incident: {
       report: 'Report a problem',
@@ -505,12 +505,13 @@ export const en: Translation = {
       photoLimit: 'No more photos can be added',
       tooManyIncidents: 'You have many open reports already. Wait for an answer',
       storageUnavailable: 'Could not save the photo. Try again',
+      rejected: 'The request was not accepted. Check the details',
       unknown: 'Something went wrong. Try again',
     },
   },
   notifications: {
     title: 'Notifications',
-    cardHint: 'Reservation, trip and payment',
+    cardHint: 'Reservation, trip, payment and support',
     open: 'Set up',
     retry: 'Try again',
     back: 'Back',

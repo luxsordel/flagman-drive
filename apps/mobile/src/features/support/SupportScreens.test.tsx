@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { AppState, ScrollView } from 'react-native';
 
 import { initI18n } from '../../i18n';
 import { ru } from '../../i18n/locales/ru';
@@ -31,7 +32,8 @@ jest.mock('../map/location', () => ({ locateOnce: () => mockLocate() as unknown 
 
 async function renderWith(ui: React.ReactElement, api = fakeSupportApi()) {
   const chat = new ChatStore(api, () => 'id-1');
-  await render(<SupportProvider deps={{ api, chat }}>{ui}</SupportProvider>);
+  const newId = () => 'report-1';
+  await render(<SupportProvider deps={{ api, chat, newId }}>{ui}</SupportProvider>);
   return api;
 }
 
@@ -89,9 +91,74 @@ describe('SupportScreen', () => {
     });
 
     await waitFor(() => {
-      expect(api.sendPhoto).toHaveBeenCalledWith('file:///cache/a.jpg', 'id-1');
+      expect(api.sendPhoto).toHaveBeenCalledWith('file:///cache/a.jpg', null, 'id-1');
     });
     expect(mockPick).toHaveBeenCalledWith('camera');
+  });
+
+  it('attaches the rental to a photo too', async () => {
+    mockParams = { rentalId: 'rental-1' };
+    mockPick.mockResolvedValue({ kind: 'picked', uri: 'file:///cache/a.jpg' });
+    const api = await renderWith(<SupportScreen />);
+    await screen.findByText(ru.support.empty);
+
+    await act(async () => {
+      await fireEvent.press(screen.getByRole('button', { name: ru.support.camera }));
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(api.sendPhoto).toHaveBeenCalledWith('file:///cache/a.jpg', 'rental-1', 'id-1');
+    });
+  });
+
+  it('sends what waits while the chat is not on the screen', async () => {
+    jest.useFakeTimers();
+    const appState = AppState.currentState;
+    AppState.currentState = 'active';
+    try {
+      const api = fakeSupportApi();
+      api.sendText.mockResolvedValueOnce(offline);
+      const chat = new ChatStore(api, () => 'id-1');
+      await render(
+        <SupportProvider deps={{ api, chat, newId: () => 'report-1' }}>{null}</SupportProvider>,
+      );
+
+      await act(async () => {
+        await chat.send('Hello', null);
+      });
+      await act(async () => {
+        await jest.advanceTimersByTimeAsync(4000);
+      });
+
+      expect(chat.getState().outgoing).toEqual([]);
+      expect(api.messages).not.toHaveBeenCalled();
+    } finally {
+      AppState.currentState = appState;
+      jest.useRealTimers();
+    }
+  });
+
+  it('follows new messages unless the client scrolled up to read', async () => {
+    await renderWith(<SupportScreen />);
+    await screen.findByText(ru.support.empty);
+    const list = screen.getByTestId('support-messages');
+    const scrollToEnd = jest.fn();
+    (ScrollView as unknown as { prototype: { scrollToEnd: jest.Mock } }).prototype.scrollToEnd =
+      scrollToEnd;
+
+    await fireEvent(list, 'contentSizeChange', 300, 2000);
+    expect(scrollToEnd).toHaveBeenCalledTimes(1);
+
+    await fireEvent.scroll(list, {
+      nativeEvent: {
+        contentOffset: { x: 0, y: 100 },
+        contentSize: { width: 300, height: 2000 },
+        layoutMeasurement: { width: 300, height: 500 },
+      },
+    });
+    await fireEvent(list, 'contentSizeChange', 300, 2100);
+    expect(scrollToEnd).toHaveBeenCalledTimes(1);
   });
 
   it('explains a camera without permission', async () => {
@@ -148,6 +215,7 @@ describe('IncidentScreen', () => {
       description: 'Scratch on the door',
       location: { lat: 53.9, lon: 27.56 },
       rentalId: 'rental-1',
+      clientReportId: 'report-1',
     });
     expect(api.addIncidentPhoto).toHaveBeenCalledWith('incident-1', 'file:///cache/a.jpg');
     expect(mockDiscard).toHaveBeenCalledWith('file:///cache/a.jpg');

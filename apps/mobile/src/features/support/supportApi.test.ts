@@ -38,10 +38,14 @@ describe('createSupportApi', () => {
       description: 'Strange noise',
       location: null,
       rentalId: null,
+      clientReportId: 'report-1',
     });
 
     expect(http.calls).toEqual([
-      { path: '/support/incidents', body: { type: 'other', description: 'Strange noise' } },
+      {
+        path: '/support/incidents',
+        body: { type: 'other', description: 'Strange noise', client_report_id: 'report-1' },
+      },
     ]);
   });
 
@@ -55,6 +59,7 @@ describe('createSupportApi', () => {
         description: 'Strange noise',
         location: null,
         rentalId: null,
+        clientReportId: 'report-1',
       }),
     ).resolves.toEqual({ ok: false, error: { kind: 'tooManyIncidents' } });
   });
@@ -66,6 +71,15 @@ describe('supportErrorFromResponse', () => {
 
     expect(supportErrorFromResponse(body, 429, '60').kind).toBe('rateLimited');
     expect(supportErrorFromResponse(body, 429, '60').retryAfter).toBe(60);
+  });
+
+  it('tells a refusal from a failure worth repeating', () => {
+    const body = { type: 'urn:flagman:problem:rental-not-found' };
+
+    expect(supportErrorFromResponse(body, 404, null).kind).toBe('rejected');
+    expect(supportErrorFromResponse(null, 422, null).kind).toBe('rejected');
+    expect(supportErrorFromResponse(null, 429, null).kind).toBe('unknown');
+    expect(supportErrorFromResponse(null, 503, null).kind).toBe('unknown');
   });
 
   it('takes a 413 of a proxy for a large photo', () => {

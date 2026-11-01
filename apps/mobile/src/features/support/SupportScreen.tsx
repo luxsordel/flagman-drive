@@ -1,6 +1,6 @@
 import { radius, spacing } from '@flagman/design-tokens';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   AppState,
@@ -10,6 +10,8 @@ import {
   ScrollView,
   StyleSheet,
   View,
+  type NativeScrollEvent,
+  type NativeSyntheticEvent,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -35,6 +37,15 @@ export function SupportScreen() {
   const { rentalId } = useLocalSearchParams<{ rentalId?: string }>();
   const [text, setText] = useState('');
   const [cameraDenied, setCameraDenied] = useState(false);
+  const list = useRef<ComponentRef<typeof ScrollView>>(null);
+  // A client reading older messages stays where they are.
+  const followsEnd = useRef(true);
+
+  const onScroll = ({ nativeEvent }: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = nativeEvent;
+    const bottom = contentOffset.y + layoutMeasurement.height;
+    followsEnd.current = bottom >= contentSize.height - spacing.xl;
+  };
 
   useEffect(() => {
     void chat.poll();
@@ -50,6 +61,7 @@ export function SupportScreen() {
     const message = text.trim();
     if (!message) return;
     setText('');
+    followsEnd.current = true;
     void chat.send(message, rentalId ?? null);
   };
 
@@ -57,7 +69,10 @@ export function SupportScreen() {
     setCameraDenied(false);
     const picked = await pickPhoto(source);
     if (picked.kind === 'cameraDenied') setCameraDenied(true);
-    if (picked.kind === 'picked') void chat.sendPhoto(picked.uri);
+    if (picked.kind === 'picked') {
+      followsEnd.current = true;
+      void chat.sendPhoto(picked.uri, rentalId ?? null);
+    }
   };
 
   return (
@@ -66,7 +81,17 @@ export function SupportScreen() {
         style={styles.fill}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <ScrollView contentContainerStyle={styles.list} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          ref={list}
+          testID="support-messages"
+          contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
+          scrollEventThrottle={100}
+          onScroll={onScroll}
+          onContentSizeChange={() => {
+            if (followsEnd.current) list.current?.scrollToEnd({ animated: false });
+          }}
+        >
           <AppText variant="title">{t('support.title')}</AppText>
           {loaded && messages.length === 0 && outgoing.length === 0 && (
             <AppText tone="muted">{t('support.empty')}</AppText>
