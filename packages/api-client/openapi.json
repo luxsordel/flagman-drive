@@ -551,6 +551,17 @@
             ],
             "title": "Assigned Staff Id"
           },
+          "assigned_staff_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Staff Name"
+          },
           "car_id": {
             "anyOf": [
               {
@@ -599,6 +610,18 @@
             "format": "date-time",
             "title": "Last Message At",
             "type": "string"
+          },
+          "last_message_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "None when the last message is a photo.",
+            "title": "Last Message Text"
           },
           "last_name": {
             "anyOf": [
@@ -656,9 +679,11 @@
           "car_plate",
           "status",
           "assigned_staff_id",
+          "assigned_staff_name",
           "unread",
           "first_name",
           "last_name",
+          "last_message_text",
           "created_at",
           "last_message_at"
         ],
@@ -969,9 +994,20 @@
               }
             ],
             "title": "Staff Id"
+          },
+          "staff_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Name"
           }
         },
-        "required": ["action", "staff_id", "comment", "created_at"],
+        "required": ["action", "staff_id", "staff_name", "comment", "created_at"],
         "title": "IncidentEventOut",
         "type": "object"
       },
@@ -993,6 +1029,19 @@
                 "type": "null"
               }
             ]
+          },
+          "rental_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A finished rental of the client the report is about; an active one is attached without it and wins.",
+            "title": "Rental Id"
           },
           "type": {
             "$ref": "#/components/schemas/IncidentType"
@@ -1736,6 +1785,19 @@
       "MessageIn": {
         "additionalProperties": false,
         "properties": {
+          "client_message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Chosen by the app once per message: sending it again returns the message already saved instead of a duplicate.",
+            "title": "Client Message Id"
+          },
           "rental_id": {
             "anyOf": [
               {
@@ -1901,7 +1963,7 @@
         "type": "object"
       },
       "NotificationCategory": {
-        "enum": ["reservation", "trip", "payment"],
+        "enum": ["reservation", "trip", "payment", "support"],
         "title": "NotificationCategory",
         "type": "string"
       },
@@ -2838,6 +2900,17 @@
             ],
             "title": "Assigned Staff Id"
           },
+          "assigned_staff_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned Staff Name"
+          },
           "car_id": {
             "anyOf": [
               {
@@ -2849,6 +2922,17 @@
               }
             ],
             "title": "Car Id"
+          },
+          "car_plate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Car Plate"
           },
           "created_at": {
             "format": "date-time",
@@ -2927,6 +3011,16 @@
             ],
             "title": "Rental Id"
           },
+          "rental_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RentalStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "sent_to_service": {
             "title": "Sent To Service",
             "type": "boolean"
@@ -2964,6 +3058,9 @@
           "last_name",
           "priority",
           "assigned_staff_id",
+          "assigned_staff_name",
+          "rental_status",
+          "car_plate",
           "sent_to_service",
           "events"
         ],
@@ -11167,6 +11264,16 @@
             },
             "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
           },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`."
+          },
           "409": {
             "content": {
               "application/problem+json": {
@@ -11752,6 +11859,25 @@
     "/support/messages/photos": {
       "post": {
         "operationId": "send_photo_support_messages_photos_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "client_message_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Client Message Id"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "image/jpeg": {
@@ -11840,7 +11966,7 @@
               "Retry-After": {
                 "description": "Seconds to wait before retrying.",
                 "schema": {
-                  "minimum": 0.0,
+                  "minimum": 0,
                   "type": "integer"
                 }
               }
