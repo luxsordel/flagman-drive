@@ -391,6 +391,65 @@ def test_a_photo_over_the_size_limit_is_refused(person: Person, storage: FakeSto
     assert storage.objects == {}
 
 
+def _write_once(person: Person, text: str, client_message_id: uuid.UUID) -> Any:
+    body = {"text": text, "client_message_id": str(client_message_id)}
+    return person.client.post("/support/messages", json=body, headers=person.headers)
+
+
+def test_a_resent_message_is_saved_once(person: Person) -> None:
+    client_message_id = uuid.uuid4()
+
+    first = _write_once(person, "Is the car ok?", client_message_id)
+    second = _write_once(person, "Is the car ok?", client_message_id)
+
+    assert first.status_code == second.status_code == HTTPStatus.CREATED
+    assert second.json()["id"] == first.json()["id"]
+    assert len(_messages(person)["items"]) == 1  # type: ignore[arg-type]
+
+
+def test_a_resend_after_the_close_opens_no_conversation(
+    person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    client_message_id = uuid.uuid4()
+    first = _write_once(person, "Is the car ok?", client_message_id)
+    conversation = _conversation_id(person)
+    app_client.post(f"/admin/support/conversations/{conversation}/close", headers=operator.headers)
+
+    second = _write_once(person, "Is the car ok?", client_message_id)
+
+    assert second.json()["id"] == first.json()["id"]
+    assert _conversation_id(person) == conversation
+
+
+def test_clients_do_not_share_message_ids(
+    integration_settings: Settings, person: Person, app_client: TestClient
+) -> None:
+    client_message_id = uuid.uuid4()
+    other = Person(integration_settings, app_client)
+
+    mine = _write_once(person, "Mine", client_message_id)
+    theirs = _write_once(other, "Theirs", client_message_id)
+
+    assert theirs.json()["id"] != mine.json()["id"]
+    assert theirs.json()["text"] == "Theirs"
+
+
+def test_a_resent_photo_is_stored_once(person: Person, storage: FakeStorage) -> None:
+    client_message_id = uuid.uuid4()
+
+    responses = [
+        person.client.post(
+            f"/support/messages/photos?client_message_id={client_message_id}",
+            content=photo(),
+            headers={**person.headers, "Content-Type": "image/jpeg"},
+        )
+        for _ in range(2)
+    ]
+
+    assert responses[0].json()["id"] == responses[1].json()["id"]
+    assert len(storage.objects) == 1
+
+
 def test_a_cursor_past_the_database_range_is_refused(person: Person) -> None:
     response = person.client.get(f"/support/messages?after={2**63}", headers=person.headers)
 

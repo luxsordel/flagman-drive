@@ -189,7 +189,9 @@ async def get_unread(client: Client, service: ClientService) -> ClientUnreadOut:
     },
 )
 async def send_message(client: Client, body: MessageIn, service: ClientService) -> MessageOut:
-    return await service.send_text(client.user_id, body.text, body.rental_id, datetime.now(UTC))
+    return await service.send_text(
+        client.user_id, body.text, body.rental_id, body.client_message_id, datetime.now(UTC)
+    )
 
 
 @router.post(
@@ -200,11 +202,17 @@ async def send_message(client: Client, body: MessageIn, service: ClientService) 
     responses=_PHOTO_ERRORS,
 )
 async def send_photo(
-    client: Client, request: Request, service: ClientService, storage: Storage
+    client: Client,
+    request: Request,
+    service: ClientService,
+    storage: Storage,
+    client_message_id: UUID | None = None,
 ) -> MessageOut:
     await service.count_upload(client.user_id)
     photo = await _read_photo(request)
-    return await service.send_photo(storage, client.user_id, photo, datetime.now(UTC))
+    return await service.send_photo(
+        storage, client.user_id, photo, client_message_id, datetime.now(UTC)
+    )
 
 
 @router.get(

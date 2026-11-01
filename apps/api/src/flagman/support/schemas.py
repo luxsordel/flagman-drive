@@ -49,6 +49,13 @@ class MessageIn(BaseModel):
             "rental the client wrote from is the one the operator sees."
         ),
     )
+    client_message_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Chosen by the app once per message: sending it again returns the message already "
+            "saved instead of a duplicate."
+        ),
+    )
 
 
 class StaffMessageIn(BaseModel):

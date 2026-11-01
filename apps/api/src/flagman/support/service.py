@@ -244,17 +244,38 @@ class ClientSupportService:
             conversation.rental_id = rental_id
         return conversation
 
+    async def _resent(self, user_id: UUID, client_message_id: UUID | None) -> MessageOut | None:
+        if client_message_id is None:
+            return None
+        message = await repository.find_resent_message(self.db, user_id, client_message_id)
+        return None if message is None else _message_out(message, {})
+
     async def send_text(
-        self, user_id: UUID, text: str, rental_id: UUID | None, now: datetime
+        self,
+        user_id: UUID,
+        text: str,
+        rental_id: UUID | None,
+        client_message_id: UUID | None,
+        now: datetime,
     ) -> MessageOut:
         await self.limiter.hit(MESSAGE_LIMIT, str(user_id))
         async with self.db.begin():
+            # Before opening: a resend must not open an empty conversation after a close.
+            if (resent := await self._resent(user_id, client_message_id)) is not None:
+                return resent
             conversation = await self._open(user_id, rental_id, now)
+            # Again under the conversation's lock, for two attempts sent at once.
+            if (resent := await self._resent(user_id, client_message_id)) is not None:
+                return resent
             message = await repository.add_message(
                 self.db,
                 conversation,
                 repository.NewMessage(
-                    author=MessageAuthor.CLIENT, kind=MessageKind.TEXT, at=now, body=text
+                    author=MessageAuthor.CLIENT,
+                    kind=MessageKind.TEXT,
+                    at=now,
+                    body=text,
+                    client_message_id=client_message_id,
                 ),
             )
             out = _message_out(message, {})
@@ -266,8 +287,17 @@ class ClientSupportService:
         await self.limiter.hit(UPLOAD_LIMIT, str(user_id))
 
     async def send_photo(
-        self, storage: ObjectStorage, user_id: UUID, data: bytes, now: datetime
+        self,
+        storage: ObjectStorage,
+        user_id: UUID,
+        data: bytes,
+        client_message_id: UUID | None,
+        now: datetime,
     ) -> MessageOut:
+        async with self.db.begin():
+            resent = await self._resent(user_id, client_message_id)
+        if resent is not None:
+            return resent
         photo = await _clean(data)
         # A new key for every photo, without anything about the client in it. The conversation
         # is opened only after the upload, so a failed upload leaves no empty one in the queue.
@@ -276,11 +306,19 @@ class ClientSupportService:
         try:
             async with self.db.begin():
                 conversation = await self._open(user_id, None, now)
+                resent = await self._resent(user_id, client_message_id)
+                if resent is not None:
+                    await _delete_quietly(storage, key)
+                    return resent
                 message = await repository.add_message(
                     self.db,
                     conversation,
                     repository.NewMessage(
-                        author=MessageAuthor.CLIENT, kind=MessageKind.PHOTO, at=now, object_key=key
+                        author=MessageAuthor.CLIENT,
+                        kind=MessageKind.PHOTO,
+                        at=now,
+                        object_key=key,
+                        client_message_id=client_message_id,
                     ),
                 )
                 out = _message_out(message, {})
