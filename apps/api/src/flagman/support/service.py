@@ -110,11 +110,18 @@ _NORMAL = 1
 
 
 @dataclass(frozen=True)
+class PhotoTarget:
+    rental_id: UUID | None = None
+    client_message_id: UUID | None = None
+
+
+@dataclass(frozen=True)
 class IncidentReport:
     type: IncidentType
     description: str
     location: tuple[float, float] | None
     rental_id: UUID | None
+    client_report_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -301,11 +308,11 @@ class ClientSupportService:
         storage: ObjectStorage,
         user_id: UUID,
         data: bytes,
-        client_message_id: UUID | None,
+        target: PhotoTarget,
         now: datetime,
     ) -> MessageOut:
         async with self.db.begin():
-            resent = await self._resent(user_id, client_message_id)
+            resent = await self._resent(user_id, target.client_message_id)
         if resent is not None:
             return resent
         photo = await _clean(data)
@@ -315,8 +322,8 @@ class ClientSupportService:
         await storage.put(key, photo, OUTPUT_CONTENT_TYPE)
         try:
             async with self.db.begin():
-                conversation = await self._open(user_id, None, now)
-                resent = await self._resent(user_id, client_message_id)
+                conversation = await self._open(user_id, target.rental_id, now)
+                resent = await self._resent(user_id, target.client_message_id)
                 if resent is not None:
                     await _delete_quietly(storage, key)
                     return resent
@@ -328,7 +335,7 @@ class ClientSupportService:
                         kind=MessageKind.PHOTO,
                         at=now,
                         object_key=key,
-                        client_message_id=client_message_id,
+                        client_message_id=target.client_message_id,
                     ),
                 )
                 out = _message_out(message, {})
@@ -354,6 +361,13 @@ class ClientSupportService:
         await self.limiter.hit(INCIDENT_LIMIT, str(user_id))
         async with self.db.begin():
             await repository.lock_client_incidents(self.db, user_id)
+            # Before the count: the report may be the very one that reached the limit.
+            if report.client_report_id is not None:
+                resent = await repository.find_resent_incident(
+                    self.db, user_id, report.client_report_id
+                )
+                if resent is not None:
+                    return await _incident_out(self.db, resent)
             if await repository.count_open_incidents(self.db, user_id) >= (
                 MAX_OPEN_INCIDENTS_PER_CLIENT
             ):
@@ -380,6 +394,7 @@ class ClientSupportService:
                     description=report.description,
                     location=report.location,
                     at=now,
+                    client_report_id=report.client_report_id,
                 ),
             )
             out = await _incident_out(self.db, incident)

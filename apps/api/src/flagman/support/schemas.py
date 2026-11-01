@@ -155,6 +155,13 @@ class IncidentIn(BaseModel):
             "without it and wins."
         ),
     )
+    client_report_id: UUID | None = Field(
+        default=None,
+        description=(
+            "Chosen by the app once per report: sending it again returns the incident already "
+            "saved instead of a duplicate."
+        ),
+    )
 
 
 class IncidentCommentIn(BaseModel):

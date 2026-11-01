@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from typing import Any
 
@@ -515,3 +516,49 @@ def test_staff_photo_links_are_audited(
     assert response.status_code == HTTPStatus.OK
     assert response.headers["Cache-Control"] == "no-store"
     assert audit_actions(integration_settings, incident) == ["incident.photo_viewed"]
+
+
+def test_a_resent_report_is_saved_once(person: Person) -> None:
+    client_report_id = str(uuid.uuid4())
+
+    first = _report(person, client_report_id=client_report_id)
+    second = _report(person, client_report_id=client_report_id)
+
+    assert first.status_code == second.status_code == HTTPStatus.CREATED
+    assert second.json()["id"] == first.json()["id"]
+
+
+def test_a_report_sent_twice_at_once_is_saved_once(person: Person) -> None:
+    client_report_id = str(uuid.uuid4())
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(
+            pool.map(lambda _: _report(person, client_report_id=client_report_id), range(4))
+        )
+
+    assert {response.status_code for response in responses} == {HTTPStatus.CREATED}
+    assert len({response.json()["id"] for response in responses}) == 1
+
+
+def test_a_resent_report_passes_the_limit_of_open_incidents(person: Person) -> None:
+    client_report_id = str(uuid.uuid4())
+    first = _report(person, client_report_id=client_report_id)
+    for _ in range(MAX_OPEN_INCIDENTS_PER_CLIENT - 1):
+        _report(person)
+
+    second = _report(person, client_report_id=client_report_id)
+
+    assert second.status_code == HTTPStatus.CREATED
+    assert second.json()["id"] == first.json()["id"]
+
+
+def test_the_same_report_id_of_two_clients_is_two_incidents(
+    integration_settings: Settings, person: Person, app_client: TestClient
+) -> None:
+    client_report_id = str(uuid.uuid4())
+    other = Person(integration_settings, app_client)
+
+    first = _report(person, client_report_id=client_report_id)
+    second = _report(other, client_report_id=client_report_id)
+
+    assert first.json()["id"] != second.json()["id"]

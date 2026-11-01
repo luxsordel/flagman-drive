@@ -1014,6 +1014,19 @@
       "IncidentIn": {
         "additionalProperties": false,
         "properties": {
+          "client_report_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Chosen by the app once per report: sending it again returns the incident already saved instead of a duplicate.",
+            "title": "Client Report Id"
+          },
           "description": {
             "maxLength": 2000,
             "minLength": 1,
@@ -11862,6 +11875,23 @@
         "parameters": [
           {
             "in": "query",
+            "name": "rental_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Rental Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "client_message_id",
             "required": false,
             "schema": {
@@ -11922,6 +11952,16 @@
               }
             },
             "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`."
           },
           "413": {
             "content": {

@@ -47,6 +47,7 @@ class NewIncident:
     description: str
     location: tuple[float, float] | None
     at: datetime
+    client_report_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -244,6 +245,16 @@ async def mark_read(
     )
 
 
+async def find_resent_incident(
+    db: AsyncSession, user_id: UUID, client_report_id: UUID
+) -> Incident | None:
+    return await db.scalar(
+        select(Incident).where(
+            Incident.user_id == user_id, Incident.client_report_id == client_report_id
+        )
+    )
+
+
 async def create_incident(db: AsyncSession, new: NewIncident) -> Incident:
     incident = Incident(
         user_id=new.user_id,
@@ -255,6 +266,7 @@ async def create_incident(db: AsyncSession, new: NewIncident) -> Incident:
         description=new.description,
         lat=new.location[0] if new.location else None,
         lon=new.location[1] if new.location else None,
+        client_report_id=new.client_report_id,
         sent_to_service=False,
         created_at=new.at,
         updated_at=new.at,

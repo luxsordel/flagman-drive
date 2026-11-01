@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from typing import Any
 
@@ -504,6 +505,71 @@ def test_a_resent_photo_is_stored_once(person: Person, storage: FakeStorage) -> 
 
     assert responses[0].json()["id"] == responses[1].json()["id"]
     assert len(storage.objects) == 1
+
+
+def test_a_message_sent_twice_at_once_is_saved_once(person: Person) -> None:
+    client_message_id = uuid.uuid4()
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(
+            pool.map(lambda _: _write_once(person, "Is the car ok?", client_message_id), range(4))
+        )
+
+    assert {response.status_code for response in responses} == {HTTPStatus.CREATED}
+    assert len({response.json()["id"] for response in responses}) == 1
+    assert len(_messages(person)["items"]) == 1  # type: ignore[arg-type]
+
+
+def test_a_photo_sent_twice_at_once_is_stored_once(person: Person, storage: FakeStorage) -> None:
+    client_message_id = uuid.uuid4()
+
+    def attempt(_: int) -> Any:
+        return person.client.post(
+            f"/support/messages/photos?client_message_id={client_message_id}",
+            content=photo(),
+            headers={**person.headers, "Content-Type": "image/jpeg"},
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(pool.map(attempt, range(4)))
+
+    assert {response.status_code for response in responses} == {HTTPStatus.CREATED}
+    assert len({response.json()["id"] for response in responses}) == 1
+    assert len(storage.objects) == 1
+
+
+def test_a_photo_attaches_the_conversation_to_the_rental(
+    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    car = add_car(integration_settings, CAR_POINT)
+    rental = person.reserve(car).json()["id"]
+
+    response = person.client.post(
+        f"/support/messages/photos?rental_id={rental}",
+        content=photo(),
+        headers={**person.headers, "Content-Type": "image/jpeg"},
+    )
+
+    assert response.status_code == HTTPStatus.CREATED
+    view = _staff_conversation(app_client, operator, _conversation_id(person)).json()
+    assert (view["rental_id"], view["car_id"]) == (rental, car)
+
+
+def test_a_photo_cannot_attach_another_clients_rental(
+    integration_settings: Settings, person: Person, app_client: TestClient, storage: FakeStorage
+) -> None:
+    other = Person(integration_settings, app_client)
+    rental = other.reserve(add_car(integration_settings, CAR_POINT)).json()["id"]
+
+    response = person.client.post(
+        f"/support/messages/photos?rental_id={rental}",
+        content=photo(),
+        headers={**person.headers, "Content-Type": "image/jpeg"},
+    )
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert problem_type(response) == "rental-not-found"
+    assert storage.objects == {}
 
 
 def test_a_cursor_past_the_database_range_is_refused(person: Person) -> None:

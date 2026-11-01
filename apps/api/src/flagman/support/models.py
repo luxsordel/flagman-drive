@@ -121,6 +121,8 @@ class Incident(Base):
             "created_at",
             postgresql_where=text("status IN ('new', 'in_progress')"),
         ),
+        # The last line of defence against a resend; the service finds the first copy earlier.
+        Index("uq_support_incidents_client_report", "user_id", "client_report_id", unique=True),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -132,6 +134,7 @@ class Incident(Base):
     # 0 for an accident in a rental in progress, 1 otherwise: sorts the queue.
     priority: Mapped[int] = mapped_column(Integer)
     description: Mapped[str] = mapped_column(String(INCIDENT_DESCRIPTION_MAX_LENGTH))
+    client_report_id: Mapped[UUID | None] = mapped_column()
     lat: Mapped[float | None] = mapped_column(Float)
     lon: Mapped[float | None] = mapped_column(Float)
     assigned_staff_id: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))

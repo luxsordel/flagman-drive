@@ -60,6 +60,7 @@ from flagman.support.schemas import (
 from flagman.support.service import (
     ClientSupportService,
     IncidentReport,
+    PhotoTarget,
     StaffRef,
     StaffSupportService,
 )
@@ -204,20 +205,21 @@ async def send_message(client: Client, body: MessageIn, service: ClientService) 
     status_code=HTTPStatus.CREATED,
     summary="Send a photo to support",
     openapi_extra=photo_request_body("The photo"),
-    responses=_PHOTO_ERRORS,
+    responses={
+        HTTPStatus.NOT_FOUND: _problem("`urn:flagman:problem:rental-not-found`."),
+        **_PHOTO_ERRORS,
+    },
 )
 async def send_photo(
     client: Client,
     request: Request,
     service: ClientService,
     storage: Storage,
-    client_message_id: UUID | None = None,
+    target: Annotated[PhotoTarget, Depends()],
 ) -> MessageOut:
     await service.count_upload(client.user_id)
     photo = await _read_photo(request)
-    return await service.send_photo(
-        storage, client.user_id, photo, client_message_id, datetime.now(UTC)
-    )
+    return await service.send_photo(storage, client.user_id, photo, target, datetime.now(UTC))
 
 
 @router.get(
@@ -251,7 +253,9 @@ async def get_photo_url(
 )
 async def report_incident(client: Client, body: IncidentIn, service: ClientService) -> IncidentOut:
     location = (body.location.lat, body.location.lon) if body.location else None
-    report = IncidentReport(body.type, body.description, location, body.rental_id)
+    report = IncidentReport(
+        body.type, body.description, location, body.rental_id, body.client_report_id
+    )
     return await service.report_incident(client.user_id, report, datetime.now(UTC))
 
 

@@ -2026,6 +2026,11 @@ export interface components {
     };
     /** IncidentIn */
     IncidentIn: {
+      /**
+       * Client Report Id
+       * @description Chosen by the app once per report: sending it again returns the incident already saved instead of a duplicate.
+       */
+      client_report_id?: string | null;
       /** Description */
       description: string;
       location?: components['schemas']['LocationIn'] | null;
@@ -9353,6 +9358,7 @@ export interface operations {
   send_photo_support_messages_photos_post: {
     parameters: {
       query?: {
+        rental_id?: string | null;
         client_message_id?: string | null;
       };
       header?: never;
@@ -9379,6 +9385,15 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`. */
+      404: {
         headers: {
           [name: string]: unknown;
         };
