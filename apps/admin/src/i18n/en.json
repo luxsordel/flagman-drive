@@ -518,6 +518,7 @@
     "filters": "Incident filters",
     "status": "Status",
     "type": "Type",
+    "open": "Open",
     "any": "All",
     "created": "Created (Minsk)",
     "empty": "No incidents.",
@@ -554,7 +555,6 @@
     "problems": {
       "taken": "Another operator has this incident, or it is already decided.",
       "carBusy": "A rental holds the car: end it first.",
-      "rateLimited": "Too many requests. Wait a minute.",
       "failed": "That did not work. Try again."
     }
   }

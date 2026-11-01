@@ -7,7 +7,7 @@ import { useApis } from '../api/context';
 import { useAuth } from '../auth/context';
 import { fullName } from '../kyc/format';
 import { SupportPhoto } from '../support/SupportPhoto';
-import type { Incident } from '../support/api';
+import { incidentCommentMaxLength, type Incident } from '../support/api';
 import { listPollMs, useInterval } from '../support/useInterval';
 import { formatMinskTime } from '../time/minsk';
 
@@ -16,13 +16,12 @@ const IncidentMap = lazy(() =>
   import('../support/IncidentMap').then(({ IncidentMap }) => ({ default: IncidentMap })),
 );
 
-type ActionProblem = 'taken' | 'carBusy' | 'rateLimited' | 'failed';
+type ActionProblem = 'taken' | 'carBusy' | 'failed';
 
 function actionProblem(error: unknown): ActionProblem {
   if (error instanceof ApiError) {
     if (error.problem === 'car-transition-not-allowed') return 'carBusy';
     if (error.status === 409) return 'taken';
-    if (error.status === 429) return 'rateLimited';
   }
   return 'failed';
 }
@@ -68,7 +67,6 @@ export function IncidentPage() {
       .then(
         (updated) => {
           setIncident(updated);
-          setComment('');
         },
         (error: unknown) => {
           if (error instanceof ApiError && error.status === 401) void signOut();
@@ -92,8 +90,7 @@ export function IncidentPage() {
     );
   }
 
-  const decidable = incident.status === 'in_progress';
-  const closed = incident.status === 'resolved' || incident.status === 'rejected';
+  const inProgress = incident.status === 'in_progress';
   const noComment = !comment.trim();
   return (
     <>
@@ -193,7 +190,7 @@ export function IncidentPage() {
             {t('support.take')}
           </button>
         )}
-        {incident.car_id && !incident.sent_to_service && !closed && (
+        {inProgress && incident.car_id && !incident.sent_to_service && (
           <button
             type="button"
             className="button"
@@ -208,13 +205,14 @@ export function IncidentPage() {
           </button>
         )}
       </div>
-      {decidable && (
+      {inProgress && (
         <div className="decision-form">
           <label className="stacked-label">
             {t('incidents.comment')}
             <textarea
               className="field textarea"
               rows={3}
+              maxLength={incidentCommentMaxLength}
               value={comment}
               onChange={(event) => {
                 setComment(event.target.value);

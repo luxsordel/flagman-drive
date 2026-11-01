@@ -28,9 +28,21 @@ export const incidentTypes: readonly IncidentType[] = [
 
 /** QUEUE_SIZE_MAX of the API (support/domain.py): a larger value is refused with 422. */
 export const supportQueueSize = 100;
+/** MESSAGE_TEXT_MAX_LENGTH and INCIDENT_COMMENT_MAX_LENGTH of the API (support/domain.py). */
+export const answerMaxLength = 2000;
+export const incidentCommentMaxLength = 1000;
+
+/** What the operators still have to deal with: the API sorts only this as a queue. */
+const openIncidentStatuses: IncidentStatus[] = ['new', 'in_progress'];
+
+function incidentStatusQuery(status: IncidentFilter['status']) {
+  if (status === 'all') return {};
+  return { status: status ? [status] : openIncidentStatuses };
+}
 
 export interface IncidentFilter {
-  status?: IncidentStatus;
+  /** Nothing means the open ones. */
+  status?: IncidentStatus | 'all';
   type?: IncidentType;
 }
 
@@ -120,7 +132,7 @@ export function createSupportApi(client: AdminApiClient): SupportApi {
         await client.GET('/admin/support/incidents', {
           params: {
             query: {
-              ...(filter.status ? { status: [filter.status] } : {}),
+              ...incidentStatusQuery(filter.status),
               ...(filter.type ? { type: filter.type } : {}),
               ...(cursor ? { cursor } : {}),
             },

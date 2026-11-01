@@ -11,17 +11,16 @@ import {
   incidentTypes,
   type Incident,
   type IncidentFilter,
-  type IncidentStatus,
   type IncidentType,
 } from '../support/api';
 import { listPollMs, useInterval } from '../support/useInterval';
 import { formatMinskTime } from '../time/minsk';
 
 function parseFilter(params: URLSearchParams): IncidentFilter {
-  const status = params.get('status') as IncidentStatus | null;
+  const status = params.get('status') as IncidentFilter['status'] | null;
   const type = params.get('type') as IncidentType | null;
   return {
-    ...(status && incidentStatuses.includes(status) ? { status } : {}),
+    ...(status && (status === 'all' || incidentStatuses.includes(status)) ? { status } : {}),
     ...(type && incidentTypes.includes(type) ? { type } : {}),
   };
 }
@@ -91,7 +90,8 @@ export function IncidentsPage() {
               setFilter('status', event.target.value);
             }}
           >
-            <option value="">{t('incidents.any')}</option>
+            <option value="">{t('incidents.open')}</option>
+            <option value="all">{t('incidents.any')}</option>
             {incidentStatuses.map((value) => (
               <option key={value} value={value}>
                 {t(`incidents.statuses.${value}`)}

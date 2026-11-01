@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -85,6 +85,36 @@ describe('support conversation', () => {
     expect((field as HTMLTextAreaElement).value).toBe('Hello');
   });
 
+  it('shows nothing of one conversation on the screen of another', async () => {
+    const card = conversation();
+    const support = fakeSupportApi({ card, messages: [staffMessage({ text: 'First client' })] });
+    const { router } = renderAt(`/support/${card.id}`, operator, { support });
+    await screen.findByText('First client');
+
+    support.messages.mockResolvedValue({
+      conversation_id: 'another',
+      status: 'open',
+      items: [],
+    });
+    await act(async () => {
+      await router.navigate('/support/another');
+    });
+
+    await waitFor(() => {
+      expect(support.messages).toHaveBeenLastCalledWith('another', 0);
+    });
+    expect(screen.queryByText('First client')).toBeNull();
+  });
+
+  it('limits an answer to what the API takes', async () => {
+    const card = conversation();
+    renderAt(`/support/${card.id}`, operator, { support: fakeSupportApi({ card }) });
+
+    const answer = await screen.findByLabelText(ru.support.answer);
+
+    expect((answer as HTMLTextAreaElement).maxLength).toBe(2000);
+  });
+
   it('asks for a photo link only when the operator opens the photo', async () => {
     const card = conversation();
     const photo = staffMessage({ kind: 'photo', text: null });
@@ -110,6 +140,20 @@ describe('support conversation', () => {
 });
 
 describe('incidents', () => {
+  it('opens on the open ones, and shows the closed only when asked', async () => {
+    const support = fakeSupportApi();
+    renderAt('/incidents', operator, { support });
+
+    await screen.findByText(ru.incidents.empty);
+    expect(support.incidents).toHaveBeenCalledWith({});
+
+    await userEvent.selectOptions(screen.getByLabelText(ru.incidents.status), ru.incidents.any);
+
+    await waitFor(() => {
+      expect(support.incidents).toHaveBeenLastCalledWith({ status: 'all' });
+    });
+  });
+
   it('marks urgent ones and filters by the address', async () => {
     const support = fakeSupportApi({
       incidents: [incident({ type: 'accident', priority: 0, car_plate: '1234 AB-7' })],
@@ -186,9 +230,34 @@ describe('incidents', () => {
     });
   });
 
+  it('sends a car to service only from an incident in progress', async () => {
+    const card2 = incident({ status: 'new', car_id: 'car-1', car_plate: '1234 AB-7' });
+    renderAt(`/incidents/${card2.id}`, operator, { support: fakeSupportApi({ card2 }) });
+
+    await screen.findByRole('button', { name: ru.support.take });
+
+    expect(screen.queryByRole('button', { name: ru.incidents.sendToService })).toBeNull();
+  });
+
+  it('keeps the comment when a car goes to service', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const card2 = incident({ status: 'in_progress', car_id: 'car-1', car_plate: '1234 AB-7' });
+    const support = fakeSupportApi({ card2 });
+    renderAt(`/incidents/${card2.id}`, operator, { support });
+
+    const comment = await screen.findByLabelText(ru.incidents.comment);
+    await userEvent.type(comment, 'Bumper is cracked');
+    await userEvent.click(screen.getByRole('button', { name: ru.incidents.sendToService }));
+
+    await waitFor(() => {
+      expect(support.sendToService).toHaveBeenCalledWith(card2.id);
+    });
+    expect((comment as HTMLTextAreaElement).value).toBe('Bumper is cracked');
+  });
+
   it('says when a rental holds the car sent to service', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const card2 = incident({ car_id: 'car-1', car_plate: '1234 AB-7' });
+    const card2 = incident({ status: 'in_progress', car_id: 'car-1', car_plate: '1234 AB-7' });
     const support = fakeSupportApi({ card2 });
     support.sendToService.mockRejectedValueOnce(new ApiError(409, 'car-transition-not-allowed'));
     renderAt(`/incidents/${card2.id}`, operator, { support });

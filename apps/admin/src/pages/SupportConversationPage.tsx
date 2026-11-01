@@ -7,7 +7,7 @@ import { useApis } from '../api/context';
 import { useAuth } from '../auth/context';
 import { fullName } from '../kyc/format';
 import { SupportPhoto } from '../support/SupportPhoto';
-import type { Conversation, StaffMessage } from '../support/api';
+import { answerMaxLength, type Conversation, type StaffMessage } from '../support/api';
 import { chatPollMs, useInterval } from '../support/useInterval';
 import { formatMinskTime } from '../time/minsk';
 
@@ -22,10 +22,15 @@ function actionProblem(error: unknown): ActionProblem {
   return 'failed';
 }
 
-/** One conversation: new messages are polled, as ADR-0023 chose. */
+/** Keyed by the id: nothing of one conversation may stay on the screen of another. */
 export function SupportConversationPage() {
-  const { t, i18n } = useTranslation();
   const { conversationId = '' } = useParams();
+  return <ConversationView key={conversationId} conversationId={conversationId} />;
+}
+
+/** One conversation: new messages are polled, as ADR-0023 chose. */
+function ConversationView({ conversationId }: { conversationId: string }) {
+  const { t, i18n } = useTranslation();
   const { support } = useApis();
   const { signOut } = useAuth();
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -164,6 +169,7 @@ export function SupportConversationPage() {
             <textarea
               className="field textarea"
               rows={3}
+              maxLength={answerMaxLength}
               value={text}
               onChange={(event) => {
                 setText(event.target.value);
