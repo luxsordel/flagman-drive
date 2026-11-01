@@ -51,6 +51,13 @@ export function ReceiptScreen() {
           {shown.status === 'cancelled' && <AppText>{t(endedText(shown))}</AppText>}
           <ReceiptView rental={shown} pending={pending} />
           <RentalErrorMessage error={error} />
+          <Button
+            variant="secondary"
+            title={t('support.incident.report')}
+            onPress={() => {
+              router.push({ pathname: '/support/incident', params: { rentalId: shown.id } });
+            }}
+          />
         </>
       )}
       <Button variant="secondary" title={t('rental.toMap')} onPress={toMap} />

@@ -1,6 +1,11 @@
 import { notificationRoute } from './notificationRoute';
 
 describe('notificationRoute', () => {
+  it('opens the chat for an answer of support, with or without a rental', () => {
+    expect(notificationRoute({ event: 'support_reply' })).toBe('/support');
+    expect(notificationRoute({ event: 'support_reply', rental_id: 'r-1' })).toBe('/support');
+  });
+
   it.each(['reservation_expiring', 'trip_low_battery'])('opens the rental for %s', (event) => {
     expect(notificationRoute({ event, rental_id: 'r-1' })).toBe('/rental');
   });

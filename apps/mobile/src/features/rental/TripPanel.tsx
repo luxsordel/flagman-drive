@@ -83,6 +83,20 @@ export function TripPanel({
           router.push('/rental/finish');
         }}
       />
+      <Button
+        variant="secondary"
+        title={t('support.incident.report')}
+        onPress={() => {
+          router.push({ pathname: '/support/incident', params: { rentalId: rental.id } });
+        }}
+      />
+      <Button
+        variant="secondary"
+        title={t('support.writeToSupport')}
+        onPress={() => {
+          router.push({ pathname: '/support', params: { rentalId: rental.id } });
+        }}
+      />
     </Card>
   );
 }

@@ -15,7 +15,7 @@ export const ok = <T>(value: T): Result<T> => ({ ok: true, value });
 export function preferences(disabled: NotificationCategory[] = []): NotificationPreferences {
   const mandatory: NotificationCategory[] = ['trip', 'payment'];
   return {
-    categories: (['reservation', 'trip', 'payment'] as const).map((category) => ({
+    categories: (['reservation', 'trip', 'payment', 'support'] as const).map((category) => ({
       category,
       enabled: !disabled.includes(category),
       mandatory: mandatory.includes(category),

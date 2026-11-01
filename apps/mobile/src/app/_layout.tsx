@@ -1,3 +1,4 @@
+import { createAppSupport, SupportProvider } from '../features/support/SupportProvider';
 import { ThemeProvider, Stack } from 'expo-router';
 import { useFonts } from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
@@ -30,6 +31,7 @@ export default function RootLayout() {
   const [rentalStore] = useState(() => createAppRentalStore(session));
   const [payments] = useState(() => createAppPayments(session));
   const [notifications] = useState(() => createAppNotifications(session));
+  const [support] = useState(() => createAppSupport(session));
   const status = useSyncExternalStore(session.subscribe, session.getStatus);
   const [fontsLoaded, fontError] = useFonts(fontAssets);
   // A failed font load falls back to system fonts rather than leaving the splash up forever.
@@ -57,26 +59,34 @@ export default function RootLayout() {
                 <RentalProvider store={rentalStore}>
                   <PaymentsProvider deps={payments}>
                     <NotificationsProvider deps={notifications}>
-                      <StatusBar style="auto" />
-                      <PushListeners session={session} deps={notifications} rentals={rentalStore} />
-                      <Stack screenOptions={{ headerShown: false }}>
-                        <Stack.Protected guard={signedIn}>
-                          <Stack.Screen name="index" />
-                          <Stack.Screen name="kyc/index" />
-                          <Stack.Screen name="kyc/upload" />
-                          <Stack.Screen name="profile" />
-                          <Stack.Screen name="rental/index" />
-                          <Stack.Screen name="rental/inspection" />
-                          <Stack.Screen name="rental/finish" />
-                          <Stack.Screen name="rental/receipt" />
-                          <Stack.Screen name="payment-methods" />
-                          <Stack.Screen name="notification-settings" />
-                        </Stack.Protected>
-                        <Stack.Protected guard={!signedIn}>
-                          <Stack.Screen name="sign-in" />
-                          <Stack.Screen name="code" />
-                        </Stack.Protected>
-                      </Stack>
+                      <SupportProvider deps={support}>
+                        <StatusBar style="auto" />
+                        <PushListeners
+                          session={session}
+                          deps={notifications}
+                          rentals={rentalStore}
+                        />
+                        <Stack screenOptions={{ headerShown: false }}>
+                          <Stack.Protected guard={signedIn}>
+                            <Stack.Screen name="index" />
+                            <Stack.Screen name="kyc/index" />
+                            <Stack.Screen name="kyc/upload" />
+                            <Stack.Screen name="profile" />
+                            <Stack.Screen name="rental/index" />
+                            <Stack.Screen name="rental/inspection" />
+                            <Stack.Screen name="rental/finish" />
+                            <Stack.Screen name="rental/receipt" />
+                            <Stack.Screen name="payment-methods" />
+                            <Stack.Screen name="notification-settings" />
+                            <Stack.Screen name="support/index" />
+                            <Stack.Screen name="support/incident" />
+                          </Stack.Protected>
+                          <Stack.Protected guard={!signedIn}>
+                            <Stack.Screen name="sign-in" />
+                            <Stack.Screen name="code" />
+                          </Stack.Protected>
+                        </Stack>
+                      </SupportProvider>
                     </NotificationsProvider>
                   </PaymentsProvider>
                 </RentalProvider>
