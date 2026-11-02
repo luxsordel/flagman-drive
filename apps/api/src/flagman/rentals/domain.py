@@ -4,8 +4,11 @@ The machine is drawn in docs/02-architecture.md; the reasons behind the reservat
 in docs/adr/0022.
 """
 
+import base64
+import binascii
 import unicodedata
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -37,6 +40,8 @@ class RentalTransition(StrEnum):
     FORCE_FINISH = "force_finish"
     MARK_PAID = "mark_paid"
     MARK_PAYMENT_FAILED = "mark_payment_failed"
+    # A staff increase of a paid rental is charged as a debt (docs/adr/0025).
+    ADJUST_DEBT = "adjust_debt"
 
 
 class ChargeStatus(StrEnum):
@@ -81,6 +86,9 @@ _RULES: dict[RentalTransition, _Rule] = {
     ),
     RentalTransition.MARK_PAYMENT_FAILED: _Rule(
         frozenset({RentalStatus.FINISHED}), RentalStatus.PAYMENT_FAILED
+    ),
+    RentalTransition.ADJUST_DEBT: _Rule(
+        frozenset({RentalStatus.PAID}), RentalStatus.PAYMENT_FAILED
     ),
 }
 
@@ -715,3 +723,142 @@ class Receipt:
     # The card the hold or the charge went to; None if the client had no card left.
     card: ReceiptCard | None
     issued_at: datetime
+
+
+# Staff actions on rentals (docs/adr/0025).
+
+STAFF_REASON_MAX_LENGTH = 500
+
+# A paid wait of a cancelled reservation is adjusted like a trip; its status stays as it is.
+_ADJUSTABLE = frozenset({RentalStatus.PAID, RentalStatus.PAYMENT_FAILED, RentalStatus.CANCELLED})
+
+
+class RentalAdjustmentInvalidError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "rental-adjustment-invalid"
+    title = "The adjustment would take the total below zero or change nothing"
+
+
+class RentalSettlementPendingError(AppError):
+    """The first settlement's outcome is unknown: adjusting now could charge or refund twice."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "rental-settlement-pending"
+    title = "The rental's payment is not settled yet; try again later"
+
+
+class RefundStatus(StrEnum):
+    """Values are stored as is."""
+
+    SUCCEEDED = "succeeded"
+    # The provider did not answer or declined: an operator retries with the same keys.
+    PENDING = "pending"
+
+
+@dataclass(frozen=True)
+class Adjustment:
+    id: uuid.UUID
+    rental_id: uuid.UUID
+    # 1, 2, … within the rental: part of the refund keys.
+    seq: int
+    # Kopecks; negative lowers the total.
+    amount: int
+    comment: str
+    staff_id: uuid.UUID
+    created_at: datetime
+    # Only for a decrease that had paid money to return.
+    refund_status: RefundStatus | None = None
+
+
+def normalize_staff_text(value: str) -> str:
+    """A reason or a comment the client or another operator reads later: the same rules as
+    a damage comment, so invisible characters cannot make it read differently."""
+    return normalize_damage_comment(value)
+
+
+def adjusted_total(receipt_total: int, adjustments: Sequence[Adjustment]) -> int:
+    return receipt_total + sum(adjustment.amount for adjustment in adjustments)
+
+
+def ensure_adjustment_allowed(
+    rental: Rental, receipt_total: int | None, adjustments: Sequence[Adjustment], amount: int
+) -> None:
+    """Only a rental whose money is known, with a receipt to start from, and never below zero."""
+    # A finished rental is one whose first settlement has not answered yet.
+    if rental.status is RentalStatus.FINISHED or rental.charge_status is ChargeStatus.PENDING:
+        raise RentalSettlementPendingError
+    if rental.status not in _ADJUSTABLE:
+        raise RentalTransitionNotAllowedError
+    if receipt_total is None or amount == 0:
+        raise RentalAdjustmentInvalidError
+    if adjusted_total(receipt_total, adjustments) + amount < 0:
+        raise RentalAdjustmentInvalidError
+
+
+@dataclass(frozen=True)
+class Refundable:
+    """A capture or a charge of the rental and what is left of it after earlier refunds."""
+
+    operation_id: uuid.UUID
+    left: int
+
+
+def plan_refunds(overpaid: int, sources: Sequence[Refundable]) -> tuple[tuple[uuid.UUID, int], ...]:
+    """Spreads an overpayment over the rental's payments in the given order, newest first."""
+    if overpaid < 0:
+        raise ValueError("an overpayment cannot be negative")
+    planned = []
+    for source in sources:
+        if overpaid == 0:
+            break
+        amount = min(overpaid, source.left)
+        if amount > 0:
+            planned.append((source.operation_id, amount))
+            overpaid -= amount
+    if overpaid:
+        raise ValueError("the rental's payments do not cover the refund")
+    return tuple(planned)
+
+
+def refund_key(rental_id: uuid.UUID, seq: int, operation_id: uuid.UUID) -> str:
+    return f"rental:{rental_id}:refund:{seq}:{operation_id}"
+
+
+def rental_key_prefix(rental_id: uuid.UUID) -> str:
+    """Every payment of the rental has a key under it: holds, settlement, debts, refunds."""
+    return f"rental:{rental_id}:"
+
+
+@dataclass(frozen=True)
+class RentalCursor:
+    """Position after the last rental of a page; pages go from the newest reservation."""
+
+    reserved_at: datetime
+    rental_id: uuid.UUID
+
+    def encode(self) -> str:
+        raw = f"{self.reserved_at.isoformat()}|{self.rental_id}"
+        return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    @classmethod
+    def decode(cls, value: str) -> "RentalCursor":
+        try:
+            raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+            reserved_at, rental_id = raw.split("|")
+            cursor = cls(datetime.fromisoformat(reserved_at), uuid.UUID(rental_id))
+        except (binascii.Error, UnicodeDecodeError, ValueError) as error:
+            raise ValueError("invalid cursor") from error
+        if cursor.reserved_at.tzinfo is None:
+            raise ValueError("invalid cursor")
+        return cursor
+
+
+@dataclass(frozen=True)
+class RentalFilter:
+    """Staff list filters; the period is of the reservation."""
+
+    statuses: frozenset[RentalStatus] = frozenset()
+    user_id: uuid.UUID | None = None
+    car_id: uuid.UUID | None = None
+    reserved_from: datetime | None = None
+    reserved_to: datetime | None = None
