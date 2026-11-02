@@ -262,7 +262,7 @@ def test_staff_filter_rentals_by_client_car_status_and_period(
     other_car = add_priced_car(integration_settings, CAR_POINT)
     driving = _start(person, other_car)
 
-    def ids(**params: str) -> list[str]:
+    def ids(**params: str | list[str]) -> list[str]:
         response = app_client.get("/admin/rentals", params=params, headers=operator.headers)
         assert response.status_code == HTTPStatus.OK, response.text
         return [item["id"] for item in response.json()["items"]]
