@@ -109,6 +109,11 @@ _URGENT = 0
 _NORMAL = 1
 
 
+async def car_held_by_incident(db: AsyncSession, car_id: UUID) -> bool:
+    """Whether an open incident took the car off the road; in the caller's transaction."""
+    return await repository.car_held_by_incident(db, car_id)
+
+
 @dataclass(frozen=True)
 class PhotoTarget:
     rental_id: UUID | None = None

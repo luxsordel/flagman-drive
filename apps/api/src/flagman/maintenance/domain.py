@@ -106,6 +106,22 @@ class TaskCarBusyError(AppError):
     title = "The car is reserved or rented; wait until the rental ends"
 
 
+class TaskAssignedToOtherError(AppError):
+    """Reassign it instead: a click must not take a task from a technician on the way."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "maintenance-task-assigned"
+    title = "The task is assigned to someone else"
+
+
+class CarDoorsOpenError(AppError):
+    """The next client would get an unlocked car."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "maintenance-car-doors-open"
+    title = "Close the car before finishing the task"
+
+
 class ChargeTooLowError(AppError):
     status = HTTPStatus.CONFLICT
     slug = "maintenance-charge-too-low"
@@ -209,10 +225,12 @@ def can_see(task: Task, worker: Worker) -> bool:
 
 
 def ensure_can_start(task: Task, worker: Worker) -> None:
-    """Whoever takes the task becomes its assignee; a technician takes free tasks or their own."""
+    """Whoever takes the task becomes its assignee: only a free task or one's own."""
     if worker.is_technician and not can_see(task, worker):
         raise TaskNotFoundError
     apply_transition(task.status, TaskTransition.START)
+    if task.assignee_id not in {None, worker.staff_id}:
+        raise TaskAssignedToOtherError
 
 
 def ensure_own_task_in_progress(task: Task, worker: Worker) -> None:
@@ -235,21 +253,31 @@ def ensure_command_fits(task: Task, command: MaintenanceCommand) -> None:
         raise CommandNotForTaskError
 
 
-def ensure_can_complete(task: Task, state: CarState | None, min_battery_pct: int) -> None:
-    if task.type is TaskType.CHARGING and (state is None or state.battery_pct < min_battery_pct):
+def ensure_can_complete(task: Task, state: CarState | None, charged_pct: int) -> None:
+    if task.type is TaskType.CHARGING and (state is None or state.battery_pct < charged_pct):
         raise ChargeTooLowError
+    if state is not None and not state.doors_locked:
+        raise CarDoorsOpenError
     apply_transition(task.status, TaskTransition.COMPLETE)
 
 
 def returns_to_available(
-    state: CarState | None, min_battery_pct: int, other_tasks_in_progress: bool
+    state: CarState | None,
+    min_battery_pct: int,
+    other_tasks_in_progress: bool,
+    *,
+    held_by_incident: bool = False,
+    task_type: TaskType = TaskType.OTHER,
 ) -> bool:
     """Whether a car in service goes back to clients when its task ends.
 
-    A car still below the charge clients get stays in service, visible in the fleet: going
-    back to `available` would only hide it from clients behind the availability rule.
+    A car still below the charge clients get stays in service: the worker sends it to charging.
+    An unlocked one stays too, as after a cancelled task nobody may have closed it. A car an open
+    incident took off the road comes back by its repair only, not by a wash on the way.
     """
-    if other_tasks_in_progress or state is None:
+    if other_tasks_in_progress or state is None or not state.doors_locked:
+        return False
+    if held_by_incident and task_type is not TaskType.REPAIR:
         return False
     return state.battery_pct >= min_battery_pct
 
@@ -260,6 +288,9 @@ class ChargingRules:
     max_state_age: timedelta
 
 
+_CHARGED_ON_TASK = frozenset({CarStatus.AVAILABLE, CarStatus.SERVICE})
+
+
 def needs_charging_task(
     status: CarStatus,
     state: CarState | None,
@@ -267,12 +298,13 @@ def needs_charging_task(
     rules: ChargingRules,
     now: datetime,
 ) -> bool:
-    """The worker's rule: a free car running low, with fresh telemetry and no task yet.
+    """The worker's rule: a car running low, with fresh telemetry and no task yet.
 
-    A reserved or rented car is left alone until the rental ends; an old snapshot may show a
-    charge the car no longer has, either way.
+    Free cars and those left in service, which nobody would charge otherwise. A reserved or rented
+    car is left alone until the rental ends; an old snapshot may show a charge the car no longer
+    has, either way.
     """
-    if status is not CarStatus.AVAILABLE or state is None or has_open_task:
+    if status not in _CHARGED_ON_TASK or state is None or has_open_task:
         return False
     if now - state.recorded_at > rules.max_state_age:
         return False

@@ -190,6 +190,14 @@ async def change_status(
     return new_status
 
 
+async def lock_car(db: AsyncSession, car_id: UUID) -> Car:
+    """The car as it is now, with its row held until commit, for a decision about its status."""
+    _require_transaction(db, "lock_car")
+    if await repository.get_status_for_update(db, car_id) is None:
+        raise CarNotFoundError
+    return await get_car(db, car_id)
+
+
 async def reserve_car(
     db: AsyncSession, car_id: UUID, rules: AvailabilityRules, now: datetime
 ) -> Car:

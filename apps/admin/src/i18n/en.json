@@ -521,14 +521,16 @@
       "photoInvalid": "Choose a JPEG, PNG or WebP photo up to 10 MB.",
       "storageUnavailable": "Photos cannot be stored now. Try again later.",
       "forbidden": "Your role may not do this.",
-      "invalid": "The server did not accept the data. Check the text: no phone numbers or emails.",
-      "failed": "Something went wrong. Check the connection and try again."
+      "invalid": "The server did not accept the data. Check the fields.",
+      "failed": "Something went wrong. Check the connection and try again.",
+      "doorsOpen": "Close the car before finishing the task."
     },
     "carTasks": {
       "title": "Open tasks",
       "none": "No open tasks.",
       "failed": "Could not load the tasks."
-    }
+    },
+    "more": "Show more"
   },
   "tariffs": {
     "title": "Tariffs",

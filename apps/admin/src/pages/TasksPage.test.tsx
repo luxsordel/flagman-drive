@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -30,6 +32,7 @@ function stubGeolocation(geolocation: unknown) {
 
 afterEach(() => {
   Reflect.deleteProperty(navigator, 'geolocation');
+  vi.restoreAllMocks();
 });
 
 describe('tasks of a technician', () => {
@@ -287,13 +290,109 @@ describe('errors of tasks', () => {
 });
 
 describe('a phone-sized screen', () => {
-  it('shows the technician the same tabs and list', async () => {
-    window.innerWidth = 375;
-    window.dispatchEvent(new Event('resize'));
-    renderAt('/tasks', technician, { tasks: fakeTasksApi(testTask()) });
+  // jsdom applies no CSS, so what a phone gets is read from the rules themselves.
+  const styles = readFileSync('src/styles.css', 'utf-8');
+  const phoneRules = styles.slice(styles.indexOf('@media (max-width: 40rem)'));
 
-    expect(await screen.findByRole('button', { name: ru.tasks.tabs.mine })).toBeDefined();
-    expect(await screen.findByRole('button', { name: /1234 AB-7/ })).toBeDefined();
-    expect(screen.getByRole('img', { name: ru.tasks.map })).toBeDefined();
+  it('stacks the menu over the page and shrinks the map', () => {
+    expect(phoneRules).toMatch(/\.layout \{\s+grid-template-columns: minmax\(0, 1fr\);/);
+    expect(phoneRules).toMatch(/\.fleet-map \{\s+height: 40vh;/);
+  });
+
+  it('puts the list under the map on the same breakpoint or wider', () => {
+    expect(styles).toMatch(
+      /@media \(max-width: 60rem\) \{\s+\.fleet-layout \{\s+grid-template-columns: minmax\(0, 1fr\);/,
+    );
+  });
+});
+
+describe('details of a task', () => {
+  it('shows an operator who has the task', async () => {
+    const assignee = '0199a7c2-5d1e-7b3a-9f00-000000000002';
+    renderAt('/tasks', testStaff('operator'), {
+      tasks: fakeTasksApi(testTask({ status: 'in_progress', assignee_id: assignee })),
+    });
+
+    await screen.findByRole('button', { name: /1234 AB-7/ });
+    openTask(/1234 AB-7/);
+
+    expect(await screen.findByText('tech@example.com')).toBeDefined();
+  });
+
+  it('offers an operator no way to take a task of a technician', async () => {
+    renderAt('/tasks', testStaff('operator'), {
+      tasks: fakeTasksApi(testTask({ status: 'assigned', assignee_id: 'someone' })),
+    });
+
+    await screen.findByRole('button', { name: /1234 AB-7/ });
+    openTask(/1234 AB-7/);
+
+    expect(screen.queryByRole('button', { name: ru.tasks.start })).toBeNull();
+  });
+
+  it('loads the next page and keeps both', async () => {
+    const tasks = fakeTasksApi(testTask());
+    tasks.list.mockImplementation((query) =>
+      Promise.resolve({
+        items: [testTask({ id: `task-${String(query.offset ?? 0)}` })],
+        total: 2,
+      }),
+    );
+    renderAt('/tasks', testStaff('operator'), { tasks });
+
+    fireEvent.click(await screen.findByRole('button', { name: ru.tasks.more }));
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('button', { name: /1234 AB-7/ })).toHaveLength(2);
+    });
+    expect(tasks.list).toHaveBeenCalledWith(expect.objectContaining({ offset: 100 }));
+  });
+
+  it('closes the opened tab and tells when a photo link fails', async () => {
+    const tab = { close: vi.fn(), location: { href: '' }, opener: null };
+    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
+    const task = testTask();
+    const tasks = fakeTasksApi(task);
+    tasks.get.mockResolvedValue({
+      ...task,
+      photos: [{ id: 'photo-1', uploaded_at: '2026-10-29T10:00:00Z' }],
+    });
+    tasks.photoUrl.mockRejectedValue(new ApiError(429, 'rate-limited', 7));
+    renderAt('/tasks', testStaff('operator'), { tasks });
+
+    await screen.findByRole('button', { name: /1234 AB-7/ });
+    openTask(/1234 AB-7/);
+    fireEvent.click(await screen.findByRole('button', { name: 'Фото 1' }));
+
+    expect(await screen.findByText(/Подождите 7/)).toBeDefined();
+    expect(tab.close).toHaveBeenCalled();
+  });
+
+  it('unplugs the car before finishing a charging task, whatever the car answers', async () => {
+    stubGeolocation({
+      getCurrentPosition: (ok: (position: unknown) => void) => {
+        ok({ coords: { latitude: 53.9, longitude: 27.56 } });
+      },
+    });
+    const task = inProgress({ type: 'charging' });
+    const tasks = fakeTasksApi(task);
+    tasks.command.mockRejectedValue(new ApiError(503, 'telematics-unavailable'));
+    renderAt('/tasks', technician, { tasks });
+
+    await screen.findByRole('button', { name: /1234 AB-7/ });
+    openTask(/1234 AB-7/);
+    fireEvent.change(await screen.findByLabelText(ru.tasks.complete.comment), {
+      target: { value: 'Заряжена' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: ru.tasks.complete.submit }));
+
+    await waitFor(() => {
+      expect(tasks.complete).toHaveBeenCalledWith(task.id, 'Заряжена');
+    });
+    expect(tasks.command).toHaveBeenCalledWith(
+      task.id,
+      'stop_charging',
+      expect.objectContaining({ lat: 53.9 }),
+    );
   });
 });

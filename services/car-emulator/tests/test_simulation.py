@@ -10,11 +10,13 @@ from car_emulator.domain import (
     MINSK_LON_RANGE,
     Car,
     CarMode,
+    CommandRejectedError,
     CommandType,
     Destination,
     Gear,
     SimulationParams,
     apply_command,
+    can_start_trip,
     distance_km,
     drive_toward,
     is_rented,
@@ -356,7 +358,25 @@ def test_car_opened_for_service_stays_where_it_is(car: Car) -> None:
     assert (car.lat, car.lon) == where
 
 
-def test_closing_ends_the_service_opening(car: Car) -> None:
+def test_closed_car_stays_for_the_technician_until_a_client_opens_it(car: Car) -> None:
+    apply_command(car, CommandType.SERVICE_OPEN, NOW)
+    apply_command(car, CommandType.CLOSE, NOW)
+    assert not can_start_trip(car, PARAMS)
+
+    apply_command(car, CommandType.OPEN, NOW)
+    apply_command(car, CommandType.CLOSE, NOW)
+
+    assert can_start_trip(car, PARAMS)
+
+
+def test_driving_car_is_not_opened_for_service(car: Car) -> None:
+    _driving(car)
+
+    with pytest.raises(CommandRejectedError):
+        apply_command(car, CommandType.SERVICE_OPEN, NOW)
+
+
+def test_a_client_opening_after_service_is_a_rental(car: Car) -> None:
     apply_command(car, CommandType.SERVICE_OPEN, NOW)
     apply_command(car, CommandType.CLOSE, NOW)
     apply_command(car, CommandType.OPEN, NOW)

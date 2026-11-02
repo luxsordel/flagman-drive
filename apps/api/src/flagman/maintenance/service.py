@@ -1,8 +1,8 @@
 """Technician tasks and their service access to cars (docs/02-architecture.md, docs/adr/0025).
 
-A task and its car change in one transaction: the task row is locked first, then the car's row
-through `fleet.change_status`, so a reservation of the car waits for the task or the other way
-round. A command to the car is sent outside any transaction, as the fleet does.
+A task and its car change in one transaction, always locking the task's row and then the car's:
+two tasks of one car and a reservation of it wait for each other, so each decides by what the
+other has committed. A command to the car is sent outside any transaction, as the fleet does.
 """
 
 import asyncio
@@ -69,6 +69,7 @@ from flagman.maintenance.domain import (
 )
 from flagman.maintenance.repository import NewTask, OpenTaskTakenError, StoredPhoto
 from flagman.rentals.domain import CommandRules, ensure_near_car, normalize_damage_comment
+from flagman.support import service as support
 
 logger = structlog.get_logger(__name__)
 
@@ -93,6 +94,8 @@ _CAR_COMMANDS = {
 @dataclass(frozen=True)
 class MaintenanceRules:
     min_battery_pct: int
+    # A charging task ends here: below it the worker would create the next one at once.
+    charged_pct: int
     commands: CommandRules
 
 
@@ -100,6 +103,7 @@ def maintenance_rules(settings: Settings) -> MaintenanceRules:
     availability = fleet.availability_rules(settings)
     return MaintenanceRules(
         min_battery_pct=availability.min_battery_pct,
+        charged_pct=settings.maintenance_charging_threshold_pct or availability.min_battery_pct,
         # The rule and the distance of clients (#110): a technician stands by the car as well.
         commands=CommandRules(
             max_distance_m=settings.rental_command_max_distance_m,
@@ -110,7 +114,7 @@ def maintenance_rules(settings: Settings) -> MaintenanceRules:
 
 def charging_rules(settings: WorkerSettings) -> ChargingRules:
     return ChargingRules(
-        threshold_pct=settings.maintenance_charging_threshold_pct,
+        threshold_pct=settings.maintenance_charging_threshold_pct or settings.fleet_min_battery_pct,
         max_state_age=timedelta(seconds=settings.fleet_telemetry_max_age_seconds),
     )
 
@@ -263,11 +267,10 @@ class MaintenanceService:
             task = await self._lock(task_id, worker)
             ensure_can_start(task, worker)
             status = apply_transition(task.status, TaskTransition.START)
-            car = await fleet.get_car(self.db, task.car_id)
+            car = await fleet.lock_car(self.db, task.car_id)
             if car.status in _BUSY_STATUSES:
                 raise TaskCarBusyError
             if car.status is not CarStatus.SERVICE:
-                # Under the car's row lock: a reservation that came first fails this transition.
                 await fleet.change_status(self.db, car.id, CarTransition.SEND_TO_SERVICE, now)
             await repository.start(self.db, task.id, status, worker.staff_id, now)
             await audit.record(
@@ -285,8 +288,8 @@ class MaintenanceService:
         async with self.db.begin():
             task = await self._lock(task_id, worker)
             ensure_own_task_in_progress(task, worker)
-            car = await fleet.get_car(self.db, task.car_id)
-            ensure_can_complete(task, car.state, self.rules.min_battery_pct)
+            car = await fleet.lock_car(self.db, task.car_id)
+            ensure_can_complete(task, car.state, self.rules.charged_pct)
             status = apply_transition(task.status, TaskTransition.COMPLETE)
             await repository.finish(self.db, task.id, status, _normalize(comment), now)
             returned = await self._release_car(task, car, now)
@@ -311,7 +314,7 @@ class MaintenanceService:
             await repository.finish(self.db, task.id, status, _normalize(comment), now)
             returned = False
             if task.started_at is not None:
-                car = await fleet.get_car(self.db, task.car_id)
+                car = await fleet.lock_car(self.db, task.car_id)
                 returned = await self._release_car(task, car, now)
             await audit.record(
                 self.db,
@@ -335,7 +338,14 @@ class MaintenanceService:
         if car.status is not CarStatus.SERVICE:
             return False
         others = await repository.has_other_task_in_progress(self.db, car.id, task.id)
-        if not returns_to_available(car.state, self.rules.min_battery_pct, others):
+        held = await support.car_held_by_incident(self.db, car.id)
+        if not returns_to_available(
+            car.state,
+            self.rules.min_battery_pct,
+            others,
+            held_by_incident=held,
+            task_type=task.type,
+        ):
             return False
         await fleet.change_status(self.db, car.id, CarTransition.RETURN_FROM_SERVICE, now)
         return True

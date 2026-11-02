@@ -1,3 +1,5 @@
+import asyncio
+import secrets
 import uuid
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
@@ -5,13 +7,16 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.audit.domain import RequestOrigin
 from flagman.core.config import Settings
+from flagman.core.db import create_engine, create_session_factory
 from flagman.fleet.domain import CarCommand, CarStatus
 from flagman.fleet.tests.conftest import FakeGateway, Staff, add_car, run_in_db
 from flagman.identity.domain import StaffRole
 from flagman.maintenance import service
-from flagman.maintenance.domain import ChargingRules
+from flagman.maintenance.domain import ChargeTooLowError, ChargingRules, Worker
 from flagman.maintenance.tests.conftest import Member
 from flagman.rentals.tests.conftest import (
     CAR_POINT,
@@ -526,7 +531,6 @@ def test_job_creates_one_charging_task_for_low_free_car(integration_settings: Se
         (CarStatus.AVAILABLE, 10, timedelta(minutes=30)),
         (CarStatus.RESERVED, 5, timedelta(seconds=5)),
         (CarStatus.IN_RENTAL, 5, timedelta(seconds=5)),
-        (CarStatus.SERVICE, 5, timedelta(seconds=5)),
     ],
 )
 def test_job_leaves_other_cars_alone(
@@ -549,6 +553,8 @@ def test_job_skips_car_with_any_open_task(integration_settings: Settings, operat
 def test_charging_cycle(
     integration_settings: Settings, technician: Member, gateway: FakeGateway
 ) -> None:
+    # The car answers nothing: its doors stay as telemetry last told.
+    gateway.outcome = None
     low = add_car(integration_settings, CAR_POINT, battery_pct=10)
     run_job(integration_settings)
     task_id = next(
@@ -565,3 +571,142 @@ def test_charging_cycle(
         CarCommand.START_CHARGING,
         CarCommand.STOP_CHARGING,
     ]
+
+
+def test_job_charges_a_car_left_in_service_low(
+    integration_settings: Settings, operator: Member, technician: Member
+) -> None:
+    low = add_car(integration_settings, CAR_POINT, battery_pct=10)
+    washing = created(operator.create(low, "washing"))
+    technician.start(washing)
+    technician.complete(washing)
+    assert car_status(integration_settings, low) == "service"
+
+    run_job(integration_settings)
+
+    assert [row.type for row in open_tasks(integration_settings, low)] == ["charging"]
+
+
+def test_charging_task_ends_at_the_threshold_that_started_it(
+    integration_settings: Settings, operator: Member, technician: Member
+) -> None:
+    low = add_car(integration_settings, CAR_POINT, battery_pct=25)
+    task_id = created(operator.create(low, "charging"))
+    technician.start(task_id)
+    rules = service.MaintenanceRules(
+        min_battery_pct=20,
+        charged_pct=30,
+        commands=service.maintenance_rules(integration_settings).commands,
+    )
+
+    async def complete(db: AsyncSession) -> None:
+        work = service.MaintenanceService(db, rules, RequestOrigin())
+        worker = Worker(technician.staff.id, StaffRole.TECHNICIAN)
+        await work.complete(worker, uuid.UUID(task_id), "Charged", datetime.now(UTC))
+
+    with pytest.raises(ChargeTooLowError):
+        run_in_db(integration_settings, complete)
+
+
+def test_open_doors_refuse_completion(
+    integration_settings: Settings, operator: Member, technician: Member, car: str
+) -> None:
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+    execute(
+        integration_settings,
+        "UPDATE cars SET doors_locked = false WHERE id = :id",
+        id=uuid.UUID(car),
+    )
+
+    response = technician.complete(task_id)
+
+    assert problem_type(response) == "maintenance-car-doors-open"
+    assert car_status(integration_settings, car) == "service"
+
+
+def test_cancelling_leaves_an_unlocked_car_in_service(
+    integration_settings: Settings, operator: Member, technician: Member, car: str
+) -> None:
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+    execute(
+        integration_settings,
+        "UPDATE cars SET doors_locked = false WHERE id = :id",
+        id=uuid.UUID(car),
+    )
+
+    assert operator.post(f"/tasks/{task_id}/cancel").status_code == HTTPStatus.OK
+    assert car_status(integration_settings, car) == "service"
+
+
+def test_operator_does_not_take_a_technicians_task(
+    operator: Member, technician: Member, car: str
+) -> None:
+    task_id = created(operator.create(car, assignee_id=technician.id))
+    response = operator.start(task_id)
+    assert problem_type(response) == "maintenance-task-assigned"
+
+
+def _hold_by_incident(settings: Settings, car_id: str) -> None:
+    user_id = uuid.uuid4()
+    execute(
+        settings,
+        "INSERT INTO users (id, phone, created_at) VALUES (:id, :phone, now())",
+        id=user_id,
+        phone=f"+37529{secrets.randbelow(10**7):07d}",
+    )
+    execute(
+        settings,
+        "INSERT INTO support_incidents (id, user_id, car_id, type, status, priority, "
+        "sent_to_service, description, created_at, updated_at) VALUES (:id, :user, :car, "
+        "'accident', 'in_progress', 1, true, 'Dent', now(), now())",
+        id=uuid.uuid4(),
+        user=user_id,
+        car=uuid.UUID(car_id),
+    )
+    execute(settings, "UPDATE cars SET status = 'service' WHERE id = :id", id=uuid.UUID(car_id))
+
+
+def test_wash_leaves_a_car_of_an_open_incident_in_service(
+    integration_settings: Settings, operator: Member, technician: Member, car: str
+) -> None:
+    _hold_by_incident(integration_settings, car)
+    washing = created(operator.create(car, "washing"))
+    technician.start(washing)
+    technician.complete(washing)
+    assert car_status(integration_settings, car) == "service"
+
+    repair = created(operator.create(car, "repair"))
+    technician.start(repair)
+    technician.complete(repair, "Dent removed")
+    assert car_status(integration_settings, car) == "available"
+
+
+def test_two_tasks_of_one_car_finishing_together_free_it(
+    integration_settings: Settings, operator: Member, technician: Member, car: str
+) -> None:
+    washing = created(operator.create(car, "washing"))
+    repair = created(operator.create(car, "repair"))
+    technician.start(washing)
+    technician.start(repair)
+    worker = Worker(technician.staff.id, StaffRole.TECHNICIAN)
+    rules = service.maintenance_rules(integration_settings)
+
+    async def finish_both() -> None:
+        engine = create_engine(integration_settings)
+        factory = create_session_factory(engine)
+
+        async def finish(task_id: str) -> None:
+            async with factory() as db:
+                work = service.MaintenanceService(db, rules, RequestOrigin())
+                await work.complete(worker, uuid.UUID(task_id), "Done", datetime.now(UTC))
+
+        try:
+            await asyncio.gather(finish(washing), finish(repair))
+        finally:
+            await engine.dispose()
+
+    asyncio.run(finish_both())
+
+    assert car_status(integration_settings, car) == "available"

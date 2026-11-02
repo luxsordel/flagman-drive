@@ -49,6 +49,7 @@ const onMap = (task: Task): TaskOnMap => ({
 
 /** The fleet's map draws stale cars faded; a task's list refreshes on its own instead. */
 const neverStale = (): boolean => false;
+const doNothing = (): void => undefined;
 
 function currentPosition(): Promise<Position> {
   return new Promise((resolve, reject) => {
@@ -105,6 +106,8 @@ export function TasksPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [zones, setZones] = useState<Zone[]>([]);
   const [revision, setRevision] = useState(0);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
 
   const query = useMemo((): TaskQuery => {
     if (!planner) {
@@ -128,10 +131,15 @@ export function TasksPage() {
 
   useEffect(() => {
     let active = true;
-    tasksApi.list(query).then(
-      ({ items }) => {
+    // Every shown page again: the list refreshes on its own, and tasks move between pages.
+    const loads = Array.from({ length: pages }, (_, page) =>
+      tasksApi.list({ ...query, ...(page > 0 ? { offset: page * pageSize } : {}) }),
+    );
+    Promise.all(loads).then(
+      (loaded) => {
         if (!active) return;
-        setTasks(items);
+        setTasks(loaded.flatMap(({ items }) => items));
+        setTotal(loaded[0]?.total ?? 0);
         setPhase('ready');
       },
       (error: unknown) => {
@@ -143,7 +151,7 @@ export function TasksPage() {
     return () => {
       active = false;
     };
-  }, [tasksApi, query, revision, signOut]);
+  }, [tasksApi, query, pages, revision, signOut]);
 
   useEffect(() => {
     let active = true;
@@ -174,6 +182,7 @@ export function TasksPage() {
               value={statusFilter}
               onChange={(event) => {
                 setStatusFilter(event.target.value as StatusFilter);
+                setPages(1);
               }}
             >
               <option value="open">{t('tasks.filters.anyOpen')}</option>
@@ -192,6 +201,7 @@ export function TasksPage() {
               value={typeFilter}
               onChange={(event) => {
                 setTypeFilter(event.target.value as TaskType | '');
+                setPages(1);
               }}
             >
               <option value="">{t('tasks.filters.anyType')}</option>
@@ -213,6 +223,7 @@ export function TasksPage() {
               aria-pressed={tab === key}
               onClick={() => {
                 setTab(key);
+                setPages(1);
                 setSelectedId(null);
               }}
             >
@@ -276,6 +287,17 @@ export function TasksPage() {
               ))}
             </ul>
           )}
+          {tasks.length < total && (
+            <button
+              type="button"
+              className="button"
+              onClick={() => {
+                setPages((value) => value + 1);
+              }}
+            >
+              {t('tasks.more')}
+            </button>
+          )}
           {selected && (
             // Keyed by task: a comment typed for one task never goes to another.
             <TaskCard key={selected.id} task={selected} onChanged={refresh} />
@@ -322,6 +344,7 @@ function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
   const { tasks: tasksApi } = useApis();
   const staff = useStaff();
   const planner = canPlanTasks(staff.role);
+  const technicians = useTechnicians(planner);
   const [details, setDetails] = useState<TaskDetails | null>(null);
   const reload = useCallback(() => {
     tasksApi.get(task.id).then(setDetails, () => undefined);
@@ -331,8 +354,7 @@ function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
   const mine = task.assignee_id === staff.id;
   const open = openStatuses.includes(task.status);
   const canStart =
-    (task.status === 'new' || task.status === 'assigned') &&
-    (planner || task.assignee_id === null || mine);
+    (task.status === 'new' || task.status === 'assigned') && (task.assignee_id === null || mine);
   const route = routeUrl(task.car);
 
   useEffect(() => {
@@ -358,6 +380,17 @@ function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
         <dd>{`${task.car.brand} ${task.car.model}`}</dd>
         <dt>{t('tasks.card.status')}</dt>
         <dd>{t(`tasks.status.${task.status}`)}</dd>
+        {planner && (
+          <>
+            <dt>{t('tasks.card.assignee')}</dt>
+            <dd>
+              {task.assignee_id === null
+                ? t('tasks.card.nobody')
+                : (technicians.find(({ id }) => id === task.assignee_id)?.email ??
+                  task.assignee_id)}
+            </dd>
+          </>
+        )}
         <dt>{t('tasks.card.createdAt')}</dt>
         <dd>
           <time dateTime={task.created_at}>{formatMinskTime(task.created_at, i18n.language)}</time>
@@ -415,6 +448,22 @@ function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
 function TaskPhotos({ taskId, photoIds }: { taskId: string; photoIds: string[] }) {
   const { t } = useTranslation();
   const { tasks: tasksApi } = useApis();
+  const { error, run } = useAction(doNothing);
+
+  const open = async (photoId: string) => {
+    // Opened on the click itself: a phone's browser blocks a window opened after a request.
+    const tab = window.open('about:blank', '_blank');
+    // Signed for minutes: asked for on the click, never kept in the page.
+    const opened = await run(async () => {
+      const url = await tasksApi.photoUrl(taskId, photoId);
+      if (tab) {
+        tab.opener = null;
+        tab.location.href = url;
+      }
+    });
+    if (!opened) tab?.close();
+  };
+
   return (
     <section aria-label={t('tasks.card.photos')}>
       <p className="muted">{t('tasks.card.photos')}</p>
@@ -425,13 +474,7 @@ function TaskPhotos({ taskId, photoIds }: { taskId: string; photoIds: string[] }
               type="button"
               className="link-button"
               onClick={() => {
-                // Signed for minutes: asked for on the click, never kept in the page.
-                tasksApi.photoUrl(taskId, photoId).then(
-                  (url) => {
-                    window.open(url, '_blank', 'noreferrer');
-                  },
-                  () => undefined,
-                );
+                void open(photoId);
               }}
             >
               {t('tasks.card.openPhoto', { number: index + 1 })}
@@ -439,6 +482,7 @@ function TaskPhotos({ taskId, photoIds }: { taskId: string; photoIds: string[] }
           </li>
         ))}
       </ul>
+      <ErrorNote error={error} />
     </section>
   );
 }
@@ -452,18 +496,32 @@ function TaskWorkPanel({ task, onChanged }: { task: Task; onChanged: () => void 
   const [lastCommand, setLastCommand] = useState<TaskCommand | null>(null);
   const [sent, setSent] = useState<TaskCommand | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const send = async (command: TaskCommand) => {
     setLastCommand(command);
     setSent(null);
+    setSending(true);
     let at: Position;
     try {
       at = await currentPosition();
     } catch {
       setError({ key: 'noLocation' });
+      setSending(false);
       return;
     }
     if (await run(() => tasksApi.command(task.id, command, at))) setSent(command);
+    setSending(false);
+  };
+
+  // Telemetry does not tell whether the car is plugged in, so this cannot be a check. The task
+  // still closes if the car does not answer: its charge is what the API looks at.
+  const unplug = async () => {
+    try {
+      await tasksApi.command(task.id, 'stop_charging', await currentPosition());
+    } catch {
+      return;
+    }
   };
 
   const complete = (event: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
@@ -473,7 +531,10 @@ function TaskWorkPanel({ task, onChanged }: { task: Task; onChanged: () => void 
       return;
     }
     setTooShort(false);
-    void run(() => tasksApi.complete(task.id, comment.trim()));
+    void run(async () => {
+      if (task.type === 'charging') await unplug();
+      await tasksApi.complete(task.id, comment.trim());
+    });
   };
 
   return (
@@ -494,12 +555,12 @@ function TaskWorkPanel({ task, onChanged }: { task: Task; onChanged: () => void 
           </button>
         ))}
       </div>
-      {busy && lastCommand && (
+      {sending && (
         <p role="status" className="muted">
           {t('tasks.sending')}
         </p>
       )}
-      {sent && !busy && (
+      {sent && !sending && (
         <p role="status" className="fleet-done">
           {t('tasks.sent', { command: t(`fleet.command.${sent}`) })}
         </p>
@@ -550,10 +611,11 @@ function TaskWorkPanel({ task, onChanged }: { task: Task; onChanged: () => void 
   );
 }
 
-function useTechnicians(): Technician[] {
+function useTechnicians(enabled = true): Technician[] {
   const { tasks: tasksApi } = useApis();
   const [technicians, setTechnicians] = useState<Technician[]>([]);
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     tasksApi.technicians().then(
       (loaded) => {
@@ -564,7 +626,7 @@ function useTechnicians(): Technician[] {
     return () => {
       active = false;
     };
-  }, [tasksApi]);
+  }, [tasksApi, enabled]);
   return technicians;
 }
 

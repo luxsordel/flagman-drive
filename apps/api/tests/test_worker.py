@@ -14,6 +14,7 @@ from flagman.core.config import Settings, WorkerSettings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.fleet.tests.conftest import add_car
 from flagman.identity.service import AuthCleanupResult
+from flagman.maintenance import service as maintenance
 from flagman.notifications.expo import ExpoPushProvider
 from flagman.notifications.fake_provider import FakePushProvider
 from flagman.payments import service as payments
@@ -410,6 +411,18 @@ async def test_charging_tasks_are_looked_for_on_their_own_interval(
     await asyncio.wait_for(worker.run(settings, stop, intervals=hourly), 5)
 
     assert runs == 3
+
+
+def test_charging_threshold_follows_the_rentable_charge_by_default() -> None:
+    settings = WorkerSettings(
+        _env_file=None,
+        postgres_user="test",
+        postgres_password=SecretStr("test"),
+        postgres_db="test",
+        fleet_min_battery_pct=30,
+    )
+
+    assert maintenance.charging_rules(settings).threshold_pct == 30
 
 
 def test_charging_threshold_is_not_below_the_rentable_charge() -> None:

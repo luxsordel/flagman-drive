@@ -9,11 +9,13 @@ from flagman.fleet.domain import CarState, CarStatus
 from flagman.identity.domain import StaffRole
 from flagman.maintenance.domain import (
     OPEN_STATUSES,
+    CarDoorsOpenError,
     ChargeTooLowError,
     ChargingRules,
     CommandNotForTaskError,
     MaintenanceCommand,
     Task,
+    TaskAssignedToOtherError,
     TaskNotFoundError,
     TaskNotInProgressError,
     TaskStatus,
@@ -135,8 +137,10 @@ def test_technician_does_not_start_colleagues_task() -> None:
         )
 
 
-def test_operator_may_take_any_open_task() -> None:
-    ensure_can_start(task(status=TaskStatus.ASSIGNED, assignee_id=COLLEAGUE.staff_id), OPERATOR)
+def test_operator_takes_a_free_task_but_not_a_technicians() -> None:
+    ensure_can_start(task(), OPERATOR)
+    with pytest.raises(TaskAssignedToOtherError):
+        ensure_can_start(task(status=TaskStatus.ASSIGNED, assignee_id=COLLEAGUE.staff_id), OPERATOR)
 
 
 def test_own_task_in_progress_passes() -> None:
@@ -211,7 +215,6 @@ def test_charging_task_needed_for_free_low_car() -> None:
         (CarStatus.AVAILABLE, None, False),
         (CarStatus.RESERVED, state(5), False),
         (CarStatus.IN_RENTAL, state(5), False),
-        (CarStatus.SERVICE, state(5), False),
         (CarStatus.OFFLINE, state(5), False),
     ],
 )
@@ -239,3 +242,35 @@ def test_charging_commands_for_charging_task_only(command: MaintenanceCommand) -
     ensure_command_fits(task(type=TaskType.CHARGING), command)
     with pytest.raises(CommandNotForTaskError):
         ensure_command_fits(task(type=TaskType.REPAIR), command)
+
+
+def test_charging_task_needed_for_low_car_left_in_service() -> None:
+    assert needs_charging_task(CarStatus.SERVICE, state(19), False, RULES, NOW)
+
+
+def test_task_does_not_complete_with_the_doors_open() -> None:
+    opened = replace(state(90), doors_locked=False)
+    with pytest.raises(CarDoorsOpenError):
+        ensure_can_complete(task(status=TaskStatus.IN_PROGRESS), opened, 20)
+
+
+def test_unlocked_car_stays_in_service() -> None:
+    opened = replace(state(90), doors_locked=False)
+    assert not returns_to_available(opened, 20, other_tasks_in_progress=False)
+
+
+def test_car_of_an_open_incident_comes_back_by_repair_only() -> None:
+    assert not returns_to_available(
+        state(90),
+        20,
+        other_tasks_in_progress=False,
+        held_by_incident=True,
+        task_type=TaskType.WASHING,
+    )
+    assert returns_to_available(
+        state(90),
+        20,
+        other_tasks_in_progress=False,
+        held_by_incident=True,
+        task_type=TaskType.REPAIR,
+    )

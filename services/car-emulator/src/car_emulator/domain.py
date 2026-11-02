@@ -82,7 +82,7 @@ class Car:
     driven_by_client: bool = False
     # A rented car stands until then: the client gets in, stops for a coffee, finishes.
     rest_until: datetime | None = None
-    # Opened by a technician, not a client: it stays where it is.
+    # A technician has it, not a client: it stays where it is until a client opens it.
     in_service: bool = False
 
     @property
@@ -116,6 +116,9 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
             car.rest_until = None
             car.in_service = False
         case CommandType.SERVICE_OPEN:
+            # On its way it is out of a technician's reach; the task waits for it to stop.
+            if car.mode is CarMode.DRIVING or car.ignition_on:
+                raise CommandRejectedError("ignition_on")
             car.doors_locked = False
             car.rest_until = None
             car.in_service = True
@@ -125,7 +128,6 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
                 raise CommandRejectedError("ignition_on")
             car.doors_locked = True
             car.rest_until = None
-            car.in_service = False
         case CommandType.LOCK_ENGINE:
             # Like real immobilizers, this blocks the next start instead of stopping a moving car.
             car.engine_locked = True
@@ -136,6 +138,7 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
             if car.mode is CarMode.DRIVING or car.ignition_on:
                 raise CommandRejectedError("ignition_on")
             car.mode = CarMode.CHARGING
+            car.in_service = True
         case CommandType.STOP_CHARGING:
             if car.mode is CarMode.CHARGING:
                 car.mode = CarMode.PARKED
@@ -261,6 +264,7 @@ def can_start_trip(car: Car, params: SimulationParams) -> bool:
         and car.doors_locked
         and not car.ignition_on
         and not car.engine_locked
+        and not car.in_service
         and car.charge_pct >= params.charge_below_pct
     )
 

@@ -232,7 +232,8 @@ async def assign_task(task_id: UUID, staff: Planner, body: AssignIn, service: Se
     responses={
         HTTPStatus.NOT_FOUND: _NOT_FOUND,
         HTTPStatus.CONFLICT: _problem(
-            _TRANSITION + " `maintenance-car-busy`: the car is reserved or rented."
+            _TRANSITION + " `maintenance-car-busy`: the car is reserved or rented; "
+            "`maintenance-task-assigned`: another technician has it."
         ),
     },
 )
@@ -251,8 +252,8 @@ async def start_task(task_id: UUID, staff: AnyWorker, service: Service) -> TaskO
     responses={
         HTTPStatus.NOT_FOUND: _NOT_FOUND,
         HTTPStatus.CONFLICT: _problem(
-            _NOT_IN_PROGRESS + " `maintenance-charge-too-low`: a charging task waits for the "
-            "charge clients get."
+            _NOT_IN_PROGRESS + " `maintenance-car-doors-open`; "
+            "`maintenance-charge-too-low`: a charging task waits for its charge."
         ),
     },
 )

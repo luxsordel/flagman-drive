@@ -7,6 +7,7 @@ export type TaskErrorKey =
   | 'duplicate'
   | 'carBusy'
   | 'chargeTooLow'
+  | 'doorsOpen'
   | 'notInProgress'
   | 'assigneeInvalid'
   | 'tooFar'
@@ -38,6 +39,8 @@ const byProblem: Readonly<Record<string, TaskErrorKey>> = {
   'maintenance-task-duplicate': 'duplicate',
   'maintenance-car-busy': 'carBusy',
   'maintenance-charge-too-low': 'chargeTooLow',
+  'maintenance-car-doors-open': 'doorsOpen',
+  'maintenance-task-assigned': 'changed',
   'maintenance-task-not-in-progress': 'notInProgress',
   'maintenance-assignee-invalid': 'assigneeInvalid',
   'too-far-from-car': 'tooFar',

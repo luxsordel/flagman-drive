@@ -4962,7 +4962,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:maintenance-task-not-in-progress`: not your task in progress. `maintenance-charge-too-low`: a charging task waits for the charge clients get. */
+      /** @description `urn:flagman:problem:maintenance-task-not-in-progress`: not your task in progress. `maintenance-car-doors-open`; `maintenance-charge-too-low`: a charging task waits for its charge. */
       409: {
         headers: {
           [name: string]: unknown;
@@ -5247,7 +5247,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:maintenance-task-transition-not-allowed`: not from this status. `maintenance-car-busy`: the car is reserved or rented. */
+      /** @description `urn:flagman:problem:maintenance-task-transition-not-allowed`: not from this status. `maintenance-car-busy`: the car is reserved or rented; `maintenance-task-assigned`: another technician has it. */
       409: {
         headers: {
           [name: string]: unknown;

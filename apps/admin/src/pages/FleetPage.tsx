@@ -9,6 +9,7 @@ import {
   carStatuses,
   needsRentalConfirmation,
   type CarCommand,
+  type CarStatus,
   type FleetCar,
   type FleetRules,
 } from '../fleet/api';
@@ -310,14 +311,14 @@ function CarCard({
           })}
         </p>
       )}
-      <CarTasks carId={car.id} />
+      <CarTasks carId={car.id} carStatus={car.status} />
       {canSendCommands(role) && <CommandPanel car={car} />}
     </section>
   );
 }
 
 /** The open tasks of the car, which is often why it is in service. */
-function CarTasks({ carId }: { carId: string }) {
+function CarTasks({ carId, carStatus }: { carId: string; carStatus: CarStatus }) {
   const { t } = useTranslation();
   const { tasks: tasksApi } = useApis();
   const [tasks, setTasks] = useState<Task[] | 'failed' | null>(null);
@@ -335,7 +336,8 @@ function CarTasks({ carId }: { carId: string }) {
     return () => {
       active = false;
     };
-  }, [tasksApi, carId]);
+    // A new status is often a task taken or finished.
+  }, [tasksApi, carId, carStatus]);
 
   if (tasks === null) return null;
   return (
