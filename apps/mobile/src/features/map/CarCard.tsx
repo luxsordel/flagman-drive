@@ -16,10 +16,13 @@ const photoHeight = 120;
 export interface Reservation {
   /** Null while the documents are loading: the button waits rather than flashing a refusal. */
   kycApproved: boolean | null;
+  /** An operator has blocked the client: the API would refuse, so the card explains instead. */
+  blocked: boolean;
   reserving: boolean;
   /** Resolves with the reason the reservation was refused, or null once it is made. */
   onReserve: () => Promise<RentalError | null>;
   onOpenDocuments: () => void;
+  onOpenSupport: () => void;
 }
 
 /** The bottom card of the car picked on the map, with the reservation of it. */
@@ -109,8 +112,16 @@ function ReserveAction({ reservation }: { reservation: Reservation }) {
   // A reservation starts the clock, so it is asked for twice rather than on a stray tap.
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<RentalError | null>(null);
-  const { kycApproved, reserving } = reservation;
+  const { kycApproved, blocked, reserving } = reservation;
 
+  if (blocked) {
+    return (
+      <>
+        <AppText tone="muted">{t('map.card.blocked')}</AppText>
+        <Button title={t('map.card.toSupport')} onPress={reservation.onOpenSupport} />
+      </>
+    );
+  }
   if (kycApproved === false) {
     return (
       <>

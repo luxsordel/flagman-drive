@@ -11,6 +11,7 @@ export function profile(overrides: Partial<Profile> = {}): Profile {
     email: null,
     language: 'ru',
     phone: '+375291234567',
+    blocked: false,
     ...overrides,
   };
 }

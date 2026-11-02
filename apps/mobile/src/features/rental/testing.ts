@@ -2,6 +2,7 @@ import type { LatLon } from '../map/mapConfig';
 import type {
   DamageSide,
   Debt,
+  HistoryPage,
   Inspection,
   InspectionStage,
   PhotoUpload,
@@ -44,6 +45,11 @@ export function rental(overrides: Partial<Rental> = {}): Rental {
     warnings: [],
     charge_status: null,
     receipt: null,
+    adjustments: [],
+    // Without adjustments the total is the cost, as the API counts it.
+    total: overrides.cost?.total ?? 0,
+    start: null,
+    end: null,
     as_of: serverNow,
     ...overrides,
   };
@@ -93,6 +99,9 @@ export function fakeRentalApi() {
     finish: jest.fn<Promise<RentalResult<Rental>>, [string]>(),
     payDebt: jest.fn<Promise<RentalResult<Rental>>, [string]>(),
     debts: jest.fn<Promise<RentalResult<Debt[]>>, []>(() => Promise.resolve(ok([]))),
+    history: jest.fn<Promise<RentalResult<HistoryPage>>, [string?]>(() =>
+      Promise.resolve(ok({ items: [], next_cursor: null })),
+    ),
     uploadPhoto: jest.fn(
       (
         _id: string,

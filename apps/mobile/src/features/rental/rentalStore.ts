@@ -2,6 +2,7 @@ import type { LocationFix } from '../map/location';
 import type {
   DamageSide,
   Debt,
+  HistoryPage,
   Inspection,
   InspectionStage,
   PhotoUpload,
@@ -237,6 +238,11 @@ export class RentalStore {
     const error = await this.change('finish', (id) => this.api.finish(id));
     if (error === null) await this.loadDebts();
     return error;
+  }
+
+  /** A page of the client's trips; the list screen keeps the pages, the store only fetches. */
+  history(cursor?: string): Promise<RentalResult<HistoryPage>> {
+    return this.api.history(cursor);
   }
 
   /** Pays the rental on the receipt screen: the one opened by its id, or the current one. */
