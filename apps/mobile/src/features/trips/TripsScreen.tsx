@@ -1,5 +1,5 @@
 import { useFocusEffect, useRouter } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable } from 'react-native';
 
@@ -26,7 +26,12 @@ export function TripsScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<RentalError | null>(null);
 
-  const accept = useCallback((result: RentalResult<HistoryPage>, more: boolean) => {
+  // Counts the requests: only the answer to the latest one is shown, a reload on return wins over
+  // a next page asked for before it.
+  const latest = useRef(0);
+
+  const accept = useCallback((result: RentalResult<HistoryPage>, more: boolean, asked: number) => {
+    if (asked !== latest.current) return;
     if (!result.ok) {
       setError(result.error);
       return;
@@ -39,8 +44,10 @@ export function TripsScreen() {
   // Again on every return: a debt paid on the receipt screen must not stay marked here.
   useFocusEffect(
     useCallback(() => {
+      latest.current += 1;
+      const asked = latest.current;
       void store.history().then((result) => {
-        accept(result, false);
+        accept(result, false, asked);
       });
     }, [store, accept]),
   );
@@ -48,7 +55,9 @@ export function TripsScreen() {
   const loadMore = async () => {
     setLoading(true);
     const more = cursor !== null && items !== null;
-    accept(await store.history(more ? cursor : undefined), more);
+    latest.current += 1;
+    const asked = latest.current;
+    accept(await store.history(more ? cursor : undefined), more, asked);
     setLoading(false);
   };
 
