@@ -230,6 +230,19 @@ describe('rental card', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(ru.load.notFound);
   });
 
+  it('offers no adjustment of a reservation cancelled in its free wait', async () => {
+    const base = staffRental();
+    const card = staffRental({
+      rental: { ...base.rental, status: 'cancelled', receipt: null, charge_status: null },
+      operations: [],
+      intervals: [],
+    });
+    renderAt(`/rentals/${card.rental.id}`, operator, { rentals: fakeRentalsApi({ card }) });
+
+    expect(await screen.findByText(ru.rentals.noTrip)).toBeDefined();
+    expect(screen.queryByRole('button', { name: ru.rentals.adjustSubmit })).toBeNull();
+  });
+
   it('does not adjust without a comment', async () => {
     const card = staffRental();
     renderAt(`/rentals/${card.rental.id}`, operator, { rentals: fakeRentalsApi({ card }) });

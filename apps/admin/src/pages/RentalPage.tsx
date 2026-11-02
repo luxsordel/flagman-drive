@@ -360,7 +360,8 @@ export function RentalPage() {
         </section>
       )}
 
-      {settled.has(rental.status) && (
+      {/* A reservation cancelled in its free wait has no receipt: nothing to adjust. */}
+      {settled.has(rental.status) && rental.receipt !== null && (
         <section className="decision-form">
           <h2>{t('rentals.adjust')}</h2>
           <div className="filters">

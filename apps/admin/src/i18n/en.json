@@ -822,7 +822,6 @@
     "block": "Block",
     "unblock": "Unblock",
     "reason": "Reason",
-    "failed": "Could not change the block. Try again.",
     "history": "Block history",
     "noHistory": "The client has never been blocked.",
     "wasBlocked": "Blocked",
@@ -833,7 +832,13 @@
     "rentalsLoading": "Loading the rentals…",
     "rentalsFailed": "Could not load the rentals.",
     "noRentals": "No rentals yet.",
-    "rentalLine": "{{time}} · {{plate}} · {{status}} · {{total}}"
+    "rentalLine": "{{time}} · {{plate}} · {{status}} · {{total}}",
+    "problems": {
+      "reason": "Give a reason without control characters, up to 500 characters.",
+      "forbidden": "Blocking is not available to your role.",
+      "notFound": "Client not found. The link may be out of date.",
+      "failed": "Could not change the block. Try again."
+    }
   },
   "load": {
     "forbidden": "This section is not available to your role.",

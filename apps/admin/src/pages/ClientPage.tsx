@@ -12,6 +12,18 @@ import { ClientRentals } from '../rentals/ClientRentals';
 import { formatKopecks } from '../tariffs/money';
 import { formatMinskTime } from '../time/minsk';
 
+type BlockProblem = 'reason' | 'forbidden' | 'notFound' | 'failed';
+
+/** A retry helps only with `failed`: a refused reason or a missing client stay refused. */
+function blockProblem(error: unknown): BlockProblem {
+  if (error instanceof ApiError) {
+    if (error.status === 422) return 'reason';
+    if (error.status === 403) return 'forbidden';
+    if (error.status === 404) return 'notFound';
+  }
+  return 'failed';
+}
+
 /** A client for an operator: who they are, whether they may rent, and the block. */
 export function ClientPage() {
   const { t, i18n } = useTranslation();
@@ -22,7 +34,7 @@ export function ClientPage() {
   const [loadFailed, setLoadFailed] = useState<LoadProblem | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failed, setFailed] = useState<BlockProblem | null>(null);
 
   const refused = useCallback(
     (error: unknown) => {
@@ -67,7 +79,7 @@ export function ClientPage() {
     const question = t(blocked ? 'clients.unblockConfirm' : 'clients.blockConfirm');
     if (!window.confirm(question)) return;
     setBusy(true);
-    setFailed(false);
+    setFailed(null);
     const sent = blocked
       ? clients.unblock(client.id, reason.trim())
       : clients.block(client.id, reason.trim());
@@ -79,7 +91,7 @@ export function ClientPage() {
         },
         (error: unknown) => {
           if (error instanceof ApiError && error.status === 401) void signOut();
-          else setFailed(true);
+          else setFailed(blockProblem(error));
         },
       )
       .finally(() => {
@@ -136,7 +148,7 @@ export function ClientPage() {
         </label>
         {failed && (
           <p role="alert" className="list-error">
-            {t('clients.failed')}
+            {t(`clients.problems.${failed}`)}
           </p>
         )}
         <button

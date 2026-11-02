@@ -2,6 +2,7 @@ import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { ApiError } from '../api/client';
 import ru from '../i18n/ru.json';
 import { testStaff } from '../test/auth';
 import { clientSummary, fakeClientsApi, staffClient } from '../test/clients';
@@ -63,6 +64,19 @@ describe('client card', () => {
 
     expect(clients.block).toHaveBeenCalledWith(card.id, 'Fraud');
     expect(await screen.findByRole('button', { name: ru.clients.unblock })).toBeDefined();
+  });
+
+  it('names a refused reason instead of asking to try again', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const clients = fakeClientsApi();
+    clients.block.mockRejectedValueOnce(new ApiError(422));
+    const card = await clients.client('');
+    renderAt(`/clients/${card.id}`, operator, { clients });
+
+    await userEvent.type(await screen.findByLabelText(ru.clients.reason), 'Fraud');
+    await userEvent.click(screen.getByRole('button', { name: ru.clients.block }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ru.clients.problems.reason);
   });
 
   it('does nothing when the operator changes their mind', async () => {

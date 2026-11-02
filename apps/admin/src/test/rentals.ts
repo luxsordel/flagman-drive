@@ -44,7 +44,17 @@ export function staffRental(overrides: Partial<StaffRental> = {}): StaffRental {
       },
       warnings: [],
       charge_status: 'paid',
-      receipt: null,
+      receipt: {
+        rental_id: id,
+        tariff_version_id: nextId(),
+        cost: {
+          lines: [{ kind: 'driving', minutes: 30, free_minutes: 0, per_minute: 40, amount: 1200 }],
+          total: 1200,
+        },
+        card_brand: 'visa',
+        card_last4: '4242',
+        issued_at: '2026-11-02T09:35:00Z',
+      },
       adjustments: [],
       total: 1200,
       start: { lat: 53.9, lon: 27.56 },
