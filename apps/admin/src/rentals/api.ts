@@ -42,8 +42,11 @@ export interface RentalsApi {
   /** A short-lived link; the API writes every one to the audit log. */
   photoUrl(rentalId: string, stage: InspectionStage, photoId: string): Promise<PhotoUrl>;
   forceFinish(id: string, reason: string): Promise<ForceFinishResult>;
-  /** `amount` in kopecks, negative to lower the total. */
-  adjust(id: string, amount: number, comment: string): Promise<StaffRental>;
+  /**
+   * `amount` in kopecks, negative to lower the total. `key` is new for every filled form: a repeat
+   * with it after a lost answer moves no money again.
+   */
+  adjust(id: string, amount: number, comment: string, key: string): Promise<StaffRental>;
   retryRefunds(id: string): Promise<StaffRental>;
 }
 
@@ -84,10 +87,10 @@ export function createRentalsApi(client: AdminApiClient): RentalsApi {
         }),
       );
     },
-    async adjust(id, amount, comment) {
+    async adjust(id, amount, comment, key) {
       return unwrap(
         await client.POST('/admin/rentals/{rental_id}/adjustments', {
-          ...rentalPath(id),
+          params: { path: { rental_id: id }, header: { 'Idempotency-Key': key } },
           body: { amount, comment },
         }),
       );

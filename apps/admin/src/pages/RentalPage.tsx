@@ -40,6 +40,8 @@ export function RentalPage() {
   const [direction, setDirection] = useState<'down' | 'up'>('down');
   const [amount, setAmount] = useState('');
   const [comment, setComment] = useState('');
+  // One per filled form: a retry after a lost answer sends the same key and moves no money again.
+  const [adjustKey, setAdjustKey] = useState(() => crypto.randomUUID());
 
   const refused = useCallback(
     (error: unknown) => {
@@ -338,6 +340,7 @@ export function RentalPage() {
                 value={direction}
                 onChange={(event) => {
                   setDirection(event.target.value === 'up' ? 'up' : 'down');
+                  setAdjustKey(crypto.randomUUID());
                 }}
               >
                 <option value="down">{t('rentals.decrease')}</option>
@@ -352,6 +355,7 @@ export function RentalPage() {
                 value={amount}
                 onChange={(event) => {
                   setAmount(event.target.value);
+                  setAdjustKey(crypto.randomUUID());
                 }}
               />
             </label>
@@ -365,6 +369,7 @@ export function RentalPage() {
               value={comment}
               onChange={(event) => {
                 setComment(event.target.value);
+                setAdjustKey(crypto.randomUUID());
               }}
             />
           </label>
@@ -383,10 +388,11 @@ export function RentalPage() {
               );
               if (!window.confirm(question)) return;
               act(
-                () => rentals.adjust(rental.id, signed, comment.trim()),
+                () => rentals.adjust(rental.id, signed, comment.trim(), adjustKey),
                 () => {
                   setAmount('');
                   setComment('');
+                  setAdjustKey(crypto.randomUUID());
                 },
               );
             }}

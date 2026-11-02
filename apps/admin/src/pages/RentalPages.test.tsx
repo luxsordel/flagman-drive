@@ -77,7 +77,12 @@ describe('rental card', () => {
     await userEvent.type(screen.getByLabelText(ru.rentals.comment), ' Late unlock ');
     await userEvent.click(screen.getByRole('button', { name: ru.rentals.adjustSubmit }));
 
-    expect(rentals.adjust).toHaveBeenCalledWith(card.rental.id, -250, 'Late unlock');
+    expect(rentals.adjust).toHaveBeenCalledWith(
+      card.rental.id,
+      -250,
+      'Late unlock',
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+    );
   });
 
   it('does not adjust without a comment', async () => {
