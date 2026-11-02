@@ -1,5 +1,5 @@
-import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ActivityIndicator, Pressable } from 'react-native';
 
@@ -36,11 +36,14 @@ export function TripsScreen() {
     setCursor(result.value.next_cursor);
   }, []);
 
-  useEffect(() => {
-    void store.history().then((result) => {
-      accept(result, false);
-    });
-  }, [store, accept]);
+  // Again on every return: a debt paid on the receipt screen must not stay marked here.
+  useFocusEffect(
+    useCallback(() => {
+      void store.history().then((result) => {
+        accept(result, false);
+      });
+    }, [store, accept]),
+  );
 
   const loadMore = async () => {
     setLoading(true);

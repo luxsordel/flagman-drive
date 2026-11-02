@@ -10,7 +10,7 @@ import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { useKycApplication, useKycState } from '../kyc/KycProvider';
-import { useProfile } from '../profile/ProfileProvider';
+import { useProfile, useProfileStore } from '../profile/ProfileProvider';
 import { DebtBanner } from '../rental/DebtBanner';
 import { RentalBanner } from '../rental/RentalBanner';
 import { useRentalStore, useRestoredRental } from '../rental/RentalProvider';
@@ -83,7 +83,7 @@ function LiveMap() {
   const rentalStore = useRentalStore();
   const rentalState = useRestoredRental();
   const kyc = useKycState();
-  // Reloaded whenever the map opens: a block an operator set since shows at once.
+  const profileStore = useProfileStore();
   const { profile } = useProfile();
   const { status, location } = useClientLocation();
   // The camera follows the client's location once, when it first becomes known; later fixes
@@ -113,7 +113,10 @@ function LiveMap() {
   useFocusEffect(
     useCallback(() => {
       void rentalStore.loadDebts();
-    }, [rentalStore]),
+      // The map stays mounted under the other screens: a block an operator set since shows when
+      // the client comes back to it.
+      void profileStore.load();
+    }, [rentalStore, profileStore]),
   );
 
   const notice = mapNotice(state, status === 'denied');
