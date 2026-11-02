@@ -21,8 +21,11 @@ export const carStatuses: readonly CarStatus[] = [
 
 export const carCommands: readonly CarCommand[] = ['open', 'close', 'lock_engine', 'unlock_engine'];
 
-/** The same roles as CAR_COMMANDERS in fleet/api.py; the API checks them on every command. */
-const commandRoles: readonly StaffRole[] = ['operator', 'technician', 'admin'];
+/**
+ * The same roles as CAR_COMMANDERS in fleet/api.py; the API checks them on every command.
+ * Technicians reach only the car of their task, from the task (docs/adr/0025).
+ */
+const commandRoles: readonly StaffRole[] = ['operator', 'admin'];
 
 export const canSendCommands = (role: StaffRole): boolean => commandRoles.includes(role);
 
@@ -32,12 +35,16 @@ export const needsRentalConfirmation = (status: CarStatus): boolean =>
 
 /** Rejects with ApiError when the API refuses, with NetworkError when it is unreachable. */
 export interface FleetApi {
+  listCars(): Promise<FleetCar[]>;
   /** Waits for the car: resolves with the car after the command. */
   sendCommand(carId: string, input: CarCommandInput): Promise<CarCommandResult>;
 }
 
 export function createFleetApi(client: AdminApiClient): FleetApi {
   return {
+    async listCars() {
+      return unwrap(await client.GET('/admin/fleet/cars')).items;
+    },
     async sendCommand(carId, input) {
       return unwrap(
         await client.POST('/admin/fleet/cars/{car_id}/commands', {

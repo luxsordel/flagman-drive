@@ -68,11 +68,12 @@ describe('sections by role', () => {
     const keys = (role: Parameters<typeof sectionsFor>[0]) =>
       sectionsFor(role).map((section) => section.key);
 
-    expect(keys('technician')).toEqual(['dashboard', 'fleet', 'zones']);
+    expect(keys('technician')).toEqual(['dashboard', 'fleet', 'tasks', 'zones']);
     expect(keys('operator')).toEqual([
       'dashboard',
       'kyc',
       'fleet',
+      'tasks',
       'rentals',
       'clients',
       'support',

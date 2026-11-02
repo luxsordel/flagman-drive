@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../api/client';
+import type { FleetCar } from '../fleet/api';
 import type { FleetMapProps } from '../fleet/FleetMap';
 import ru from '../i18n/ru.json';
 import { testStaff } from '../test/auth';
@@ -15,11 +16,12 @@ import {
   snapshot,
 } from '../test/fleet';
 import { renderAt } from '../test/render';
+import { fakeTasksApi, testTask } from '../test/tasks';
 import { fakeZonesApi, zone } from '../test/zones';
 
 // jsdom has no WebGL: the map is replaced by buttons that do what clicks on the real one would.
 vi.mock('../fleet/FleetMap', () => ({
-  FleetMap: ({ cars, zones, isStale, onSelect, label }: FleetMapProps) => (
+  FleetMap: ({ cars, zones, isStale, onSelect, label }: FleetMapProps<FleetCar>) => (
     <div role="region" aria-label={label} data-zones={zones.length}>
       {cars.map((car) => (
         <button
@@ -37,7 +39,7 @@ vi.mock('../fleet/FleetMap', () => ({
   ),
 }));
 
-function renderFleet(role: Parameters<typeof testStaff>[0] = 'operator') {
+function renderFleet(role: Parameters<typeof testStaff>[0] = 'operator', tasks = fakeTasksApi()) {
   const stream = fakeFleetStream();
   const fleet = fakeFleetApi();
   const zones = fakeZonesApi([zone()]);
@@ -45,6 +47,7 @@ function renderFleet(role: Parameters<typeof testStaff>[0] = 'operator') {
     fleetStream: stream.open,
     fleet,
     zones,
+    tasks,
   });
   return { ...rendered, stream, fleet };
 }
@@ -187,7 +190,7 @@ describe('manual commands', () => {
     return { ...page, user, car, card: screen.getByRole('region', { name: plate }) };
   }
 
-  it.each(['operator', 'technician', 'admin'] as const)('are open to the %s', async (role) => {
+  it.each(['operator', 'admin'] as const)('are open to the %s', async (role) => {
     const user = userEvent.setup();
     const { stream } = renderFleet(role);
     await opened(stream);
@@ -315,5 +318,35 @@ describe('manual commands', () => {
     stream.send(commandNotice({ car_id: car.id, command: 'open', outcome: 'rejected' }));
 
     expect(within(card).getByText(/Последняя команда: «Открыть» — машина отказала/)).toBeDefined();
+  });
+});
+
+describe('the card of a car', () => {
+  it('gives a technician no manual commands', async () => {
+    const user = userEvent.setup();
+    const { stream } = renderFleet('technician');
+    await opened(stream);
+    stream.send(snapshot([fleetCar({ plate: '1111 AB-7' })]));
+    await user.click(listed('1111 AB-7'));
+
+    expect(screen.queryByRole('group', { name: ru.fleet.commands })).toBeNull();
+  });
+
+  it('lists the open tasks of the car', async () => {
+    const user = userEvent.setup();
+    const car = fleetCar({ plate: '1111 AB-7' });
+    const tasks = fakeTasksApi(testTask({ type: 'charging', status: 'in_progress' }));
+    const { stream } = renderFleet('technician', tasks);
+    await opened(stream);
+    stream.send(snapshot([car]));
+    await user.click(listed('1111 AB-7'));
+
+    expect(
+      await screen.findByText(`${ru.tasks.type.charging} · ${ru.tasks.status.in_progress}`),
+    ).toBeDefined();
+    expect(tasks.list).toHaveBeenCalledWith({
+      car_id: car.id,
+      status: ['new', 'assigned', 'in_progress'],
+    });
   });
 });

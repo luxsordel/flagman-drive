@@ -51,7 +51,7 @@ describe('fleet API', () => {
 describe('fleet rules of the panel', () => {
   it('lets every staff role send commands, as the API does', () => {
     expect(canSendCommands('operator')).toBe(true);
-    expect(canSendCommands('technician')).toBe(true);
+    expect(canSendCommands('technician')).toBe(false);
     expect(canSendCommands('admin')).toBe(true);
   });
 

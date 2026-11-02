@@ -108,6 +108,7 @@ export function fakeFleetStream() {
 /** Commands that succeed and return the car as it was. */
 export function fakeFleetApi() {
   return {
+    listCars: vi.fn<FleetApi['listCars']>(() => Promise.resolve([])),
     sendCommand: vi.fn<FleetApi['sendCommand']>((carId) =>
       Promise.resolve({
         command_id: '0199c000-4444-7000-8000-000000000009',

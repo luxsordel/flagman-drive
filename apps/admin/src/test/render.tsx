@@ -13,6 +13,7 @@ import { fakeKycReviewApi } from './kyc';
 import { fakeStaffListApi } from './staff';
 import { fakeSupportApi } from './support';
 import { fakeTariffsApi } from './tariffs';
+import { fakeTasksApi } from './tasks';
 import { fakeZonesApi } from './zones';
 
 /**
@@ -43,6 +44,7 @@ export function renderAt(
           staffSignIn: fakeStaffSignInApi(),
           support: fakeSupportApi(),
           tariffs: fakeTariffsApi(),
+          tasks: fakeTasksApi(),
           zones: fakeZonesApi(),
           ...apis,
         }}
