@@ -13,6 +13,8 @@ describe('rentalErrorFromResponse', () => {
     ['inspection-required', 'inspectionRequired'],
     ['inspection-photo-too-large', 'tooLarge'],
     ['too-far-from-car', 'tooFar'],
+    ['not-in-park', 'notInPark'],
+    ['headlights-on', 'headlightsOn'],
     ['car-location-unknown', 'carLocationUnknown'],
     ['car-command-rejected', 'carRefused'],
     ['telematics-unavailable', 'carUnreachable'],

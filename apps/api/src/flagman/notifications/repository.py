@@ -1,9 +1,21 @@
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import CTE, delete, func, select, update
+from sqlalchemy import (
+    CTE,
+    String,
+    Uuid,
+    column,
+    delete,
+    func,
+    literal,
+    select,
+    tuple_,
+    update,
+    values,
+)
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,9 +28,11 @@ from flagman.notifications.domain import (
     OutboxStatus,
     PushDevice,
     PushPlatform,
+    SentTicket,
 )
 from flagman.notifications.models import NotificationOptOut, OutboxNotification
 from flagman.notifications.models import PushDevice as DeviceRow
+from flagman.notifications.models import PushTicket as TicketRow
 
 
 async def save_device(  # noqa: PLR0913 - one row's columns
@@ -60,6 +74,78 @@ async def delete_session_device(db: AsyncSession, user_id: UUID, session_id: UUI
 async def delete_devices(db: AsyncSession, device_ids: Collection[UUID]) -> None:
     if device_ids:
         await db.execute(delete(DeviceRow).where(DeviceRow.id.in_(device_ids)))
+
+
+async def save_tickets(
+    db: AsyncSession, tickets: Mapping[str, tuple[UUID, str]], sent_at: datetime
+) -> None:
+    """Ticket id -> the device the message went to and its token's digest; a device deleted
+    meanwhile is left out."""
+    if not tickets:
+        return
+    sent = values(
+        column("id", String), column("device_id", Uuid), column("token_digest", String), name="sent"
+    ).data([(ticket_id, *device) for ticket_id, device in tickets.items()])
+    rows = select(sent.c.id, sent.c.device_id, sent.c.token_digest, literal(sent_at)).join(
+        DeviceRow, DeviceRow.id == sent.c.device_id
+    )
+    await db.execute(
+        insert(TicketRow)
+        .from_select(["id", "device_id", "token_digest", "sent_at"], rows)
+        .on_conflict_do_nothing(index_elements=[TicketRow.id])
+    )
+
+
+async def get_tickets_sent_between(
+    db: AsyncSession,
+    since: datetime,
+    until: datetime,
+    after: SentTicket | None,
+    limit: int,
+) -> list[SentTicket]:
+    """Oldest first, page by page: the ones after `after`, so a ticket whose receipt is not
+    ready yet is not met again on the next page."""
+    statement = select(TicketRow).where(TicketRow.sent_at > since, TicketRow.sent_at <= until)
+    if after is not None:
+        statement = statement.where(
+            tuple_(TicketRow.sent_at, TicketRow.id)
+            > tuple_(literal(after.sent_at), literal(after.id))
+        )
+    rows = await db.scalars(statement.order_by(TicketRow.sent_at, TicketRow.id).limit(limit))
+    return [
+        SentTicket(
+            id=row.id, device_id=row.device_id, token_digest=row.token_digest, sent_at=row.sent_at
+        )
+        for row in rows
+    ]
+
+
+async def delete_tickets(db: AsyncSession, ticket_ids: Collection[str]) -> None:
+    if ticket_ids:
+        await db.execute(delete(TicketRow).where(TicketRow.id.in_(ticket_ids)))
+
+
+async def delete_tickets_sent_before(db: AsyncSession, before: datetime) -> int:
+    statement = delete(TicketRow).where(TicketRow.sent_at <= before).returning(TicketRow.id)
+    return await _count(db, statement.cte("deleted"))
+
+
+async def delete_devices_with_tokens(db: AsyncSession, dead: Collection[tuple[UUID, str]]) -> int:
+    """Device id and the digest of a token it no longer reaches. A device that has a new token
+    since is kept: comparing the tokens, not times, holds even when the new one was saved by a
+    request that started before the message went out."""
+    if not dead:
+        return 0
+    tokens = values(column("device_id", Uuid), column("token_digest", String), name="dead").data(
+        list(dead)
+    )
+    digest = func.encode(func.sha256(func.convert_to(DeviceRow.token, "UTF8")), "hex")
+    statement = (
+        delete(DeviceRow)
+        .where(DeviceRow.id == tokens.c.device_id, digest == tokens.c.token_digest)
+        .returning(DeviceRow.id)
+    )
+    return await _count(db, statement.cte("deleted"))
 
 
 async def get_devices(db: AsyncSession, user_ids: Collection[UUID]) -> list[PushDevice]:

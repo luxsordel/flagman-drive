@@ -52,6 +52,8 @@ async def test_list_cars(client: httpx.AsyncClient, clock: FakeClock) -> None:
         "doors_locked",
         "ignition_on",
         "engine_locked",
+        "headlights_on",
+        "gear",
         "updated_at",
     }
 

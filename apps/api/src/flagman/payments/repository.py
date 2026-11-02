@@ -115,6 +115,12 @@ async def default_card(db: AsyncSession, user_id: UUID) -> tuple[PaymentCard, by
     return _to_card(row), row.token_ciphertext
 
 
+async def get_card(db: AsyncSession, card_id: UUID) -> PaymentCard | None:
+    """Removed cards too: a receipt still names the card a payment went to."""
+    row = await db.get(CardRow, card_id)
+    return _to_card(row) if row else None
+
+
 @dataclass(frozen=True)
 class NewCard:
     id: UUID

@@ -22,9 +22,11 @@ from flagman.fleet.domain import (
     PLATE_MAX_LENGTH,
     VIN_LENGTH,
     CarStatus,
+    Gear,
 )
 
 STATUS_LENGTH = 16
+GEAR_LENGTH = 1
 
 _STATE_COLUMNS = (
     "location",
@@ -64,6 +66,9 @@ class Car(Base):
             name="status_known",
         ),
         CheckConstraint("battery_pct BETWEEN 0 AND 100", name="battery_pct_range"),
+        CheckConstraint(
+            "gear IN (" + ", ".join(f"'{gear}'" for gear in Gear) + ")", name="gear_known"
+        ),
         # A snapshot comes whole: a car either has no state yet or has all of it.
         CheckConstraint(
             "("
@@ -92,6 +97,9 @@ class Car(Base):
     doors_locked: Mapped[bool | None]
     ignition_on: Mapped[bool | None]
     engine_locked: Mapped[bool | None]
+    # Outside state_complete: snapshots taken before the car told these keep them unknown.
+    headlights_on: Mapped[bool | None]
+    gear: Mapped[str | None] = mapped_column(String(GEAR_LENGTH))
     # The car's time of the snapshot, not when it arrived: telemetry can come late or twice.
     state_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 

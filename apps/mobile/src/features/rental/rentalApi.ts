@@ -11,6 +11,9 @@ export type RentalStatus = components['schemas']['RentalStatus'];
 export type Inspection = components['schemas']['InspectionOut'];
 export type DamageSide = components['schemas']['DamageSide'];
 export type RentalCommand = components['schemas']['RentalCommand'];
+export type InspectionStage = components['schemas']['InspectionStage'];
+export type Receipt = components['schemas']['ReceiptOut'];
+export type Debt = components['schemas']['DebtOut'];
 
 export type RentalResult<T> =
   | { ok: true; value: T }
@@ -23,20 +26,34 @@ export interface PhotoUpload {
   abort: () => void;
 }
 
-/** Only the inspection before the trip is taken here; the one after comes with the trip (#111). */
-const stage: components['schemas']['InspectionStage'] = 'before';
-
 export interface RentalApi {
   current(): Promise<RentalResult<Rental | null>>;
   get(id: string): Promise<RentalResult<Rental>>;
   reserve(carId: string): Promise<RentalResult<Rental>>;
   cancel(id: string): Promise<RentalResult<Rental>>;
-  inspection(id: string): Promise<RentalResult<Inspection>>;
-  uploadPhoto(id: string, photoUri: string, onProgress?: (sent: number) => void): PhotoUpload;
-  addDamage(id: string, side: DamageSide, comment: string): Promise<RentalResult<Inspection>>;
-  submitInspection(id: string): Promise<RentalResult<Inspection>>;
+  inspection(id: string, stage: InspectionStage): Promise<RentalResult<Inspection>>;
+  uploadPhoto(
+    id: string,
+    stage: InspectionStage,
+    photoUri: string,
+    onProgress?: (sent: number) => void,
+  ): PhotoUpload;
+  addDamage(
+    id: string,
+    stage: InspectionStage,
+    side: DamageSide,
+    comment: string,
+  ): Promise<RentalResult<Inspection>>;
+  submitInspection(id: string, stage: InspectionStage): Promise<RentalResult<Inspection>>;
   /** `at` is the client's location: sent only for the distance, never kept by the API. */
   command(id: string, command: RentalCommand, at: LatLon): Promise<RentalResult<Rental>>;
+  park(id: string): Promise<RentalResult<Rental>>;
+  resume(id: string): Promise<RentalResult<Rental>>;
+  /** Checks and locks the car, then pays; a repeat never charges twice. */
+  finish(id: string): Promise<RentalResult<Rental>>;
+  /** One more try at the debt of the rental, e.g. after another card was bound. */
+  payDebt(id: string): Promise<RentalResult<Rental>>;
+  debts(): Promise<RentalResult<Debt[]>>;
 }
 
 export interface RentalApiOptions {
@@ -60,27 +77,37 @@ export function createRentalApi({
 }: RentalApiOptions): RentalApi {
   const origin = baseUrl.replace(/\/+$/, '');
   const rental = (id: string) => ({ params: { path: { rental_id: id } } });
-  const inspection = (id: string) => ({ params: { path: { rental_id: id, stage } } });
+  const inspection = (id: string, stage: InspectionStage) => ({
+    params: { path: { rental_id: id, stage } },
+  });
   return {
     current: () => send(api.GET('/rentals/current'), (body) => body.rental),
     get: (id) => send(api.GET('/rentals/{rental_id}', rental(id)), (body) => body),
     reserve: (carId) => send(api.POST('/rentals', { body: { car_id: carId } }), (body) => body),
     cancel: (id) => send(api.POST('/rentals/{rental_id}/cancel', rental(id)), (body) => body),
-    inspection: (id) =>
-      send(api.GET('/rentals/{rental_id}/inspections/{stage}', inspection(id)), (body) => body),
-    addDamage: (id, side, comment) =>
+    inspection: (id, stage) =>
+      send(
+        api.GET('/rentals/{rental_id}/inspections/{stage}', inspection(id, stage)),
+        (body) => body,
+      ),
+    addDamage: (id, stage, side, comment) =>
       send(
         api.POST('/rentals/{rental_id}/inspections/{stage}/damages', {
-          ...inspection(id),
+          ...inspection(id, stage),
           body: { side, comment },
         }),
         (body) => body,
       ),
-    submitInspection: (id) =>
+    submitInspection: (id, stage) =>
       send(
-        api.POST('/rentals/{rental_id}/inspections/{stage}/submit', inspection(id)),
+        api.POST('/rentals/{rental_id}/inspections/{stage}/submit', inspection(id, stage)),
         (body) => body,
       ),
+    park: (id) => send(api.POST('/rentals/{rental_id}/park', rental(id)), (body) => body),
+    resume: (id) => send(api.POST('/rentals/{rental_id}/resume', rental(id)), (body) => body),
+    finish: (id) => send(api.POST('/rentals/{rental_id}/finish', rental(id)), (body) => body),
+    payDebt: (id) => send(api.POST('/rentals/{rental_id}/pay', rental(id)), (body) => body),
+    debts: () => send(api.GET('/rentals/debts'), (body) => body.debts),
     command: (id, command, at) =>
       send(
         api.POST('/rentals/{rental_id}/commands', {
@@ -89,7 +116,7 @@ export function createRentalApi({
         }),
         (body) => body,
       ),
-    uploadPhoto(id, photoUri, onProgress) {
+    uploadPhoto(id, stage, photoUri, onProgress) {
       const controller = new AbortController();
       const { signal } = controller;
       const done = (async (): Promise<RentalResult<Inspection>> => {

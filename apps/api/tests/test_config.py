@@ -240,6 +240,14 @@ def test_fleet_settings_out_of_range_are_refused(
         make_settings(**overrides)
 
 
+def test_the_trip_low_battery_threshold_is_below_the_rentable_charge(
+    make_settings: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError, match="RENTAL_LOW_BATTERY_PCT"):
+        make_settings(rental_low_battery_pct=20, fleet_min_battery_pct=20)
+    assert make_settings(rental_low_battery_pct=19, fleet_min_battery_pct=20)
+
+
 _API_SECRETS = (
     "API_JWT_SECRET",
     "API_OTP_PEPPER",

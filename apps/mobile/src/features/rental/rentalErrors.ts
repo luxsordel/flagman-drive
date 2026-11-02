@@ -28,6 +28,18 @@ export type RentalErrorKind =
   | 'carRefused'
   | 'carUnreachable'
   | 'carTimeout'
+  | 'cardRequired'
+  | 'debt'
+  | 'holdDeclined'
+  | 'paymentUnknown'
+  | 'paymentsUnavailable'
+  | 'carStateStale'
+  | 'outsideZone'
+  | 'notInPark'
+  | 'ignitionOn'
+  | 'headlightsOn'
+  | 'doorsOpen'
+  | 'lockFailed'
   | 'notFound'
   | 'unknown';
 
@@ -62,6 +74,18 @@ const kindByProblem: Readonly<Record<string, RentalErrorKind>> = {
   'car-command-rejected': 'carRefused',
   'telematics-unavailable': 'carUnreachable',
   'telematics-timeout': 'carTimeout',
+  'card-required': 'cardRequired',
+  'outstanding-debt': 'debt',
+  'payment-hold-declined': 'holdDeclined',
+  'payment-outcome-unknown': 'paymentUnknown',
+  'payments-unavailable': 'paymentsUnavailable',
+  'car-state-stale': 'carStateStale',
+  'outside-end-zone': 'outsideZone',
+  'not-in-park': 'notInPark',
+  'ignition-on': 'ignitionOn',
+  'headlights-on': 'headlightsOn',
+  'doors-open': 'doorsOpen',
+  'car-lock-failed': 'lockFailed',
 };
 
 /** Maps an error response with a Problem Details body (ADR-0006) to an error the UI can explain. */
@@ -89,6 +113,8 @@ export function isRetryable(error: RentalError): boolean {
     'locationUnavailable',
     'carLocationUnknown',
     'carUnreachable',
+    'carStateStale',
+    'paymentUnknown',
     'unknown',
   ].includes(error.kind);
 }

@@ -6,19 +6,23 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, Field
 
 from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import range_left_km
+from flagman.pricing.domain import IntervalKind, Quote
 from flagman.rentals.domain import (
     DAMAGE_COMMENT_MAX_LENGTH,
     MAX_INSPECTION_PHOTOS,
     MIN_INSPECTION_PHOTOS,
     CancelReason,
+    ChargeStatus,
     DamageSide,
     Inspection,
     InspectionStage,
+    Receipt,
     RentalCommand,
     RentalStatus,
+    TripWarning,
     normalize_damage_comment,
 )
-from flagman.rentals.service import RentalView
+from flagman.rentals.service import Debt, RentalView
 
 Longitude = Annotated[float, Field(ge=-180, le=180, allow_inf_nan=False)]
 Latitude = Annotated[float, Field(ge=-90, le=90, allow_inf_nan=False)]
@@ -53,6 +57,61 @@ class RentalTariffOut(BaseModel):
     waiting_per_minute: int = Field(description="The paid wait, after the free minutes.")
 
 
+class CostLineOut(BaseModel):
+    """Amounts in kopecks of BYN."""
+
+    kind: IntervalKind
+    minutes: int = Field(description="Billed minutes, after the free ones; a started one counts.")
+    free_minutes: int
+    per_minute: int
+    amount: int
+
+
+class CostOut(BaseModel):
+    """Counted by the server only; the client shows it and never sends it back."""
+
+    lines: list[CostLineOut]
+    total: int
+
+    @classmethod
+    def of(cls, quote: Quote) -> "CostOut":
+        return cls(
+            lines=[
+                CostLineOut(
+                    kind=line.kind,
+                    minutes=line.minutes,
+                    free_minutes=line.free_minutes,
+                    per_minute=line.per_minute,
+                    amount=line.amount,
+                )
+                for line in quote.lines
+            ],
+            total=quote.total,
+        )
+
+
+class ReceiptOut(BaseModel):
+    """Issued once, when the rental ends; it never changes afterwards."""
+
+    rental_id: UUID
+    tariff_version_id: UUID
+    cost: CostOut
+    card_brand: str | None
+    card_last4: str | None = Field(description="The card the money went to, as «•••• 4242».")
+    issued_at: datetime
+
+    @classmethod
+    def of(cls, receipt: Receipt) -> "ReceiptOut":
+        return cls(
+            rental_id=receipt.rental_id,
+            tariff_version_id=receipt.tariff_version_id,
+            cost=CostOut.of(receipt.quote),
+            card_brand=receipt.card.brand if receipt.card else None,
+            card_last4=receipt.card.last4 if receipt.card else None,
+            issued_at=receipt.issued_at,
+        )
+
+
 class RentalOut(BaseModel):
     id: UUID
     status: RentalStatus
@@ -69,6 +128,17 @@ class RentalOut(BaseModel):
     inspection_submitted: bool = Field(
         description="The inspection before the trip is done: the car may be opened."
     )
+    after_inspection_submitted: bool = Field(
+        description="The inspection after the trip is done: the rental may be finished."
+    )
+    cost: CostOut = Field(description="So far, by the server's clock; the receipt's once ended.")
+    warnings: list[TripWarning] = Field(
+        description="`low_battery`, `low_range`: the range may not last; only during a trip."
+    )
+    charge_status: ChargeStatus | None = Field(
+        description="`pending`: being paid; `paid`; `failed`: a debt. Null: nothing to pay."
+    )
+    receipt: ReceiptOut | None
     as_of: datetime = Field(description="Server time: count the deadlines down from it.")
 
     @classmethod
@@ -101,12 +171,31 @@ class RentalOut(BaseModel):
             ended_at=rental.ended_at,
             cancel_reason=rental.cancel_reason,
             inspection_submitted=view.inspection_submitted,
+            after_inspection_submitted=view.after_inspection_submitted,
+            cost=CostOut.of(view.cost),
+            warnings=list(view.warnings),
+            charge_status=rental.charge_status,
+            receipt=ReceiptOut.of(view.receipt) if view.receipt else None,
             as_of=now,
         )
 
 
 class CurrentRentalOut(BaseModel):
     rental: RentalOut | None = Field(description="Null when the client has no active rental.")
+
+
+class DebtOut(BaseModel):
+    rental_id: UUID
+    amount: int = Field(description="Still owed, in kopecks of BYN.")
+    ended_at: datetime | None
+
+    @classmethod
+    def of(cls, debt: Debt) -> "DebtOut":
+        return cls(rental_id=debt.rental_id, amount=debt.amount, ended_at=debt.ended_at)
+
+
+class DebtsOut(BaseModel):
+    debts: list[DebtOut] = Field(description="Empty when the client owes nothing.")
 
 
 class InspectionPhotoOut(BaseModel):

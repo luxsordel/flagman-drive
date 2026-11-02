@@ -18,6 +18,8 @@ import type { DamageSide, Inspection, PhotoUpload } from './rentalApi';
 import { isRetryable, type RentalError } from './rentalErrors';
 import { RentalErrorMessage } from './RentalErrorMessage';
 import { useRentalState, useRentalStore } from './RentalProvider';
+import { stageOf } from './rentalStore';
+import { isOnTrip } from './rentalTime';
 
 // The order the client walks around the car; after them, any angle that shows damage.
 const angles = ['front', 'rear', 'left', 'right', 'interior'] as const;
@@ -26,7 +28,7 @@ const sides: readonly DamageSide[] = ['front', 'rear', 'left', 'right', 'roof', 
 const commentMaxLength = 300;
 const previewHeight = 180;
 
-/** The inspection before the trip: photos around the car and the damage the client sees. */
+/** The inspection before or after the trip: photos around the car and the damage the client sees. */
 export function InspectionScreen() {
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -39,12 +41,19 @@ export function InspectionScreen() {
   }, [store]);
 
   // Submitted, cancelled or expired meanwhile: the reservation screen shows what is next.
-  const done = rental === null || rental.status !== 'reserved' || inspection?.submitted_at != null;
+  const stage = rental === null ? null : stageOf(rental);
+  // The other stage's inspection may still be in the state until this one has loaded.
+  const current = inspection !== null && inspection.stage === stage ? inspection : null;
+  const back = stage === 'after' ? '/rental/finish' : '/rental';
+  const done =
+    rental === null ||
+    (rental.status !== 'reserved' && !isOnTrip(rental)) ||
+    current?.submitted_at != null;
   useEffect(() => {
-    if (done) router.dismissTo('/rental');
-  }, [done, router]);
+    if (done) router.dismissTo(back);
+  }, [done, back, router]);
 
-  if (inspection === null) {
+  if (current === null) {
     return (
       <Screen>
         {error === null ? (
@@ -63,18 +72,18 @@ export function InspectionScreen() {
       <AppText variant="title">{t('rental.inspection.title')}</AppText>
       <AppText>
         {t('rental.inspection.subtitle', {
-          min: inspection.min_photos,
-          max: inspection.max_photos,
+          min: current.min_photos,
+          max: current.max_photos,
         })}
       </AppText>
-      <PhotoStep inspection={inspection} />
-      <Damages inspection={inspection} />
-      <Submit inspection={inspection} />
+      <PhotoStep inspection={current} />
+      <Damages inspection={current} />
+      <Submit inspection={current} />
       <Button
         variant="secondary"
         title={t('rental.inspection.back')}
         onPress={() => {
-          router.dismissTo('/rental');
+          router.dismissTo(back);
         }}
       />
     </Screen>

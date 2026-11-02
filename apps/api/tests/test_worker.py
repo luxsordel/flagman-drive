@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import secrets
 from datetime import UTC, datetime, timedelta
 
@@ -15,6 +16,7 @@ from flagman.fleet.tests.conftest import add_car
 from flagman.identity.service import AuthCleanupResult
 from flagman.notifications.expo import ExpoPushProvider
 from flagman.notifications.fake_provider import FakePushProvider
+from flagman.payments import service as payments
 from flagman.rentals.tests.conftest import CAR_POINT as POINT
 
 
@@ -145,11 +147,13 @@ async def test_each_job_keeps_its_own_interval(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(worker, "run_reservation_expiry", job(worker.RESERVATION_EXPIRY))
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
     intervals = {
         worker.AUTH_CLEANUP: timedelta(hours=1),
         worker.RESERVATION_EXPIRY: timedelta(milliseconds=50),
         worker.OUTBOX_CLEANUP: timedelta(hours=1),
         worker.MAINTENANCE_CHARGING: timedelta(hours=1),
+        worker.TRIP_WATCH: timedelta(hours=1),
     }
 
     await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=intervals), 5)
@@ -206,6 +210,7 @@ async def test_a_failed_run_is_retried_sooner_and_does_not_stop_the_worker(
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
 
     # An hour between runs: only the short retry lets the second run happen in time.
     hourly = dict.fromkeys(worker.INTERVALS, timedelta(hours=1))
@@ -228,9 +233,57 @@ async def test_worker_stops_without_waiting_for_the_next_run(
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
 
     # The interval is an hour: the run must end on the stop, not on the timer.
     await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
+
+
+@pytest.mark.integration
+async def test_receipts_job_is_skipped_while_another_worker_holds_it(
+    integration_settings: Settings,
+) -> None:
+    engine = create_engine(integration_settings)
+    try:
+        async with engine.connect() as other_worker:
+            await other_worker.execute(
+                text("SELECT pg_advisory_lock(:key)"), {"key": worker.NOTIFICATIONS_RECEIPTS_LOCK}
+            )
+            await other_worker.commit()
+
+            result = await worker.run_notifications_receipts(
+                engine, create_session_factory(engine), FakePushProvider(), datetime.now(UTC)
+            )
+
+            await other_worker.execute(
+                text("SELECT pg_advisory_unlock(:key)"), {"key": worker.NOTIFICATIONS_RECEIPTS_LOCK}
+            )
+        assert result is None
+    finally:
+        await engine.dispose()
+
+
+async def test_receipts_are_checked_with_a_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+    checks = 0
+
+    async def check(*args: object) -> None:
+        nonlocal checks
+        checks += 1
+        stop.set()
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_notifications_dispatch", _idle_job)
+    monkeypatch.setattr(worker, "run_notifications_receipts", check)
+    settings = _offline_settings().model_copy(update={"notifications_provider": "fake"})
+
+    await asyncio.wait_for(worker.run(settings, stop), 5)
+
+    assert checks == 1
 
 
 @pytest.mark.integration
@@ -273,7 +326,9 @@ async def test_notifications_go_out_on_their_own_short_interval(
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
     monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
+    monkeypatch.setattr(worker, "run_notifications_receipts", _idle_job)
     settings = _offline_settings().model_copy(
         update={"notifications_provider": "fake", "notifications_dispatch_interval_seconds": 0.01}
     )
@@ -286,20 +341,35 @@ async def test_notifications_go_out_on_their_own_short_interval(
 
 async def test_without_a_provider_nothing_is_sent(monkeypatch: pytest.MonkeyPatch) -> None:
     stop = asyncio.Event()
+    cleanups = 0
+    pushes = 0
 
-    async def idle_then_stop(*args: object) -> None:
-        stop.set()
+    # Stopping on the second round, not the first: the first has to reach every job, including
+    # the ones scheduled after the cleanup.
+    async def cleanup(*args: object) -> None:
+        nonlocal cleanups
+        cleanups += 1
+        if cleanups == 2:
+            stop.set()
 
-    async def dispatch(*args: object) -> None:
-        raise AssertionError("must not run")
+    # Counted, not raised: the worker logs a failed job and goes on, so a raise passes unnoticed.
+    async def push(*args: object) -> None:
+        nonlocal pushes
+        pushes += 1
 
-    monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
+    monkeypatch.setattr(worker, "run_auth_cleanup", cleanup)
     monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
     monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
     monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
-    monkeypatch.setattr(worker, "run_notifications_dispatch", dispatch)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
+    monkeypatch.setattr(worker, "run_notifications_dispatch", push)
+    monkeypatch.setattr(worker, "run_notifications_receipts", push)
+    at_once = dict.fromkeys(worker.INTERVALS, timedelta(0))
 
-    await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
+    await asyncio.wait_for(worker.run(_offline_settings(), stop, intervals=at_once), 5)
+
+    assert cleanups == 2
+    assert pushes == 0
 
 
 async def test_provider_follows_the_setting() -> None:
@@ -388,5 +458,91 @@ async def test_charging_job_creates_tasks_and_is_skipped_while_another_worker_ho
                 text("SELECT type FROM maintenance_tasks WHERE car_id = :car"), {"car": car_id}
             )
             assert list(types) == ["charging"]
+    finally:
+        await engine.dispose()
+
+
+def _with_payments(settings: WorkerSettings) -> WorkerSettings:
+    return settings.model_copy(
+        update={
+            "payments_provider": "fake",
+            "payments_webhook_secret": SecretStr(secrets.token_hex(32)),
+            "payments_token_encryption_key": SecretStr(
+                base64.b64encode(secrets.token_bytes(32)).decode()
+            ),
+        }
+    )
+
+
+async def test_rental_charges_are_retried_with_a_payment_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+    gateways: list[object] = []
+
+    async def charge(*args: object) -> None:
+        gateways.append(args[2])
+        stop.set()
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
+    monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
+    monkeypatch.setattr(worker, "run_rental_charges", charge)
+
+    await asyncio.wait_for(worker.run(_with_payments(_offline_settings()), stop), 5)
+
+    [gateway] = gateways
+    assert isinstance(gateway, payments.Gateway)
+
+
+async def test_without_a_payment_provider_no_charge_is_retried(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    stop = asyncio.Event()
+
+    async def idle_then_stop(*args: object) -> None:
+        stop.set()
+
+    async def charge(*args: object) -> None:
+        raise AssertionError("must not run")
+
+    monkeypatch.setattr(worker, "run_auth_cleanup", idle_then_stop)
+    monkeypatch.setattr(worker, "run_reservation_expiry", _idle_job)
+    monkeypatch.setattr(worker, "run_outbox_cleanup", _idle_job)
+    monkeypatch.setattr(worker, "run_trip_watch", _idle_job)
+    monkeypatch.setattr(worker, "run_maintenance_charging", _idle_job)
+    monkeypatch.setattr(worker, "run_rental_charges", charge)
+
+    await asyncio.wait_for(worker.run(_offline_settings(), stop), 5)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("lock", [worker.TRIP_WATCH_LOCK, worker.RENTAL_CHARGES_LOCK])
+async def test_trip_jobs_are_skipped_while_another_worker_holds_them(
+    integration_settings: Settings, lock: int
+) -> None:
+    engine = create_engine(integration_settings)
+    try:
+        factory = create_session_factory(engine)
+        settings = _with_payments(_worker_settings(integration_settings))
+        gateway = payments.gateway(settings)
+
+        async def run_job() -> int | None:
+            now = datetime.now(UTC)
+            if lock == worker.RENTAL_CHARGES_LOCK:
+                return await worker.run_rental_charges(engine, factory, gateway, settings, now)
+            return await worker.run_trip_watch(engine, factory, settings, now)
+
+        assert await run_job() is not None
+        async with engine.connect() as other_worker:
+            await other_worker.execute(text("SELECT pg_advisory_lock(:key)"), {"key": lock})
+            await other_worker.commit()
+
+            result = await run_job()
+
+            await other_worker.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": lock})
+        assert result is None
     finally:
         await engine.dispose()

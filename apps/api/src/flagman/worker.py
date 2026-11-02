@@ -29,6 +29,8 @@ from flagman.notifications import service as notifications
 from flagman.notifications.expo import ExpoPushProvider
 from flagman.notifications.fake_provider import FakePushProvider
 from flagman.notifications.ports import PushProvider
+from flagman.payments import service as payments
+from flagman.payments.domain import PaymentsUnavailableError
 from flagman.rentals import service as rentals
 
 logger = structlog.get_logger(__name__)
@@ -38,14 +40,27 @@ RESERVATION_EXPIRY = "reservation_expiry"
 OUTBOX_CLEANUP = "outbox_cleanup"
 # Every MAINTENANCE_CHARGING_INTERVAL_SECONDS.
 MAINTENANCE_CHARGING = "maintenance_charging"
+TRIP_WATCH = "trip_watch"
+# Scheduled only with PAYMENTS_PROVIDER set (docs/adr/0024).
+RENTAL_CHARGES = "rental_charges"
 # Scheduled only with NOTIFICATIONS_PROVIDER set, every NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS.
 NOTIFICATIONS_DISPATCH = "notifications_dispatch"
+# Also only with NOTIFICATIONS_PROVIDER set.
+NOTIFICATIONS_RECEIPTS = "notifications_receipts"
 INTERVALS: Mapping[str, timedelta] = {
     AUTH_CLEANUP: timedelta(hours=1),
     # A reservation is cancelled within a minute of its end even if nobody asks for it, so the
     # car is back on the map (docs/adr/0022).
     RESERVATION_EXPIRY: timedelta(minutes=1),
     OUTBOX_CLEANUP: timedelta(hours=1),
+    # «Low battery» reaches the client, and a parked car that drives off pays the driving price,
+    # within a minute of the snapshot that showed it.
+    TRIP_WATCH: timedelta(minutes=1),
+    # An unknown outcome is retried after a minute; a declined debt by its own retry time.
+    RENTAL_CHARGES: timedelta(minutes=1),
+    # Receipts are asked for 15 minutes after sending at the earliest; a few more minutes for a
+    # dead token to linger cost nothing.
+    NOTIFICATIONS_RECEIPTS: timedelta(minutes=5),
 }
 # Sooner after a failure: on a fresh database the first run comes before the migrations, and
 # waiting a whole hour after them would look like the worker does nothing.
@@ -55,7 +70,10 @@ AUTH_CLEANUP_LOCK = 4_600_001
 RESERVATION_EXPIRY_LOCK = 4_600_002
 NOTIFICATIONS_DISPATCH_LOCK = 4_600_003
 OUTBOX_CLEANUP_LOCK = 4_600_004
-MAINTENANCE_CHARGING_LOCK = 4_600_006
+RENTAL_CHARGES_LOCK = 4_600_005
+TRIP_WATCH_LOCK = 4_600_006
+NOTIFICATIONS_RECEIPTS_LOCK = 4_600_007
+MAINTENANCE_CHARGING_LOCK = 4_600_008
 
 
 async def _with_lock[T](
@@ -130,6 +148,50 @@ async def run_reservation_expiry(
     return expired
 
 
+async def run_trip_watch(
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: WorkerSettings,
+    now: datetime,
+) -> int | None:
+    """Returns how many trips it warned or resumed, None when another copy holds the job."""
+
+    async def watch() -> int:
+        async with session_factory() as db:
+            resumed = await rentals.resume_driven_off(db, now)
+            return resumed + await rentals.watch_trip_battery(
+                db, settings.rental_low_battery_pct, now
+            )
+
+    return await _with_lock(engine, TRIP_WATCH_LOCK, TRIP_WATCH, watch)
+
+
+async def run_rental_charges(
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    gateway: payments.Gateway,
+    settings: WorkerSettings,
+    now: datetime,
+) -> int | None:
+    """Returns how many rentals it tried to settle, None when another copy holds the job."""
+
+    async def charge() -> int:
+        async with session_factory() as db:
+            return await rentals.retry_charges(db, gateway, rentals.settlement_rules(settings), now)
+
+    tried = await _with_lock(engine, RENTAL_CHARGES_LOCK, RENTAL_CHARGES, charge)
+    if tried:
+        logger.info("rental_charges_done", tried=tried)
+    return tried
+
+
+def payments_gateway(settings: WorkerSettings) -> payments.Gateway | None:
+    try:
+        return payments.gateway(settings)
+    except PaymentsUnavailableError:
+        return None
+
+
 async def run_outbox_cleanup(
     engine: AsyncEngine,
     session_factory: async_sessionmaker[AsyncSession],
@@ -162,6 +224,20 @@ async def run_notifications_dispatch(
         return await notifications.dispatch_due(session_factory, provider, now)
 
     return await _with_lock(engine, NOTIFICATIONS_DISPATCH_LOCK, NOTIFICATIONS_DISPATCH, dispatch)
+
+
+async def run_notifications_receipts(
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    provider: PushProvider,
+    now: datetime,
+) -> notifications.ReceiptsResult | None:
+    """Returns None when another copy of the worker holds the job."""
+
+    async def check() -> notifications.ReceiptsResult:
+        return await notifications.check_receipts(session_factory, provider, now)
+
+    return await _with_lock(engine, NOTIFICATIONS_RECEIPTS_LOCK, NOTIFICATIONS_RECEIPTS, check)
 
 
 def push_provider(settings: WorkerSettings, http: httpx2.AsyncClient) -> PushProvider | None:
@@ -209,7 +285,9 @@ class _Scheduled:
 
 
 def _schedule(
-    intervals: Mapping[str, timedelta], provider: PushProvider | None
+    intervals: Mapping[str, timedelta],
+    provider: PushProvider | None,
+    gateway: payments.Gateway | None = None,
 ) -> list[_Scheduled]:
     # The jobs are looked up when the worker starts, so tests can replace them.
     jobs: dict[str, Job] = {
@@ -217,11 +295,27 @@ def _schedule(
         RESERVATION_EXPIRY: run_reservation_expiry,
         OUTBOX_CLEANUP: run_outbox_cleanup,
         MAINTENANCE_CHARGING: run_maintenance_charging,
+        TRIP_WATCH: run_trip_watch,
     }
+    if gateway is None:
+        logger.warning("rental_charges_not_retried", reason="PAYMENTS_PROVIDER is not set")
+    else:
+        settle = run_rental_charges
+
+        async def charge(
+            engine: AsyncEngine,
+            session_factory: async_sessionmaker[AsyncSession],
+            settings: WorkerSettings,
+            now: datetime,
+        ) -> object:
+            return await settle(engine, session_factory, gateway, settings, now)
+
+        jobs[RENTAL_CHARGES] = charge
     if provider is None:
         logger.warning("notifications_not_sent", reason="NOTIFICATIONS_PROVIDER is not set")
     else:
         dispatch = run_notifications_dispatch
+        receipts = run_notifications_receipts
 
         async def send(
             engine: AsyncEngine,
@@ -231,7 +325,16 @@ def _schedule(
         ) -> object:
             return await dispatch(engine, session_factory, provider, now)
 
+        async def check(
+            engine: AsyncEngine,
+            session_factory: async_sessionmaker[AsyncSession],
+            settings: WorkerSettings,
+            now: datetime,
+        ) -> object:
+            return await receipts(engine, session_factory, provider, now)
+
         jobs[NOTIFICATIONS_DISPATCH] = send
+        jobs[NOTIFICATIONS_RECEIPTS] = check
     return [_Scheduled(name, intervals[name], job) for name, job in jobs.items()]
 
 
@@ -252,7 +355,17 @@ async def run(
     }
     try:
         async with httpx2.AsyncClient() as http:
-            schedule = _schedule(intervals, push_provider(settings, http))
+            schedule = _schedule(
+                intervals, push_provider(settings, http), payments_gateway(settings)
+            )
+            # The jobs actually scheduled: some only with their provider set.
+            logger.info(
+                "worker_started",
+                intervals_seconds={
+                    scheduled.name: int(scheduled.interval.total_seconds())
+                    for scheduled in schedule
+                },
+            )
             due = {scheduled.name: time.monotonic() for scheduled in schedule}
             while not stop.is_set():
                 for scheduled in schedule:
@@ -284,12 +397,6 @@ async def _main() -> None:
     # still ends asyncio.run there.
     with suppress(NotImplementedError):
         asyncio.get_running_loop().add_signal_handler(signal.SIGTERM, stop.set)
-    logger.info(
-        "worker_started",
-        intervals_seconds={
-            name: int(interval.total_seconds()) for name, interval in INTERVALS.items()
-        },
-    )
     await run(settings, stop)
     logger.info("worker_stopped")
 

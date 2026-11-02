@@ -16,6 +16,7 @@ from flagman.fleet.domain import (
     CarOnMap,
     CarStatus,
     CommandOutcome,
+    Gear,
     MapArea,
     MapQuery,
     StaffCarFilter,
@@ -40,6 +41,9 @@ class EmulatorCarState(BaseModel):
     doors_locked: bool
     ignition_on: bool
     engine_locked: bool
+    # Optional: an emulator older than #144 does not send them, and its cars stay "unknown".
+    headlights_on: bool | None = None
+    gear: Gear | None = None
     updated_at: AwareDatetime
 
 

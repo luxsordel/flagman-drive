@@ -3,7 +3,7 @@ from datetime import datetime
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict
 
-from car_emulator.domain import Car, CommandType
+from car_emulator.domain import Car, CommandType, Gear
 
 
 class CommandRequest(BaseModel):
@@ -21,6 +21,8 @@ class CarState(BaseModel):
     doors_locked: bool
     ignition_on: bool
     engine_locked: bool
+    headlights_on: bool
+    gear: Gear
     updated_at: AwareDatetime
 
     @classmethod
@@ -34,6 +36,8 @@ class CarState(BaseModel):
             doors_locked=car.doors_locked,
             ignition_on=car.ignition_on,
             engine_locked=car.engine_locked,
+            headlights_on=car.headlights_on,
+            gear=car.gear,
             updated_at=as_of or car.updated_at,
         )
 

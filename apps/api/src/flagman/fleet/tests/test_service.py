@@ -19,6 +19,7 @@ from flagman.fleet.domain import (
     CarStatus,
     CarTransition,
     CarTransitionNotAllowedError,
+    Gear,
     SnapshotFromFutureError,
     SnapshotOutcome,
     emulator_car_id,
@@ -210,6 +211,7 @@ async def test_rentable_follows_the_settings(
         " WHERE telematics_id = :id",
         # Half a snapshot: the coordinates without the rest.
         "UPDATE cars SET location = 'SRID=4326;POINT(27.5 53.9)' WHERE telematics_id = :id",
+        "UPDATE cars SET gear = 'X' WHERE telematics_id = :id",
     ],
 )
 async def test_database_refuses_invalid_rows(db: AsyncSession, statement: str) -> None:
@@ -218,3 +220,15 @@ async def test_database_refuses_invalid_rows(db: AsyncSession, statement: str) -
     with pytest.raises(IntegrityError):
         async with db.begin():
             await db.execute(text(statement), {"id": telematics_id})
+
+
+@pytest.mark.parametrize("gear", list(Gear))
+async def test_database_takes_every_gear(db: AsyncSession, gear: Gear) -> None:
+    # The migration lists the values by hand: a new Gear without its migration fails here.
+    telematics_id = await _add_car(db)
+
+    async with db.begin():
+        await db.execute(
+            text("UPDATE cars SET gear = :gear WHERE telematics_id = :id"),
+            {"gear": gear.value, "id": telematics_id},
+        )

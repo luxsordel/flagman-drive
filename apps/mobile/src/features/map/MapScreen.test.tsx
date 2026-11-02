@@ -19,7 +19,16 @@ import { area, fakeMapApi, mapCar, mapZone, ok } from './testing';
 initI18n('ru');
 
 const mockRouter = { push: jest.fn() };
-jest.mock('expo-router', () => ({ useRouter: () => mockRouter }));
+jest.mock('expo-router', () => {
+  const { useEffect } = jest.requireActual<typeof import('react')>('react');
+  return {
+    useRouter: () => mockRouter,
+    // The screen is focused while it is rendered in these tests.
+    useFocusEffect: (effect: () => void) => {
+      useEffect(effect, [effect]);
+    },
+  };
+});
 
 const mockPlatform = { isExpoGo: false };
 jest.mock('./platform', () => ({

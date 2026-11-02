@@ -177,6 +177,39 @@ describe('RentalStore', () => {
     expect(api.command).not.toHaveBeenCalled();
   });
 
+  it('opens an earlier rental beside the active one, not instead of it', async () => {
+    const { api, store } = setup();
+    api.reserve.mockResolvedValue(ok(rental()));
+    await store.reserve('car-1');
+    const earlier = rental({ id: 'rental-0', status: 'payment_failed', charge_status: 'failed' });
+    api.get.mockResolvedValue(ok(earlier));
+
+    await store.open('rental-0');
+
+    expect(store.getState().rental?.id).toBe('rental-1');
+    expect(store.getState().viewed?.id).toBe('rental-0');
+    api.payDebt.mockResolvedValue(ok({ ...earlier, status: 'paid', charge_status: 'paid' }));
+    await store.payDebt();
+    expect(api.payDebt).toHaveBeenCalledWith('rental-0');
+    expect(store.getState().viewed?.status).toBe('paid');
+
+    store.dismiss();
+    expect(store.getState()).toMatchObject({ rental: { id: 'rental-1' }, viewed: null });
+  });
+
+  it('reloads the debts after a cancel: a declined paid wait is one', async () => {
+    const { api, store } = setup();
+    api.reserve.mockResolvedValue(ok(rental()));
+    await store.reserve('car-1');
+    api.cancel.mockResolvedValue(ok(rental({ status: 'cancelled', charge_status: 'failed' })));
+    const debt = { rental_id: 'rental-1', amount: 500, ended_at: serverNow };
+    api.debts.mockResolvedValue(ok([debt]));
+
+    await store.cancel();
+
+    expect(store.getState().debts).toEqual([debt]);
+  });
+
   it('counts the photos on their way', async () => {
     const { api, uploads, store } = setup();
     api.reserve.mockResolvedValue(ok(rental()));

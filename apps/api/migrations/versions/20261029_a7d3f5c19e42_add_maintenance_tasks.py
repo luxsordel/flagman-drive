@@ -1,7 +1,7 @@
 """add maintenance tasks
 
 Revision ID: a7d3f5c19e42
-Revises: e5b7c2d9a4f1
+Revises: d2a7c9e4b816
 Create Date: 2026-10-29 12:00:00.000000
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a7d3f5c19e42"
-down_revision: str | Sequence[str] | None = "e5b7c2d9a4f1"
+down_revision: str | Sequence[str] | None = "d2a7c9e4b816"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

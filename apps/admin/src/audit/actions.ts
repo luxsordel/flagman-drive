@@ -14,6 +14,7 @@ const labelKeys: Record<AuditAction, ActionLabelKey> = {
   'staff.totp_reset': 'staffTotpReset',
   'staff.password_changed': 'staffPasswordChanged',
   'staff.disabled': 'staffDisabled',
+  'staff.name_changed': 'staffNameChanged',
   'kyc.approved': 'kycApproved',
   'kyc.rejected': 'kycRejected',
   'kyc.document_viewed': 'kycDocumentViewed',
@@ -26,6 +27,15 @@ const labelKeys: Record<AuditAction, ActionLabelKey> = {
   'payment.succeeded': 'paymentSucceeded',
   'payment.declined': 'paymentDeclined',
   'payment.failed': 'paymentFailed',
+  'support.conversation_taken': 'supportConversationTaken',
+  'support.message_sent': 'supportMessageSent',
+  'support.conversation_closed': 'supportConversationClosed',
+  'support.photo_viewed': 'supportPhotoViewed',
+  'incident.taken': 'incidentTaken',
+  'incident.resolved': 'incidentResolved',
+  'incident.rejected': 'incidentRejected',
+  'incident.car_sent_to_service': 'incidentCarSentToService',
+  'incident.photo_viewed': 'incidentPhotoViewed',
 };
 
 export const auditActions = Object.keys(labelKeys) as AuditAction[];

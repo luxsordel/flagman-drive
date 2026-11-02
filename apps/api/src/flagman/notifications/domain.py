@@ -1,5 +1,6 @@
 """Push notifications to clients, see docs/adr/0020: what is sent, in which words, how often."""
 
+import hashlib
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -15,6 +16,9 @@ from flagman.identity.domain import Language
 # `ExpoPushToken[...]`. Anything else is not something Expo can deliver to.
 PUSH_TOKEN_RE = re.compile(r"Expo(nent)?PushToken\[[A-Za-z0-9_-]{1,200}\]")
 PUSH_TOKEN_MAX_LENGTH = 255
+# The tickets table's column; the Expo adapter keeps only ids that are UUIDs, well within it.
+PUSH_TICKET_ID_MAX_LENGTH = 64
+TOKEN_DIGEST_LENGTH = 64
 
 # A failed delivery is tried again after 30 s, 1 min, 2 min, 4 min: a provider outage of a few
 # minutes still gets through, while a reminder that comes an hour late is no use to anyone.
@@ -31,6 +35,7 @@ class NotificationCategory(StrEnum):
     RESERVATION = "reservation"
     TRIP = "trip"
     PAYMENT = "payment"
+    SUPPORT = "support"
 
 
 # What the client must know about money and the car they drive cannot be switched off.
@@ -43,6 +48,7 @@ class NotificationEvent(StrEnum):
     TRIP_LOW_BATTERY = "trip_low_battery"
     TRIP_FINISHED = "trip_finished"
     PAYMENT_FAILED = "payment_failed"
+    SUPPORT_REPLY = "support_reply"
 
 
 CATEGORY_OF = {
@@ -51,6 +57,7 @@ CATEGORY_OF = {
     NotificationEvent.TRIP_LOW_BATTERY: NotificationCategory.TRIP,
     NotificationEvent.TRIP_FINISHED: NotificationCategory.TRIP,
     NotificationEvent.PAYMENT_FAILED: NotificationCategory.PAYMENT,
+    NotificationEvent.SUPPORT_REPLY: NotificationCategory.SUPPORT,
 }
 
 
@@ -79,7 +86,8 @@ class Notification:
     """
 
     event: NotificationEvent
-    rental_id: UUID
+    # None for a conversation with support: it need not be about a rental.
+    rental_id: UUID | None
     params: Mapping[str, int]
 
     def __post_init__(self) -> None:
@@ -95,6 +103,10 @@ class Notification:
 
     @property
     def category(self) -> NotificationCategory:
+        # A paid expiry is the client's only news of the charge, so it cannot be switched off
+        # with the reservation reminders (docs/adr/0024).
+        if _is_paid_expiry(self):
+            return NotificationCategory.PAYMENT
         return CATEGORY_OF[self.event]
 
     @property
@@ -103,26 +115,45 @@ class Notification:
         reservation that is already over, delivered after a worker outage, only confuses."""
         if self.event is NotificationEvent.RESERVATION_EXPIRING:
             return timedelta(minutes=self.params["minutes_left"])
+        if _is_paid_expiry(self):
+            # News of money stays true long after the reservation is over.
+            return _MONEY_NEWS_LIFETIME
         return _LIFETIMES[self.event]
 
     @property
     def dedup_key(self) -> str:
-        """Each event happens once per rental: a second call with the same key is dropped."""
+        """Each event happens once per rental: a second call with the same key is dropped.
+
+        Support answers many times, so each answer is its own event, known by its `seq`.
+        """
+        if self.event is NotificationEvent.SUPPORT_REPLY:
+            return f"{self.event}:{self.params['seq']}"
         return f"{self.event}:{self.rental_id}"
 
+
+def _is_paid_expiry(notification: Notification) -> bool:
+    """An expiry that billed the paid wait (docs/adr/0024): news of money, not of a reservation."""
+    expired = notification.event is NotificationEvent.RESERVATION_EXPIRED
+    return expired and notification.params["amount"] > 0
+
+
+_MONEY_NEWS_LIFETIME = timedelta(days=1)
 
 _LIFETIMES = {
     NotificationEvent.RESERVATION_EXPIRED: timedelta(minutes=15),
     NotificationEvent.TRIP_LOW_BATTERY: timedelta(minutes=30),
-    NotificationEvent.TRIP_FINISHED: timedelta(days=1),
-    NotificationEvent.PAYMENT_FAILED: timedelta(days=1),
+    NotificationEvent.TRIP_FINISHED: _MONEY_NEWS_LIFETIME,
+    NotificationEvent.PAYMENT_FAILED: _MONEY_NEWS_LIFETIME,
+    NotificationEvent.SUPPORT_REPLY: timedelta(days=1),
 }
 
 _PARAMS: dict[NotificationEvent, frozenset[str]] = {
     NotificationEvent.RESERVATION_EXPIRING: frozenset({"minutes_left"}),
-    NotificationEvent.RESERVATION_EXPIRED: frozenset(),
+    # The paid wait the expiry is billed for (docs/adr/0024); zero when it was all free.
+    NotificationEvent.RESERVATION_EXPIRED: frozenset({"amount"}),
     NotificationEvent.TRIP_LOW_BATTERY: frozenset({"battery_pct"}),
     NotificationEvent.TRIP_FINISHED: frozenset({"total"}),
+    NotificationEvent.SUPPORT_REPLY: frozenset({"seq"}),
     NotificationEvent.PAYMENT_FAILED: frozenset({"amount"}),
 }
 
@@ -133,6 +164,22 @@ class PushDevice:
     user_id: UUID
     session_id: UUID
     token: str
+
+
+def token_digest(token: str) -> str:
+    """Tells which token a message went to without keeping the token: Postgres computes the same
+    one as `encode(sha256(convert_to(token, 'UTF8')), 'hex')`."""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+@dataclass(frozen=True)
+class SentTicket:
+    """A message the provider took for a device, its receipt not asked for yet."""
+
+    id: str
+    device_id: UUID
+    token_digest: str
+    sent_at: datetime
 
 
 @dataclass(frozen=True)
@@ -184,13 +231,25 @@ def _values(params: Mapping[str, int], language: Language) -> dict[str, str]:
 
 # (title, body) per event and language; the placeholders are the event's params.
 _TEMPLATES: dict[NotificationEvent, dict[Language, tuple[str, str]]] = {
+    # No text of the answer: a push shows on a locked screen.
+    NotificationEvent.SUPPORT_REPLY: {
+        Language.RU: ("Поддержка FLAGMAN", "Вам ответили в чате поддержки."),
+        Language.EN: ("FLAGMAN Support", "You have a new answer in the support chat."),
+    },
     NotificationEvent.RESERVATION_EXPIRING: {
         Language.RU: ("Бронь скоро истечёт", "Бронь закончится через {minutes_left}."),
         Language.EN: ("Reservation ends soon", "Your reservation ends in {minutes_left}."),
     },
     NotificationEvent.RESERVATION_EXPIRED: {
-        Language.RU: ("Бронь истекла", "Время брони вышло, машина снова доступна другим."),
-        Language.EN: ("Reservation expired", "Your reservation time is up; the car is free again."),
+        Language.RU: (
+            "Бронь истекла",
+            "Время брони вышло. Платное ожидание: {amount}. Чек — в истории поездок.",
+        ),
+        Language.EN: (
+            "Reservation expired",
+            "Your reservation time is up. Paid waiting: {amount}. "
+            "The receipt is in your trip history.",
+        ),
     },
     NotificationEvent.TRIP_LOW_BATTERY: {
         Language.RU: (
@@ -213,16 +272,29 @@ _TEMPLATES: dict[NotificationEvent, dict[Language, tuple[str, str]]] = {
 }
 
 
+_FREE_EXPIRY: dict[Language, tuple[str, str]] = {
+    Language.RU: ("Бронь истекла", "Время брони вышло, машина снова доступна другим."),
+    Language.EN: ("Reservation expired", "Your reservation time is up; the car is free again."),
+}
+
+
+def _template(notification: Notification, language: Language) -> tuple[str, str]:
+    """A free expiry has no receipt to point to, nor a sum worth naming."""
+    expired = notification.event is NotificationEvent.RESERVATION_EXPIRED
+    if expired and not _is_paid_expiry(notification):
+        return _FREE_EXPIRY[language]
+    return _TEMPLATES[notification.event][language]
+
+
 def render(notification: Notification, language: Language) -> PushContent:
     """The text is built here, on the server, in the client's language: the app sends nothing
     but its token."""
-    title, template = _TEMPLATES[notification.event][language]
+    title, template = _template(notification, language)
     body = template.format_map(_values(notification.params, language))
-    return PushContent(
-        title=title,
-        body=body,
-        data={"event": notification.event.value, "rental_id": str(notification.rental_id)},
-    )
+    data = {"event": notification.event.value}
+    if notification.rental_id is not None:
+        data["rental_id"] = str(notification.rental_id)
+    return PushContent(title=title, body=body, data=data)
 
 
 def battery_crossed_low(previous_pct: int | None, current_pct: int, threshold_pct: int) -> bool:

@@ -100,6 +100,8 @@ class StaffMember(Base):
     email: Mapped[str] = mapped_column(String(EMAIL_LENGTH), unique=True)
     password_hash: Mapped[str] = mapped_column(String(PASSWORD_HASH_LENGTH))
     role: Mapped[str] = mapped_column(String(ROLE_LENGTH))
+    # Shown to clients next to "FLAGMAN Support" (#120); without it the client sees only that.
+    display_name: Mapped[str | None] = mapped_column(String(NAME_LENGTH))
     # Encrypted with API_TOTP_ENCRYPTION_KEY. Set without totp_enrolled_at while the setup waits
     # for its first code; a new setup request replaces it.
     totp_secret_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary)

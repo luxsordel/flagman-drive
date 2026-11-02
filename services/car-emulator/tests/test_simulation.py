@@ -12,6 +12,7 @@ from car_emulator.domain import (
     CarMode,
     CommandType,
     Destination,
+    Gear,
     SimulationParams,
     apply_command,
     distance_km,
@@ -212,6 +213,7 @@ def test_trip_reaches_the_destination_and_stops(car: Car) -> None:
     assert car.mode is CarMode.PARKED
     assert car.destination is None
     assert not car.ignition_on
+    assert (car.headlights_on, car.gear) == (False, Gear.PARK)
     assert car.doors_locked
     # Charged only for the way, not for the rest of the step spent parked.
     way_km = distance_km(SOUTH_WEST.lat, SOUTH_WEST.lon, NORTH_EAST.lat, NORTH_EAST.lon)
@@ -272,7 +274,7 @@ def test_only_the_trip_share_of_the_fleet_drives() -> None:
     assert sum(car.mode is CarMode.DRIVING for car in cars) == 6
 
 
-def test_trips_start_with_ignition_on() -> None:
+def test_trips_start_with_ignition_and_lights_on_in_drive() -> None:
     cars = seed_fleet(10, seed=4, now=NOW)
     for car in cars:
         car.charge_pct = 80.0
@@ -281,7 +283,7 @@ def test_trips_start_with_ignition_on() -> None:
 
     [first, second] = [car for car in cars if car.mode is CarMode.DRIVING]
     for car in (first, second):
-        assert car.ignition_on
+        assert (car.ignition_on, car.headlights_on, car.gear) == (True, True, Gear.DRIVE)
         assert car.destination is not None
         assert car.updated_at == now
 

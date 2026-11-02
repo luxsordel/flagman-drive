@@ -40,6 +40,14 @@ class Settings(BaseSettings):
     # Off by default: a low car waits for a technician to plug it in, so the demo shows the cycle
     # "ran low -> charging task -> charged -> back on the map" (the API's docs/adr/0025).
     self_charge: bool = False
+    # A rented car (opened, engine free) drives hops up to this long, resting between them.
+    rental_trip_km: float = Field(default=1.5, gt=0, le=20)
+    rental_rest_s: float = Field(default=120.0, ge=0, le=3600)
+
+    # POST /demo/cars/{id}/park stops a rented car for a demo of the rental's end; off by default.
+    demo_endpoints: bool = False
+    # How long a car stopped that way stays put before the next hop.
+    demo_park_rest_s: float = Field(default=600.0, ge=0, le=86400)
 
     @field_validator("command_secret", "telemetry_secret")
     @classmethod

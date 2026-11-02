@@ -22,10 +22,11 @@ RENTAL = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 EXAMPLES = [
     Notification(NotificationEvent.RESERVATION_EXPIRING, RENTAL, {"minutes_left": 5}),
-    Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {}),
+    Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {"amount": 600}),
     Notification(NotificationEvent.TRIP_LOW_BATTERY, RENTAL, {"battery_pct": 14}),
     Notification(NotificationEvent.TRIP_FINISHED, RENTAL, {"total": 1250}),
     Notification(NotificationEvent.PAYMENT_FAILED, RENTAL, {"amount": 990}),
+    Notification(NotificationEvent.SUPPORT_REPLY, None, {"seq": 7}),
 ]
 
 
@@ -38,6 +39,19 @@ def test_every_event_has_a_template_in_both_languages() -> None:
             assert "{" not in content.body
 
 
+def test_every_support_answer_is_its_own_notification() -> None:
+    first = Notification(NotificationEvent.SUPPORT_REPLY, RENTAL, {"seq": 7})
+    second = Notification(NotificationEvent.SUPPORT_REPLY, RENTAL, {"seq": 8})
+
+    assert first.dedup_key != second.dedup_key
+
+
+def test_a_conversation_without_a_rental_sends_no_rental_id() -> None:
+    notification = Notification(NotificationEvent.SUPPORT_REPLY, None, {"seq": 7})
+
+    assert render(notification, Language.RU).data == {"event": "support_reply"}
+
+
 def test_text_follows_the_client_language() -> None:
     finished = EXAMPLES[3]
 
@@ -45,6 +59,45 @@ def test_text_follows_the_client_language() -> None:
     assert render(finished, Language.EN).body == (
         "Total: 12.50 BYN. The receipt is in your trip history."
     )
+
+
+def test_an_expired_reservation_names_its_paid_wait() -> None:
+    expired = Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {"amount": 600})
+
+    assert render(expired, Language.RU).body == (
+        "Время брони вышло. Платное ожидание: 6,00 BYN. Чек — в истории поездок."
+    )
+    assert render(expired, Language.EN).body == (
+        "Your reservation time is up. Paid waiting: 6.00 BYN. The receipt is in your trip history."
+    )
+
+
+def test_a_free_expiry_mentions_no_money() -> None:
+    expired = Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {"amount": 0})
+
+    assert render(expired, Language.RU).body == "Время брони вышло, машина снова доступна другим."
+    assert (
+        render(expired, Language.EN).body == "Your reservation time is up; the car is free again."
+    )
+
+
+def test_a_paid_expiry_is_news_of_money_that_cannot_be_switched_off() -> None:
+    paid = Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {"amount": 600})
+    free = Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {"amount": 0})
+
+    assert (paid.category, paid.lifetime) == (NotificationCategory.PAYMENT, timedelta(days=1))
+    assert (free.category, free.lifetime) == (
+        NotificationCategory.RESERVATION,
+        timedelta(minutes=15),
+    )
+    switched_off = NotificationPreferences(disabled=frozenset({NotificationCategory.RESERVATION}))
+    assert switched_off.is_enabled(paid.category)
+    assert not switched_off.is_enabled(free.category)
+
+
+def test_an_expiry_without_its_amount_is_refused() -> None:
+    with pytest.raises(NotificationParamsInvalidError):
+        Notification(NotificationEvent.RESERVATION_EXPIRED, RENTAL, {})
 
 
 @pytest.mark.parametrize(

@@ -9,7 +9,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
 from flagman.notifications.domain import (
+    PUSH_TICKET_ID_MAX_LENGTH,
     PUSH_TOKEN_MAX_LENGTH,
+    TOKEN_DIGEST_LENGTH,
     NotificationCategory,
     NotificationEvent,
     OutboxStatus,
@@ -41,6 +43,25 @@ class PushDevice(Base):
     platform: Mapped[str] = mapped_column(String(ENUM_LENGTH))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class PushTicket(Base):
+    """A message the provider took, until its receipt tells whether APNs or FCM took it."""
+
+    __tablename__ = "push_tickets"
+    # Receipts are asked for page by page in this order.
+    __table_args__ = (Index("ix_push_tickets_sent_at_id", "sent_at", "id"),)
+
+    # The provider's ticket id; the token is not kept here, the device holds it.
+    id: Mapped[str] = mapped_column(String(PUSH_TICKET_ID_MAX_LENGTH), primary_key=True)
+    # A deleted device has no receipt worth asking for.
+    device_id: Mapped[UUID] = mapped_column(
+        ForeignKey("push_devices.id", ondelete="CASCADE"), index=True
+    )
+    # Which token the message went to: the device may have a new one by the time the receipt
+    # says the old one is dead.
+    token_digest: Mapped[str] = mapped_column(String(TOKEN_DIGEST_LENGTH))
+    sent_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
 class NotificationOptOut(Base):
@@ -77,10 +98,10 @@ class OutboxNotification(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     event: Mapped[str] = mapped_column(String(ENUM_LENGTH))
-    rental_id: Mapped[UUID]
+    rental_id: Mapped[UUID | None]
     # The template's numbers only (flagman.notifications.domain.Notification).
     params: Mapped[dict[str, Any]] = mapped_column(JSONB)
-    # The same event for the same rental is stored once, however many times it is reported.
+    # The same event is stored once, however many times it is reported (Notification.dedup_key).
     dedup_key: Mapped[str] = mapped_column(String(DEDUP_KEY_LENGTH), unique=True)
     status: Mapped[str] = mapped_column(String(ENUM_LENGTH))
     attempts: Mapped[int] = mapped_column(SmallInteger)
