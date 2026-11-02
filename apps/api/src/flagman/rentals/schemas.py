@@ -538,7 +538,10 @@ class StaffRentalOut(BaseModel):
     inspections: list[InspectionOut]
     adjustments: list[StaffAdjustmentOut]
     owed: int = Field(
-        description="Kopecks still owed; negative: paid above the total, a refund is due."
+        description=(
+            "Kopecks still owed; negative: paid above the total, a refund is due. "
+            "0 while the rental runs or its first payment is on its way."
+        )
     )
     forced_finish: ForcedFinishOut | None
 

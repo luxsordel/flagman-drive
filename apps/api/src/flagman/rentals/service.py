@@ -1383,6 +1383,14 @@ def _repeated(repeat: Adjustment, change: AdjustmentRequest) -> _Recorded:
     return _Recorded(repeat, added=False, owing=True)
 
 
+def _owed(view: RentalView, operations: list[PaymentOperation]) -> int:
+    """Nothing while the rental runs or its first payment is on its way: the cost so far is
+    not a debt yet."""
+    if view.rental.charge_status in (None, ChargeStatus.PENDING):
+        return 0
+    return view.total - _refund_state(operations).taken
+
+
 @dataclass(frozen=True)
 class StaffRentalService:
     """What `operator` and `admin` do with any client's rental; the router checks the role."""
@@ -1450,7 +1458,7 @@ class StaffRentalService:
             intervals=intervals,
             operations=operations,
             inspections=inspections,
-            owed=view.total - _refund_state(operations).taken,
+            owed=_owed(view, operations),
             staff_names=names,
         )
 

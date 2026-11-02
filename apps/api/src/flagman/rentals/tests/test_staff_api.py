@@ -10,6 +10,7 @@ from sqlalchemy.exc import DBAPIError
 
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import TelematicsTimeoutError
 from flagman.fleet.tests.conftest import FakeGateway, Staff, run_in_db
 from flagman.geo import service as geo
@@ -27,6 +28,7 @@ from flagman.rentals.tests.conftest import (
     add_priced_car,
     car_status,
     execute,
+    opened_state,
     photo,
     problem_type,
     query,
@@ -208,14 +210,19 @@ def test_a_broken_cursor_is_refused(person: Person, app_client: TestClient) -> N
 
 
 def test_the_rental_tells_where_the_trip_started_and_ended(
-    integration_settings: Settings, person: Person, car: str
+    integration_settings: Settings, person: Person, car: str, gateway: FakeGateway
 ) -> None:
-    rental_id = _paid_trip(integration_settings, person, car)
+    rental_id = _start(person, car)
+    _shift(integration_settings, rental_id, 30)
+    # The car locks where it was parked, about 110 m north of where it was taken.
+    moved = GeoPoint(lat=CAR_POINT.lat + 0.001, lon=CAR_POINT.lon)
+    gateway.outcome = opened_state(moved)
+    assert _finish(person, rental_id)["status"] == "paid"
 
     body = person.get(rental_id).json()
 
     assert body["start"] == pytest.approx({"lat": CAR_POINT.lat, "lon": CAR_POINT.lon})
-    assert body["end"] == pytest.approx({"lat": CAR_POINT.lat, "lon": CAR_POINT.lon})
+    assert body["end"] == pytest.approx({"lat": moved.lat, "lon": moved.lon})
     assert body["adjustments"] == []
     assert body["total"] == body["receipt"]["cost"]["total"]
 
@@ -970,3 +977,57 @@ def test_the_block_history_never_changes(
             "UPDATE client_block_events SET reason = 'nothing' WHERE user_id = :id",
             id=person.id,
         )
+
+
+def test_a_running_trip_is_not_shown_as_a_debt(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _start(person, car)
+    _shift(integration_settings, rental_id, 30)
+
+    body = _card(app_client, operator, rental_id).json()
+
+    assert body["rental"]["total"] > 0
+    assert body["owed"] == 0
+
+
+def test_an_adjustment_never_changes(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    _adjust(app_client, operator, rental_id, -100, "Late unlock")
+
+    for sql in (
+        "UPDATE rental_adjustments SET amount = -1 WHERE rental_id = :id",
+        "DELETE FROM rental_adjustments WHERE rental_id = :id",
+    ):
+        with pytest.raises(DBAPIError, match="append-only"):
+            execute(integration_settings, sql, id=uuid.UUID(rental_id))
+
+
+def test_the_client_card_tells_the_debt(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    person.bind_card(DECLINED_CARD)
+    _make_default(person, "9995")
+    _adjust(app_client, operator, rental_id, 300, "Smoking in the car")
+
+    response = app_client.get(f"/admin/clients/{person.id}", headers=operator.headers)
+
+    assert response.json()["debt"] == 300
+    # Paid here, so the charge job of the other tests finds no debt of this one.
+    _make_default(person, "4242")
+    assert app_client.post(f"/rentals/{rental_id}/pay", headers=person.headers).status_code == 200

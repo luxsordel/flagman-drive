@@ -78,6 +78,34 @@ def test_a_search_with_like_wildcards_matches_them_literally(
     assert response.json()["items"] == []
 
 
+def test_clients_come_page_by_page(
+    integration_settings: Settings, operator: Staff, app_client: TestClient
+) -> None:
+    surname = f"Zz{uuid.uuid4().hex[:8]}"
+    people = [Person(integration_settings, app_client) for _ in range(3)]
+    for person in people:
+        _name(integration_settings, person, "Анна", surname)
+
+    def page(cursor: str | None = None) -> Any:
+        params = {"search": surname, "limit": "2", **({"cursor": cursor} if cursor else {})}
+        return app_client.get("/admin/clients", params=params, headers=operator.headers).json()
+
+    first = page()
+    rest = page(first["next_cursor"])
+
+    ids = [item["id"] for item in first["items"] + rest["items"]]
+    assert sorted(ids) == sorted(str(person.id) for person in people)
+    assert (len(first["items"]), rest["next_cursor"]) == (2, None)
+
+
+def test_a_client_token_is_not_a_staff_token(person: Person, app_client: TestClient) -> None:
+    for method, path in (("GET", ""), ("GET", f"/{person.id}"), ("POST", f"/{person.id}/block")):
+        response = app_client.request(
+            method, "/admin/clients" + path, json={"reason": "x"}, headers=person.headers
+        )
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+
+
 def test_the_card_tells_kyc_and_the_debt(
     integration_settings: Settings, operator: Staff, app_client: TestClient
 ) -> None:
