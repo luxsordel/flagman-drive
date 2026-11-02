@@ -50,6 +50,7 @@ def upgrade() -> None:
         sa.Column("amount", sa.Integer(), nullable=False),
         sa.Column("comment", sa.String(length=500), nullable=False),
         sa.Column("staff_id", sa.Uuid(), nullable=False),
+        sa.Column("idempotency_key", sa.Uuid(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("amount <> 0", name=op.f("ck_rental_adjustments_amount_not_zero")),
         sa.CheckConstraint("seq > 0", name=op.f("ck_rental_adjustments_seq_positive")),
@@ -63,6 +64,11 @@ def upgrade() -> None:
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_rental_adjustments")),
         sa.UniqueConstraint("rental_id", "seq", name=op.f("uq_rental_adjustments_rental_id")),
+        sa.UniqueConstraint(
+            "rental_id",
+            "idempotency_key",
+            name=op.f("uq_rental_adjustments_rental_id_idempotency_key"),
+        ),
     )
     # An adjustment is part of what the client was charged, like the receipt (docs/adr/0025).
     op.execute(

@@ -36,6 +36,7 @@ from flagman.identity.domain import (
     AccessClaims,
     AccessTokenInvalidError,
     ClientCursor,
+    ClientFilter,
     ClientNotFoundError,
     Language,
     OtpExpiredError,
@@ -85,7 +86,6 @@ from flagman.identity.ports import SmsSender
 from flagman.identity.repository import (
     ClientBlock,
     ClientBlockEvent,
-    ClientFilter,
     ClientProfileRecord,
     StaffRecord,
 )

@@ -22,11 +22,11 @@ from flagman.identity.dependencies import (
 )
 from flagman.identity.domain import (
     REFRESH_TOKEN_TTL,
+    ClientFilter,
     RefreshTokenInvalidError,
     StaffRole,
 )
 from flagman.identity.ports import SmsSender, create_sms_sender
-from flagman.identity.repository import ClientFilter
 from flagman.identity.schemas import (
     BlockIn,
     ClientListQuery,

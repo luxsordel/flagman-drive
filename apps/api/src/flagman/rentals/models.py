@@ -224,6 +224,12 @@ class Adjustment(Base):
     __tablename__ = "rental_adjustments"
     __table_args__ = (
         UniqueConstraint("rental_id", "seq"),
+        # Named: the convention takes only the first column, which the seq constraint has too.
+        UniqueConstraint(
+            "rental_id",
+            "idempotency_key",
+            name="uq_rental_adjustments_rental_id_idempotency_key",
+        ),
         CheckConstraint("amount <> 0", name="amount_not_zero"),
         CheckConstraint("seq > 0", name="seq_positive"),
     )
@@ -234,4 +240,5 @@ class Adjustment(Base):
     amount: Mapped[int] = mapped_column(Integer)
     comment: Mapped[str] = mapped_column(String(STAFF_REASON_MAX_LENGTH))
     staff_id: Mapped[UUID] = mapped_column(ForeignKey("staff_members.id"))
+    idempotency_key: Mapped[UUID]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

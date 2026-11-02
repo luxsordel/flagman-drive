@@ -11,6 +11,7 @@ from sqlalchemy.sql.dml import ReturningDelete
 
 from flagman.identity.domain import (
     ClientCursor,
+    ClientFilter,
     Language,
     OtpChallenge,
     RefreshTokenState,
@@ -581,13 +582,6 @@ def _client_record(row: User) -> ClientRecord:
         blocked_reason=row.blocked_reason,
         blocked_by=row.blocked_by,
     )
-
-
-@dataclass(frozen=True)
-class ClientFilter:
-    # A part of the phone or of the name, as the operator types it.
-    search: str | None = None
-    blocked: bool | None = None
 
 
 async def list_clients(

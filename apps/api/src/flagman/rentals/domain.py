@@ -769,6 +769,8 @@ class Adjustment:
     amount: int
     comment: str
     staff_id: uuid.UUID
+    # Sent by the admin panel once per filled form: a repeat after a lost answer is not a new one.
+    idempotency_key: uuid.UUID
     created_at: datetime
 
 

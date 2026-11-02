@@ -51,6 +51,7 @@ def _adjustment(amount: int, seq: int = 1) -> Adjustment:
         amount=amount,
         comment="comment",
         staff_id=uuid.uuid4(),
+        idempotency_key=uuid.uuid4(),
         created_at=NOW,
     )
 

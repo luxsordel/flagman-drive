@@ -599,8 +599,17 @@ def _to_adjustment(row: AdjustmentRow) -> Adjustment:
         amount=row.amount,
         comment=row.comment,
         staff_id=row.staff_id,
+        idempotency_key=row.idempotency_key,
         created_at=row.created_at,
     )
+
+
+async def get_adjustment_by_key(db: AsyncSession, rental_id: UUID, key: UUID) -> Adjustment | None:
+    query = select(AdjustmentRow).where(
+        AdjustmentRow.rental_id == rental_id, AdjustmentRow.idempotency_key == key
+    )
+    row = await db.scalar(query)
+    return _to_adjustment(row) if row else None
 
 
 async def get_adjustments(db: AsyncSession, rental_id: UUID) -> list[Adjustment]:
@@ -629,6 +638,7 @@ class NewAdjustment:
     amount: int
     comment: str
     staff_id: UUID
+    idempotency_key: UUID
     created_at: datetime
 
 
@@ -640,6 +650,7 @@ async def add_adjustment(db: AsyncSession, adjustment: NewAdjustment) -> Adjustm
         amount=adjustment.amount,
         comment=adjustment.comment,
         staff_id=adjustment.staff_id,
+        idempotency_key=adjustment.idempotency_key,
         created_at=adjustment.created_at,
     )
     db.add(row)

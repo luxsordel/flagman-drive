@@ -46,7 +46,7 @@ class User(Base):
     # Set by an operator; a blocked client may not reserve or open cars (docs/adr/0025).
     blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     blocked_reason: Mapped[str | None] = mapped_column(String(BLOCK_REASON_LENGTH))
-    # Who blocked; the full history of blocks and unblocks is in the audit log.
+    # Who blocked; every block and unblock with its reason is in client_block_events.
     blocked_by: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
 
 

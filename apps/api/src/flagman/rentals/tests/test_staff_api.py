@@ -124,12 +124,38 @@ def _card(client: TestClient, staff: Staff, rental_id: str) -> Any:
     return client.get(f"/admin/rentals/{rental_id}", headers=staff.headers)
 
 
-def _adjust(client: TestClient, staff: Staff, rental_id: str, amount: int, comment: str) -> Any:
+def _adjust(  # noqa: PLR0913, PLR0917 - the request and who sends it
+    client: TestClient,
+    staff: Staff,
+    rental_id: str,
+    amount: int,
+    comment: str,
+    key: uuid.UUID | None = None,
+) -> Any:
     return client.post(
         f"/admin/rentals/{rental_id}/adjustments",
         json={"amount": amount, "comment": comment},
-        headers=staff.headers,
+        headers={**staff.headers, "Idempotency-Key": str(key or uuid.uuid4())},
     )
+
+
+def _audited(settings: Settings, rental_id: str, action: str) -> list[Any]:
+    return [e for e in _audit(settings, rental_id) if e.action == action]
+
+
+def _fail_charges_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The provider charges, but its answer to the next charge is lost."""
+    original = FakeProvider.charge
+    failures = [1]
+
+    async def charge(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        result = await original(self, request)
+        if failures[0]:
+            failures[0] -= 1
+            raise PaymentProviderError("timeout")
+        return result
+
+    monkeypatch.setattr(FakeProvider, "charge", charge)
 
 
 def _force(client: TestClient, staff: Staff, rental_id: str, reason: str = "Stuck") -> Any:
@@ -386,6 +412,26 @@ def test_a_trip_ends_even_if_the_car_does_not_answer(  # noqa: PLR0913, PLR0917 
     assert response.status_code == HTTPStatus.OK, response.text
     assert response.json()["locked"] is False
     assert response.json()["rental"]["rental"]["ended_at"] is not None
+    [event] = _audited(integration_settings, rental_id, "rental.force_finished")
+    assert event.details["locked"] is False
+
+
+def test_a_parked_trip_is_force_finished_too(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _start(person, car)
+    parked = person.client.post(f"/rentals/{rental_id}/park", headers=person.headers)
+    assert parked.json()["status"] == "parked", parked.text
+
+    response = _force(app_client, operator, rental_id)
+
+    assert response.status_code == HTTPStatus.OK, response.text
+    [event] = _audited(integration_settings, rental_id, "rental.force_finished")
+    assert event.details["status_before"] == "parked"
 
 
 @pytest.mark.parametrize("stage", ["reserved", "paid"])
@@ -641,3 +687,135 @@ def test_a_refund_the_provider_lost_is_sent_again_with_its_key(  # noqa: PLR0913
         (lost.idempotency_key, 100, "succeeded")
     ]
     assert response.json()["owed"] == 0
+    assert len(_audited(integration_settings, rental_id, "rental.refund_retried")) == 1
+
+
+def test_a_repeat_with_the_same_key_moves_no_money_again(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    key = uuid.uuid4()
+    first = _adjust(app_client, operator, rental_id, -100, "Late unlock", key)
+
+    again = _adjust(app_client, operator, rental_id, -100, "Late unlock", key)
+    other = _adjust(app_client, operator, rental_id, -200, "Late unlock", key)
+
+    assert (first.status_code, again.status_code) == (HTTPStatus.CREATED, HTTPStatus.CREATED)
+    assert again.json()["adjustments"] == first.json()["adjustments"]
+    assert other.status_code == HTTPStatus.CONFLICT
+    assert problem_type(other) == "idempotency-key-reused"
+    refunds = [op for op in _operations(integration_settings, rental_id) if op.kind == "refund"]
+    assert [op.amount for op in refunds] == [100]
+
+
+def test_each_decrease_refunds_its_own_share_over_several_payments(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    _adjust(app_client, operator, rental_id, 300, "Parking fee")
+
+    first = _adjust(app_client, operator, rental_id, -350, "Fee disputed")
+    second = _adjust(app_client, operator, rental_id, -20, "Goodwill")
+
+    assert (first.json()["owed"], second.json()["owed"]) == (0, 0)
+    refunds = [
+        (op.idempotency_key.split(":")[3], op.amount)
+        for op in _operations(integration_settings, rental_id)
+        if op.kind == "refund"
+    ]
+    # The increase is adjustment 1. The newest payment goes first: the 300 charged as a debt,
+    # then the capture of the trip; one moment's refunds come in any order.
+    assert sorted(refunds) == [("2", 50), ("2", 300), ("3", 20)]
+
+
+def test_no_adjustment_while_a_debt_try_has_no_answer(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    person.bind_card(DECLINED_CARD)
+    _make_default(person, "9995")
+    _adjust(app_client, operator, rental_id, 300, "Smoking in the car")
+    _make_default(person, "4242")
+    _fail_charges_once(monkeypatch)
+    unknown = app_client.post(f"/rentals/{rental_id}/pay", headers=person.headers)
+    assert unknown.json()["status"] == "payment_failed", unknown.text
+
+    response = _adjust(app_client, operator, rental_id, -100, "Partly disputed")
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert problem_type(response) == "rental-settlement-pending"
+    paid = app_client.post(f"/rentals/{rental_id}/pay", headers=person.headers)
+    assert paid.json()["status"] == "paid"
+
+
+def test_an_increase_with_no_answer_does_not_tell_the_client_it_failed(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    _fail_charges_once(monkeypatch)
+
+    response = _adjust(app_client, operator, rental_id, 250, "Parking fee of the city")
+
+    assert response.status_code == HTTPStatus.CREATED, response.text
+    queued = query(
+        integration_settings,
+        "SELECT event FROM notification_outbox WHERE rental_id = :id AND event = 'payment_failed'",
+        id=uuid.UUID(rental_id),
+    )
+    assert queued == []
+    # The lost charge did go through: asking again finds it paid.
+    paid = app_client.post(f"/rentals/{rental_id}/pay", headers=person.headers)
+    assert paid.json()["status"] == "paid"
+    charges = [op for op in _operations(integration_settings, rental_id) if op.kind == "charge"]
+    assert [op.amount for op in charges] == [250]
+
+
+def test_the_paid_wait_of_a_cancelled_reservation_is_adjusted_too(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = str(person.reserve(car).json()["id"])
+    _shift_reservation(integration_settings, rental_id, 20)
+    cancelled = person.cancel(rental_id).json()
+    assert cancelled["charge_status"] == "paid"
+    paid_wait = cancelled["receipt"]["cost"]["total"]
+
+    response = _adjust(app_client, operator, rental_id, -paid_wait, "The car would not open")
+
+    assert response.status_code == HTTPStatus.CREATED, response.text
+    assert response.json()["rental"]["status"] == "cancelled"
+    assert response.json()["rental"]["total"] == 0
+    refunds = [op for op in _operations(integration_settings, rental_id) if op.kind == "refund"]
+    assert [op.amount for op in refunds] == [paid_wait]
+
+
+def _shift_reservation(settings: Settings, rental_id: str, minutes: int) -> None:
+    execute(
+        settings,
+        "UPDATE rentals SET reserved_at = reserved_at - make_interval(mins => :minutes), "
+        "free_wait_until = free_wait_until - make_interval(mins => :minutes), "
+        "expires_at = expires_at - make_interval(mins => :minutes) WHERE id = :id",
+        id=uuid.UUID(rental_id),
+        minutes=minutes,
+    )

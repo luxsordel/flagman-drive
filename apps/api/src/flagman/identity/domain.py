@@ -587,6 +587,13 @@ class ClientNotFoundError(AppError):
 
 
 @dataclass(frozen=True)
+class ClientFilter:
+    # A part of the phone or of the name, as the operator types it.
+    search: str | None = None
+    blocked: bool | None = None
+
+
+@dataclass(frozen=True)
 class ClientCursor:
     """Position after the last client of a page; pages go from the newest sign-up."""
 

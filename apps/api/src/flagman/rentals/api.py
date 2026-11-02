@@ -3,7 +3,7 @@ from http import HTTPStatus
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
@@ -53,6 +53,7 @@ from flagman.rentals.schemas import (
     StaffRentalQuery,
 )
 from flagman.rentals.service import (
+    AdjustmentRequest,
     CommandRequest,
     InspectionRef,
     RentalService,
@@ -523,7 +524,8 @@ StaffCommander = Annotated[fleet.CarCommander, Depends(get_staff_car_commander)]
 _MONEY_CONFLICT = _problem(
     "`urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended; "
     "`rental-settlement-pending`: its payment has not answered yet, try later; "
-    "`rental-adjustment-invalid`: the total would go below zero."
+    "`rental-adjustment-invalid`: the total would go below zero; "
+    "`idempotency-key-reused`: the key was sent with another amount or comment."
 )
 
 
@@ -605,9 +607,20 @@ async def force_finish(
     },
 )
 async def adjust_rental(
-    staff: LiveStaff, rental_id: UUID, body: AdjustmentIn, service: LiveStaffService
+    staff: LiveStaff,
+    rental_id: UUID,
+    body: AdjustmentIn,
+    idempotency_key: Annotated[
+        UUID,
+        Header(
+            alias="Idempotency-Key",
+            description="A new one per filled form; a repeat with it changes nothing again.",
+        ),
+    ],
+    service: LiveStaffService,
 ) -> StaffRentalOut:
-    card = await service.adjust(rental_id, body.amount, body.comment)
+    change = AdjustmentRequest(amount=body.amount, comment=body.comment, key=idempotency_key)
+    card = await service.adjust(rental_id, change)
     return StaffRentalOut.of(card, datetime.now(UTC))
 
 
