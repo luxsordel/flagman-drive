@@ -5067,7 +5067,10 @@ export interface operations {
   adjust_rental_admin_rentals__rental_id__adjustments_post: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description A new one per filled form; a repeat with it changes nothing again. */
+        'Idempotency-Key': string;
+      };
       path: {
         rental_id: string;
       };
@@ -5115,7 +5118,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended; `rental-settlement-pending`: its payment has not answered yet, try later; `rental-adjustment-invalid`: the total would go below zero. */
+      /** @description `urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended; `rental-settlement-pending`: its payment has not answered yet, try later; `rental-adjustment-invalid`: the total would go below zero; `idempotency-key-reused`: the key was sent with another amount or comment. */
       409: {
         headers: {
           [name: string]: unknown;
