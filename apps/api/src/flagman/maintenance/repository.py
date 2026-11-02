@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import Select, func, or_, select, update
+from sqlalchemy import Select, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +16,7 @@ from flagman.maintenance.domain import (
     TaskType,
     Worker,
 )
+from flagman.maintenance.models import OPEN_CONDITION
 from flagman.maintenance.models import MaintenanceTask as TaskRow
 from flagman.maintenance.models import MaintenanceTaskPhoto as PhotoRow
 
@@ -81,7 +82,10 @@ async def add_charging_task_if_absent(db: AsyncSession, car_id: UUID, now: datet
             updated_at=now,
         )
         .on_conflict_do_nothing(
-            index_elements=["car_id", "type"], index_where=TaskRow.status.in_(OPEN_STATUSES)
+            # The index's own literal: Postgres matches the condition as written, and a set
+            # of statuses would come out in another order in some processes.
+            index_elements=["car_id", "type"],
+            index_where=text(OPEN_CONDITION),
         )
         .returning(TaskRow)
     )

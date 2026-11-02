@@ -23,7 +23,7 @@ def _listed(values: type[StrEnum] | frozenset[TaskStatus]) -> str:
 
 # A literal, not built from OPEN_STATUSES: Semgrep refuses text() over a computed string.
 # test_models.py keeps the two in step.
-_OPEN = "status IN ('assigned', 'in_progress', 'new')"
+OPEN_CONDITION = "status IN ('assigned', 'in_progress', 'new')"
 
 
 class MaintenanceTask(Base):
@@ -45,9 +45,9 @@ class MaintenanceTask(Base):
             "car_id",
             "type",
             unique=True,
-            postgresql_where=text(_OPEN),
+            postgresql_where=text(OPEN_CONDITION),
         ),
-        Index("ix_maintenance_tasks_open_status", "status", postgresql_where=text(_OPEN)),
+        Index("ix_maintenance_tasks_open_status", "status", postgresql_where=text(OPEN_CONDITION)),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
