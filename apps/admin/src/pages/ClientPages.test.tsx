@@ -6,6 +6,7 @@ import ru from '../i18n/ru.json';
 import { testStaff } from '../test/auth';
 import { clientSummary, fakeClientsApi, staffClient } from '../test/clients';
 import { renderAt } from '../test/render';
+import { fakeRentalsApi, rentalItem } from '../test/rentals';
 
 const operator = testStaff('operator');
 
@@ -34,13 +35,19 @@ describe('clients list', () => {
 });
 
 describe('client card', () => {
-  it('shows the documents, the debt and a link to the rentals', async () => {
+  it('shows the documents, the debt and the latest rentals', async () => {
     const card = staffClient({ kyc_status: 'pending', debt: 1500 });
-    renderAt(`/clients/${card.id}`, operator, { clients: fakeClientsApi({ card }) });
+    const trip = rentalItem({ id: 'r-1', total: 1250 });
+    const rentals = fakeRentalsApi({ items: [trip] });
+    renderAt(`/clients/${card.id}`, operator, { clients: fakeClientsApi({ card }), rentals });
 
     expect(await screen.findByText(ru.clients.kycStatuses.pending)).toBeDefined();
     expect(screen.getByText(/15,00/)).toBeDefined();
-    expect(screen.getByRole('link', { name: ru.clients.rentals }).getAttribute('href')).toBe(
+    const recent = await screen.findByRole('link', { name: /1234 AB-7/ });
+    expect(recent.getAttribute('href')).toBe('/rentals/r-1');
+    expect(recent.textContent).toContain('12,50');
+    expect(rentals.list).toHaveBeenCalledWith({ userId: card.id });
+    expect(screen.getByRole('link', { name: ru.clients.allRentals }).getAttribute('href')).toBe(
       `/rentals?client=${card.id}`,
     );
   });

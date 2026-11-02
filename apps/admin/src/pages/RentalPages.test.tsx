@@ -201,6 +201,20 @@ describe('rental card', () => {
     expect((await screen.findByRole('alert')).textContent).toBe(ru.rentals.problems.reason);
   });
 
+  it('says the car is still answering instead of asking to reload', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const base = staffRental();
+    const card = staffRental({ rental: { ...base.rental, status: 'in_trip', ended_at: null } });
+    const rentals = fakeRentalsApi({ card });
+    rentals.forceFinish.mockRejectedValueOnce(new ApiError(409, 'rental-command-in-progress'));
+    renderAt(`/rentals/${card.rental.id}`, operator, { rentals });
+
+    await userEvent.type(await screen.findByLabelText(ru.rentals.reason), 'Lost');
+    await userEvent.click(screen.getByRole('button', { name: ru.rentals.forceFinish }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ru.rentals.problems.busy);
+  });
+
   it('offers to finish a refund when money is owed back and no refund was made', async () => {
     const card = staffRental({ owed: -100 });
     renderAt(`/rentals/${card.rental.id}`, operator, { rentals: fakeRentalsApi({ card }) });

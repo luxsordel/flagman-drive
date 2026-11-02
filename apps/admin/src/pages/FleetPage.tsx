@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 
 import { useApis } from '../api/context';
 import { useAuth, useStaff } from '../auth/context';
@@ -306,6 +307,11 @@ function CarCard({
       </dl>
       {role !== 'technician' && (car.status === 'reserved' || car.status === 'in_rental') && (
         <CurrentRentalLink carId={car.id} />
+      )}
+      {role !== 'technician' && (
+        <p>
+          <Link to={`/rentals?car=${car.id}`}>{t('rentals.ofCar')}</Link>
+        </p>
       )}
       {lastCommand && (
         <p className="muted">

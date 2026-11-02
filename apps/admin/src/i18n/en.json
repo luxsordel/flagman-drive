@@ -720,7 +720,7 @@
     "tariff": "Tariff",
     "prices": "driving {{driving}}/min, parked {{parked}}/min, waiting {{waiting}}/min",
     "forcedBy": "Force-finished by {{name}}. Reason: {{reason}}",
-    "notLocked": "The car did not confirm the lock. Send a technician to close it.",
+    "notLocked": "The car did not confirm the lock and was sent to service: it is off the map. Give a technician a task to close it.",
     "money": "Cost",
     "lines": {
       "waiting": "Waiting",
@@ -768,10 +768,13 @@
     "problems": {
       "conflict": "The rental is in another status already. Reload the page.",
       "pending": "The rental's payment has not finished yet. Try again in a minute.",
-      "invalid": "Check the amount and the comment: the total cannot go below zero.",
+      "invalid": "The total cannot go below zero. Check the amount.",
       "failed": "Could not do it. Try again.",
       "reason": "Give a reason without control characters, up to 500 characters.",
-      "reused": "This form was already sent with other data. Fill it in again."
+      "reused": "This form was already sent with other data. Fill it in again.",
+      "busy": "The car is still answering the previous command. Try again in a minute.",
+      "paymentsUnavailable": "Payments are not available now. Try again later.",
+      "rejected": "Check the amount and the comment: up to 500 characters, no control characters."
     },
     "forceFinish": "Force finish",
     "reason": "Reason",
@@ -787,7 +790,8 @@
     "adjustSubmit": "Apply",
     "retryRefunds": "Retry the refund",
     "current": "Current rental",
-    "ongoing": "Going on"
+    "ongoing": "Going on",
+    "ofCar": "The car's rentals"
   },
   "clients": {
     "filters": "Client search",
@@ -813,7 +817,7 @@
       "rejected": "Rejected"
     },
     "debt": "Debt",
-    "rentals": "The client's rentals",
+    "rentals": "Latest rentals",
     "blockedBy": "Blocked by {{name}}. Reason: {{reason}}",
     "block": "Block",
     "unblock": "Unblock",
@@ -824,7 +828,12 @@
     "wasBlocked": "Blocked",
     "wasUnblocked": "Unblocked",
     "blockConfirm": "Block the client? They will not reserve or open cars.",
-    "unblockConfirm": "Unblock the client?"
+    "unblockConfirm": "Unblock the client?",
+    "allRentals": "All the client's rentals",
+    "rentalsLoading": "Loading the rentals…",
+    "rentalsFailed": "Could not load the rentals.",
+    "noRentals": "No rentals yet.",
+    "rentalLine": "{{time}} · {{plate}} · {{status}} · {{total}}"
   },
   "load": {
     "forbidden": "This section is not available to your role.",

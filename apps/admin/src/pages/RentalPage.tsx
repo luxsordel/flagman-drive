@@ -12,14 +12,25 @@ import { SupportPhoto } from '../support/SupportPhoto';
 import { formatKopecks, parseRubles } from '../tariffs/money';
 import { formatMinskTime } from '../time/minsk';
 
-type ActionProblem = 'conflict' | 'pending' | 'invalid' | 'reason' | 'reused' | 'failed';
+type ActionProblem =
+  | 'conflict'
+  | 'busy'
+  | 'pending'
+  | 'invalid'
+  | 'rejected'
+  | 'reason'
+  | 'reused'
+  | 'paymentsUnavailable'
+  | 'failed';
 
 /** `action` tells a refused reason of a forced finish from a refused amount of an adjustment. */
 function actionProblem(error: unknown, action: 'force' | 'adjust' | 'refund'): ActionProblem {
   if (error instanceof ApiError) {
     if (error.problem === 'rental-settlement-pending') return 'pending';
     if (error.problem === 'idempotency-key-reused') return 'reused';
-    if (error.status === 422) return action === 'force' ? 'reason' : 'invalid';
+    if (error.problem === 'rental-command-in-progress') return 'busy';
+    if (error.problem === 'payments-unavailable') return 'paymentsUnavailable';
+    if (error.status === 422) return action === 'force' ? 'reason' : 'rejected';
     if (error.problem === 'rental-adjustment-invalid') return 'invalid';
     if (error.status === 409) return 'conflict';
   }

@@ -8,6 +8,7 @@ import { loadProblem, type LoadProblem } from '../api/loadProblem';
 import { useAuth } from '../auth/context';
 import { blockReasonMaxLength, type StaffClient } from '../clients/api';
 import { formatCalendarDay, fullName } from '../kyc/format';
+import { ClientRentals } from '../rentals/ClientRentals';
 import { formatKopecks } from '../tariffs/money';
 import { formatMinskTime } from '../time/minsk';
 
@@ -110,9 +111,7 @@ export function ClientPage() {
         <dt>{t('clients.debt')}</dt>
         <dd>{formatKopecks(client.debt, i18n.language)}</dd>
       </dl>
-      <p>
-        <Link to={`/rentals?client=${client.id}`}>{t('clients.rentals')}</Link>
-      </p>
+      <ClientRentals clientId={client.id} />
       {client.block && (
         <p role="status" className="list-error">
           {t('clients.blockedBy', {
