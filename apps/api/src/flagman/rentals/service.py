@@ -697,6 +697,13 @@ async def _postpone(db: AsyncSession, rental_id: UUID, next_at: datetime, now: d
             await repository.set_charge(db, rental.id, state, now)
 
 
+async def client_debt(db: AsyncSession, user_id: UUID) -> int:
+    """Kopecks the client owes for every earlier rental, for the staff (docs/adr/0025)."""
+    async with db.begin():
+        rentals = await repository.get_debts(db, user_id)
+    return sum([await owed(db, rental) for rental in rentals])
+
+
 async def owed(db: AsyncSession, rental: Rental) -> int:
     async with db.begin():
         total = await _billed(db, rental.id)

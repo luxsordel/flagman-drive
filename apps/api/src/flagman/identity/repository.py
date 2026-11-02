@@ -3,13 +3,19 @@ from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, func, or_, select, text, update
+from sqlalchemy import and_, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.dml import ReturningDelete
 
-from flagman.identity.domain import Language, OtpChallenge, RefreshTokenState, StaffRole
+from flagman.identity.domain import (
+    ClientCursor,
+    Language,
+    OtpChallenge,
+    RefreshTokenState,
+    StaffRole,
+)
 from flagman.identity.models import (
     AuthSession,
     PendingOtp,
@@ -19,6 +25,7 @@ from flagman.identity.models import (
     StaffSession,
     User,
 )
+from flagman.identity.models import ClientBlockEvent as BlockEventRow
 
 
 async def save_pending_otp(
@@ -74,6 +81,7 @@ class ClientProfileRecord:
     birth_date: date | None
     email: str | None
     language: Language
+    blocked: bool = False
 
 
 PROFILE_FIELDS = frozenset({"first_name", "last_name", "birth_date", "email", "language"})
@@ -87,6 +95,7 @@ def _client_profile_record(row: User) -> ClientProfileRecord:
         birth_date=row.birth_date,
         email=row.email,
         language=Language(row.language),
+        blocked=row.blocked_at is not None,
     )
 
 
@@ -538,3 +547,134 @@ async def delete_ended_staff_sessions(db: AsyncSession, ended_before: datetime, 
     return await _delete_count(
         db, delete(StaffSession).where(StaffSession.id.in_(batch)).returning(StaffSession.id)
     )
+
+
+# Clients for staff (docs/adr/0025)
+
+
+@dataclass(frozen=True)
+class ClientRecord:
+    id: UUID
+    phone: str
+    first_name: str | None
+    last_name: str | None
+    birth_date: date | None
+    email: str | None
+    language: Language
+    created_at: datetime
+    blocked_at: datetime | None
+    blocked_reason: str | None
+    blocked_by: UUID | None
+
+
+def _client_record(row: User) -> ClientRecord:
+    return ClientRecord(
+        id=row.id,
+        phone=row.phone,
+        first_name=row.first_name,
+        last_name=row.last_name,
+        birth_date=row.birth_date,
+        email=row.email,
+        language=Language(row.language),
+        created_at=row.created_at,
+        blocked_at=row.blocked_at,
+        blocked_reason=row.blocked_reason,
+        blocked_by=row.blocked_by,
+    )
+
+
+@dataclass(frozen=True)
+class ClientFilter:
+    # A part of the phone or of the name, as the operator types it.
+    search: str | None = None
+    blocked: bool | None = None
+
+
+async def list_clients(
+    db: AsyncSession, filters: ClientFilter, cursor: ClientCursor | None, limit: int
+) -> list[ClientRecord]:
+    query = select(User)
+    if filters.search:
+        query = query.where(
+            or_(
+                User.phone.contains(filters.search, autoescape=True),
+                User.first_name.icontains(filters.search, autoescape=True),
+                User.last_name.icontains(filters.search, autoescape=True),
+            )
+        )
+    if filters.blocked is not None:
+        query = query.where(
+            User.blocked_at.is_not(None) if filters.blocked else User.blocked_at.is_(None)
+        )
+    if cursor is not None:
+        query = query.where(
+            or_(
+                User.created_at < cursor.created_at,
+                and_(User.created_at == cursor.created_at, User.id < cursor.user_id),
+            )
+        )
+    query = query.order_by(User.created_at.desc(), User.id.desc()).limit(limit)
+    return [_client_record(row) for row in await db.scalars(query)]
+
+
+async def get_client(
+    db: AsyncSession, user_id: UUID, *, for_update: bool = False
+) -> ClientRecord | None:
+    query = select(User).where(User.id == user_id)
+    if for_update:
+        query = query.with_for_update()
+    row = await db.scalar(query)
+    return _client_record(row) if row is not None else None
+
+
+@dataclass(frozen=True)
+class ClientBlock:
+    at: datetime
+    reason: str
+    staff_id: UUID
+
+
+async def set_client_block(db: AsyncSession, user_id: UUID, block: ClientBlock | None) -> None:
+    await db.execute(
+        update(User)
+        .where(User.id == user_id)
+        .values(
+            blocked_at=block.at if block else None,
+            blocked_reason=block.reason if block else None,
+            blocked_by=block.staff_id if block else None,
+        )
+    )
+
+
+@dataclass(frozen=True)
+class ClientBlockEvent:
+    user_id: UUID
+    blocked: bool
+    reason: str
+    staff_id: UUID
+    created_at: datetime
+
+
+async def add_client_block_event(db: AsyncSession, event: ClientBlockEvent) -> None:
+    db.add(
+        BlockEventRow(
+            user_id=event.user_id,
+            blocked=event.blocked,
+            reason=event.reason,
+            staff_id=event.staff_id,
+            created_at=event.created_at,
+        )
+    )
+    await db.flush()
+
+
+async def get_client_block_events(db: AsyncSession, user_id: UUID) -> list[ClientBlockEvent]:
+    query = (
+        select(BlockEventRow)
+        .where(BlockEventRow.user_id == user_id)
+        .order_by(BlockEventRow.created_at.desc(), BlockEventRow.id.desc())
+    )
+    return [
+        ClientBlockEvent(row.user_id, row.blocked, row.reason, row.staff_id, row.created_at)
+        for row in await db.scalars(query)
+    ]

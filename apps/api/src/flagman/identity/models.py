@@ -144,3 +144,17 @@ class StaffRefreshToken(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ClientBlockEvent(Base):
+    """Every block and unblock with its reason; append-only, like the audit log it backs."""
+
+    __tablename__ = "client_block_events"
+    __table_args__ = (Index("ix_client_block_events_user_id_created_at", "user_id", "created_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    blocked: Mapped[bool]
+    reason: Mapped[str] = mapped_column(String(BLOCK_REASON_LENGTH))
+    staff_id: Mapped[UUID] = mapped_column(ForeignKey("staff_members.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

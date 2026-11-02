@@ -95,9 +95,33 @@ def upgrade() -> None:
         "users",
         "(blocked_at IS NULL) = (blocked_reason IS NULL)",
     )
+    op.create_table(
+        "client_block_events",
+        sa.Column("id", sa.Uuid(), nullable=False),
+        sa.Column("user_id", sa.Uuid(), nullable=False),
+        sa.Column("blocked", sa.Boolean(), nullable=False),
+        sa.Column("reason", sa.String(length=500), nullable=False),
+        sa.Column("staff_id", sa.Uuid(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["user_id"], ["users.id"], name=op.f("fk_client_block_events_user_id_users")
+        ),
+        sa.ForeignKeyConstraint(
+            ["staff_id"],
+            ["staff_members.id"],
+            name=op.f("fk_client_block_events_staff_id_staff_members"),
+        ),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_client_block_events")),
+    )
+    op.create_index(
+        "ix_client_block_events_user_id_created_at",
+        "client_block_events",
+        ["user_id", "created_at"],
+    )
 
 
 def downgrade() -> None:
+    op.drop_table("client_block_events")
     op.drop_constraint(op.f("ck_users_block_has_reason"), "users", type_="check")
     op.drop_constraint(op.f("fk_users_blocked_by_staff_members"), "users", type_="foreignkey")
     op.drop_column("users", "blocked_by")

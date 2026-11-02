@@ -35,6 +35,8 @@ from flagman.identity.domain import (
     STAFF_SESSION_TTL,
     AccessClaims,
     AccessTokenInvalidError,
+    ClientCursor,
+    ClientNotFoundError,
     Language,
     OtpExpiredError,
     OtpInvalidError,
@@ -80,19 +82,31 @@ from flagman.identity.domain import (
     verify_password,
 )
 from flagman.identity.ports import SmsSender
-from flagman.identity.repository import ClientProfileRecord, StaffRecord
+from flagman.identity.repository import (
+    ClientBlock,
+    ClientBlockEvent,
+    ClientFilter,
+    ClientProfileRecord,
+    StaffRecord,
+)
 from flagman.identity.schemas import (
+    ClientBlockEventOut,
+    ClientBlockOut,
+    ClientPageOut,
     ClientProfile,
     ClientProfileUpdate,
+    ClientSummaryOut,
     OtpRequestAccepted,
     StaffAccessToken,
     StaffChallengeIssued,
+    StaffClientOut,
     StaffMemberList,
     StaffMemberSummary,
     StaffProfile,
     StaffTotpEnrollment,
     TokenPair,
 )
+from flagman.kyc.domain import KycStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -330,6 +344,7 @@ def _client_profile(record: ClientProfileRecord) -> ClientProfile:
         email=record.email,
         language=record.language,
         phone=record.phone,
+        blocked=record.blocked,
     )
 
 
@@ -925,3 +940,131 @@ async def _end_access(db: AsyncSession, staff_id: UUID, action: AuditAction, now
             target=AuditTarget(AuditTargetType.STAFF_MEMBER, staff_id),
         ),
     )
+
+
+# Clients for staff (docs/adr/0025)
+
+
+@dataclass(frozen=True)
+class ClientStanding:
+    kyc_status: KycStatus
+    # Kopecks owed for earlier rentals.
+    debt: int
+
+
+class ClientStandingLookup(Protocol):
+    """What other modules know of the client: KYC and rentals depend on identity, so the router
+    hands their answers in, as with PersonalDataLock."""
+
+    async def __call__(self, db: AsyncSession, user_id: UUID) -> ClientStanding: ...
+
+
+@dataclass(frozen=True)
+class StaffClientService:
+    """Clients as `operator` and `admin` see them; the router checks the role."""
+
+    db: AsyncSession
+    staff_id: UUID
+    origin: RequestOrigin
+    standing: ClientStandingLookup
+
+    async def list(
+        self, filters: ClientFilter, cursor: ClientCursor | None, limit: int
+    ) -> ClientPageOut:
+        async with self.db.begin():
+            # One more than asked tells whether another page follows.
+            found = await repository.list_clients(self.db, filters, cursor, limit + 1)
+        records = found[:limit]
+        last = records[-1] if len(found) > limit else None
+        return ClientPageOut(
+            items=[
+                ClientSummaryOut(
+                    id=record.id,
+                    phone=record.phone,
+                    first_name=record.first_name,
+                    last_name=record.last_name,
+                    created_at=record.created_at,
+                    blocked=record.blocked_at is not None,
+                )
+                for record in records
+            ],
+            next_cursor=ClientCursor(last.created_at, last.id).encode() if last else None,
+        )
+
+    async def get(self, user_id: UUID) -> StaffClientOut:
+        async with self.db.begin():
+            record = await repository.get_client(self.db, user_id)
+            if record is None:
+                raise ClientNotFoundError
+            history = await repository.get_client_block_events(self.db, user_id)
+            authors = {event.staff_id for event in history}
+            if record.blocked_by:
+                authors.add(record.blocked_by)
+            names = await repository.get_staff_display_names(self.db, authors)
+        standing = await self.standing(self.db, user_id)
+        block = None
+        if record.blocked_at is not None:
+            block = ClientBlockOut(
+                blocked_at=record.blocked_at,
+                reason=record.blocked_reason or "",
+                staff_id=record.blocked_by,
+                staff_name=names.get(record.blocked_by) if record.blocked_by else None,
+            )
+        return StaffClientOut(
+            id=record.id,
+            phone=record.phone,
+            first_name=record.first_name,
+            last_name=record.last_name,
+            birth_date=record.birth_date,
+            email=record.email,
+            language=record.language,
+            created_at=record.created_at,
+            block=block,
+            block_history=[
+                ClientBlockEventOut(
+                    blocked=event.blocked,
+                    reason=event.reason,
+                    staff_id=event.staff_id,
+                    staff_name=names.get(event.staff_id),
+                    created_at=event.created_at,
+                )
+                for event in history
+            ],
+            kyc_status=standing.kyc_status,
+            debt=standing.debt,
+        )
+
+    async def block(self, user_id: UUID, reason: str, now: datetime) -> StaffClientOut:
+        """A trip already under way goes on: the cars stay closed, the operator may end it."""
+        await self._set(user_id, reason, ClientBlock(now, reason, self.staff_id), now)
+        return await self.get(user_id)
+
+    async def unblock(self, user_id: UUID, reason: str, now: datetime) -> StaffClientOut:
+        await self._set(user_id, reason, None, now)
+        return await self.get(user_id)
+
+    async def _set(
+        self, user_id: UUID, reason: str, block: ClientBlock | None, now: datetime
+    ) -> None:
+        async with self.db.begin():
+            # Held: a reservation checking the block right now finishes first (is_client_blocked).
+            record = await repository.get_client(self.db, user_id, for_update=True)
+            if record is None:
+                raise ClientNotFoundError
+            if (record.blocked_at is not None) == (block is not None):
+                return
+            await repository.set_client_block(self.db, user_id, block)
+            # The reasons stay here: the audit log keeps ids only (docs/adr/0025).
+            event = ClientBlockEvent(user_id, block is not None, reason, self.staff_id, now)
+            await repository.add_client_block_event(self.db, event)
+            action = AuditAction.CLIENT_BLOCKED if block else AuditAction.CLIENT_UNBLOCKED
+            await audit.record(
+                self.db,
+                AuditEntry(
+                    _staff_actor(self.staff_id),
+                    action,
+                    self.origin,
+                    AuditTarget(AuditTargetType.CLIENT, user_id),
+                ),
+            )
+        logger.info("client_block_changed", user_id=str(user_id), blocked=block is not None)
