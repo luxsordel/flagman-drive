@@ -780,9 +780,10 @@ def ensure_adjustment_allowed(
     """Only a rental whose money is known, with a receipt to start from, and never below zero."""
     if rental.charge_status is ChargeStatus.PENDING:
         raise RentalSettlementPendingError
-    if rental.status not in _ADJUSTABLE:
+    # A reservation cancelled in its free wait has no receipt: there is nothing to adjust.
+    if rental.status not in _ADJUSTABLE or receipt_total is None:
         raise RentalTransitionNotAllowedError
-    if receipt_total is None or amount == 0:
+    if amount == 0:
         raise RentalAdjustmentInvalidError
     if adjusted_total(receipt_total, adjustments) + amount < 0:
         raise RentalAdjustmentInvalidError

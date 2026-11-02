@@ -286,7 +286,13 @@ async def find_operation(db: AsyncSession, idempotency_key: str) -> PaymentOpera
 
 
 async def operations_with_key_prefix(db: AsyncSession, prefix: str) -> list[PaymentOperation]:
-    """Every operation a caller made under its keys, oldest first: a rental's whole money."""
+    """Every operation a caller made under its keys, oldest first: a rental's whole money.
+
+    Joins the caller's transaction if one is open, so a caller holding its row reads the money
+    under the same lock.
+    """
+    if db.in_transaction():
+        return await repository.operations_with_key_prefix(db, prefix)
     async with db.begin():
         return await repository.operations_with_key_prefix(db, prefix)
 

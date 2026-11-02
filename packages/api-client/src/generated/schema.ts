@@ -6436,7 +6436,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended; `rental-settlement-pending`: its payment has not answered yet, try later; `rental-adjustment-invalid`: the total would go below zero; `idempotency-key-reused`: the key was sent with another amount or comment. */
+      /** @description `urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended or has no receipt; `rental-settlement-pending`: its payment has not answered yet, try later; `rental-adjustment-invalid`: the total would go below zero; `idempotency-key-reused`: the key was sent with another amount or comment. */
       409: {
         headers: {
           [name: string]: unknown;

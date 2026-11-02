@@ -1033,3 +1033,16 @@ def test_the_client_card_tells_the_debt(
     # Paid here, so the charge job of the other tests finds no debt of this one.
     _make_default(person, "4242")
     assert app_client.post(f"/rentals/{rental_id}/pay", headers=person.headers).status_code == 200
+
+
+def test_a_free_cancelled_reservation_has_nothing_to_adjust(
+    person: Person, car: str, operator: Staff, app_client: TestClient
+) -> None:
+    rental_id = str(person.reserve(car).json()["id"])
+    cancelled = person.cancel(rental_id).json()
+    assert cancelled["receipt"] is None
+
+    response = _adjust(app_client, operator, rental_id, 100, "Goodwill")
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert problem_type(response) == "rental-transition-not-allowed"

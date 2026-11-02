@@ -127,7 +127,7 @@ def test_an_adjustment_neither_goes_below_zero_nor_changes_nothing() -> None:
 def test_a_rental_without_a_receipt_has_nothing_to_adjust() -> None:
     rental = replace(RENTAL, status=RentalStatus.CANCELLED, charge_status=None)
 
-    with pytest.raises(RentalAdjustmentInvalidError):
+    with pytest.raises(RentalTransitionNotAllowedError):
         ensure_adjustment_allowed(rental, None, [], 1_00)
 
 

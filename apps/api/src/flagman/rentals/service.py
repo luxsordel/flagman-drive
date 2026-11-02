@@ -606,11 +606,13 @@ async def _retry_debt(
 async def _record(
     db: AsyncSession, rental_id: UUID, settled: _Settled, rules: SettlementRules, now: datetime
 ) -> None:
-    operations = await payments.operations_with_key_prefix(db, rental_key_prefix(rental_id))
     async with db.begin():
         rental = await repository.get_rental_by_id(db, rental_id, for_update=True)
         if rental is None:
             return
+        # Read under the lock an adjustment takes too: an increase and its charge either both
+        # count here or neither does.
+        operations = await payments.operations_with_key_prefix(db, rental_key_prefix(rental_id))
         total = await _billed(db, rental_id)
         taken = _refund_state(operations).taken
         if settled.status is ChargeStatus.PAID and taken < total:

@@ -522,7 +522,8 @@ LiveStaffService = Annotated[StaffRentalService, Depends(get_live_staff_rental_s
 StaffCommander = Annotated[fleet.CarCommander, Depends(get_staff_car_commander)]
 
 _MONEY_CONFLICT = _problem(
-    "`urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended; "
+    "`urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended or has "
+    "no receipt; "
     "`rental-settlement-pending`: its payment has not answered yet, try later; "
     "`rental-adjustment-invalid`: the total would go below zero; "
     "`idempotency-key-reused`: the key was sent with another amount or comment."
