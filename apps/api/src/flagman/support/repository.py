@@ -7,7 +7,7 @@ from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import case, func, select, text, tuple_, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.support.domain import (
@@ -34,6 +34,7 @@ class NewMessage:
     staff_id: UUID | None = None
     body: str | None = None
     object_key: str | None = None
+    client_message_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,7 @@ class NewIncident:
     description: str
     location: tuple[float, float] | None
     at: datetime
+    client_report_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -126,6 +128,7 @@ async def add_message(db: AsyncSession, conversation: Conversation, new: NewMess
         kind=new.kind,
         body=new.body,
         object_key=new.object_key,
+        client_message_id=new.client_message_id,
         created_at=new.at,
     )
     db.add(message)
@@ -136,6 +139,17 @@ async def add_message(db: AsyncSession, conversation: Conversation, new: NewMess
         conversation.client_unread += 1
     await db.flush()
     return message
+
+
+async def find_resent_message(
+    db: AsyncSession, user_id: UUID, client_message_id: UUID
+) -> Message | None:
+    """Across the client's conversations: support may close one between two attempts."""
+    return await db.scalar(
+        select(Message)
+        .join(Conversation, Conversation.id == Message.conversation_id)
+        .where(Conversation.user_id == user_id, Message.client_message_id == client_message_id)
+    )
 
 
 async def list_messages(
@@ -149,6 +163,16 @@ async def list_messages(
             .limit(limit)
         )
     ).all()
+
+
+async def last_messages(db: AsyncSession, conversation_ids: Sequence[UUID]) -> dict[UUID, Message]:
+    rows = await db.scalars(
+        select(Message)
+        .where(Message.conversation_id.in_(conversation_ids))
+        .ext(distinct_on(Message.conversation_id))
+        .order_by(Message.conversation_id, Message.seq.desc())
+    )
+    return {message.conversation_id: message for message in rows}
 
 
 async def get_message(db: AsyncSession, conversation_id: UUID, message_id: UUID) -> Message | None:
@@ -221,6 +245,16 @@ async def mark_read(
     )
 
 
+async def find_resent_incident(
+    db: AsyncSession, user_id: UUID, client_report_id: UUID
+) -> Incident | None:
+    return await db.scalar(
+        select(Incident).where(
+            Incident.user_id == user_id, Incident.client_report_id == client_report_id
+        )
+    )
+
+
 async def create_incident(db: AsyncSession, new: NewIncident) -> Incident:
     incident = Incident(
         user_id=new.user_id,
@@ -232,6 +266,7 @@ async def create_incident(db: AsyncSession, new: NewIncident) -> Incident:
         description=new.description,
         lat=new.location[0] if new.location else None,
         lon=new.location[1] if new.location else None,
+        client_report_id=new.client_report_id,
         sent_to_service=False,
         created_at=new.at,
         updated_at=new.at,

@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from http import HTTPStatus
 from typing import Any
 
@@ -13,7 +14,14 @@ from flagman.core.db import create_engine
 from flagman.core.photos import MAX_UPLOAD_BYTES
 from flagman.fleet.tests.conftest import Staff, add_car, bearer, staff_token
 from flagman.identity.domain import StaffRole
-from flagman.rentals.tests.conftest import CAR_POINT, FakeStorage, Person, photo, problem_type
+from flagman.rentals.tests.conftest import (
+    CAR_POINT,
+    FakeStorage,
+    Person,
+    photo,
+    problem_type,
+    query,
+)
 from flagman.support.service import MESSAGE_LIMIT, STAFF_MESSAGE_LIMIT, UPLOAD_LIMIT
 from flagman.support.tests.conftest import (
     audit_actions,
@@ -388,6 +396,179 @@ def test_a_photo_over_the_size_limit_is_refused(person: Person, storage: FakeSto
 
     assert response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
     assert problem_type(response) == "support-photo-too-large"
+    assert storage.objects == {}
+
+
+def test_the_queue_shows_the_last_message_and_who_took_the_conversation(
+    person: Person, operator: Staff, app_client: TestClient, storage: FakeStorage
+) -> None:
+    name_staff(operator, "Anna")
+    write(person, "First")
+    write(person, "Second")
+    conversation = _conversation_id(person)
+    app_client.post(f"/admin/support/conversations/{conversation}/take", headers=operator.headers)
+
+    card = _staff_conversation(app_client, operator, conversation).json()
+    assert card["last_message_text"] == "Second"
+    assert card["assigned_staff_name"] == "Anna"
+
+    send_photo(person, photo())
+    card = _staff_conversation(app_client, operator, conversation).json()
+    assert card["last_message_text"] is None
+
+
+def _support_pushes(settings: Settings, person: Person) -> list[Any]:
+    rows = query(
+        settings,
+        "SELECT event, rental_id, params FROM notification_outbox WHERE user_id = :id "
+        "ORDER BY created_at",
+        id=person.id,
+    )
+    return [row for row in rows if row.event == "support_reply"]
+
+
+def test_every_answer_of_an_operator_is_a_push_without_its_text(
+    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    write(person, "Hello")
+    conversation = _conversation_id(person)
+
+    reply(app_client, operator, conversation, "Secret detail", 0)
+    reply(app_client, operator, conversation, "One more", 0)
+
+    pushes = _support_pushes(integration_settings, person)
+    assert len(pushes) == 2
+    assert all(push.rental_id is None for push in pushes)
+    assert "Secret" not in str(pushes[0].params)
+
+
+def test_a_client_message_is_not_a_push(integration_settings: Settings, person: Person) -> None:
+    write(person, "Hello")
+
+    assert _support_pushes(integration_settings, person) == []
+
+
+def _write_once(person: Person, text: str, client_message_id: uuid.UUID) -> Any:
+    body = {"text": text, "client_message_id": str(client_message_id)}
+    return person.client.post("/support/messages", json=body, headers=person.headers)
+
+
+def test_a_resent_message_is_saved_once(person: Person) -> None:
+    client_message_id = uuid.uuid4()
+
+    first = _write_once(person, "Is the car ok?", client_message_id)
+    second = _write_once(person, "Is the car ok?", client_message_id)
+
+    assert first.status_code == second.status_code == HTTPStatus.CREATED
+    assert second.json()["id"] == first.json()["id"]
+    assert len(_messages(person)["items"]) == 1  # type: ignore[arg-type]
+
+
+def test_a_resend_after_the_close_opens_no_conversation(
+    person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    client_message_id = uuid.uuid4()
+    first = _write_once(person, "Is the car ok?", client_message_id)
+    conversation = _conversation_id(person)
+    app_client.post(f"/admin/support/conversations/{conversation}/close", headers=operator.headers)
+
+    second = _write_once(person, "Is the car ok?", client_message_id)
+
+    assert second.json()["id"] == first.json()["id"]
+    assert _conversation_id(person) == conversation
+
+
+def test_clients_do_not_share_message_ids(
+    integration_settings: Settings, person: Person, app_client: TestClient
+) -> None:
+    client_message_id = uuid.uuid4()
+    other = Person(integration_settings, app_client)
+
+    mine = _write_once(person, "Mine", client_message_id)
+    theirs = _write_once(other, "Theirs", client_message_id)
+
+    assert theirs.json()["id"] != mine.json()["id"]
+    assert theirs.json()["text"] == "Theirs"
+
+
+def test_a_resent_photo_is_stored_once(person: Person, storage: FakeStorage) -> None:
+    client_message_id = uuid.uuid4()
+
+    responses = [
+        person.client.post(
+            f"/support/messages/photos?client_message_id={client_message_id}",
+            content=photo(),
+            headers={**person.headers, "Content-Type": "image/jpeg"},
+        )
+        for _ in range(2)
+    ]
+
+    assert responses[0].json()["id"] == responses[1].json()["id"]
+    assert len(storage.objects) == 1
+
+
+def test_a_message_sent_twice_at_once_is_saved_once(person: Person) -> None:
+    client_message_id = uuid.uuid4()
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(
+            pool.map(lambda _: _write_once(person, "Is the car ok?", client_message_id), range(4))
+        )
+
+    assert {response.status_code for response in responses} == {HTTPStatus.CREATED}
+    assert len({response.json()["id"] for response in responses}) == 1
+    assert len(_messages(person)["items"]) == 1  # type: ignore[arg-type]
+
+
+def test_a_photo_sent_twice_at_once_is_stored_once(person: Person, storage: FakeStorage) -> None:
+    client_message_id = uuid.uuid4()
+
+    def attempt(_: int) -> Any:
+        return person.client.post(
+            f"/support/messages/photos?client_message_id={client_message_id}",
+            content=photo(),
+            headers={**person.headers, "Content-Type": "image/jpeg"},
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(pool.map(attempt, range(4)))
+
+    assert {response.status_code for response in responses} == {HTTPStatus.CREATED}
+    assert len({response.json()["id"] for response in responses}) == 1
+    assert len(storage.objects) == 1
+
+
+def test_a_photo_attaches_the_conversation_to_the_rental(
+    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    car = add_car(integration_settings, CAR_POINT)
+    rental = person.reserve(car).json()["id"]
+
+    response = person.client.post(
+        f"/support/messages/photos?rental_id={rental}",
+        content=photo(),
+        headers={**person.headers, "Content-Type": "image/jpeg"},
+    )
+
+    assert response.status_code == HTTPStatus.CREATED
+    view = _staff_conversation(app_client, operator, _conversation_id(person)).json()
+    assert (view["rental_id"], view["car_id"]) == (rental, car)
+
+
+def test_a_photo_cannot_attach_another_clients_rental(
+    integration_settings: Settings, person: Person, app_client: TestClient, storage: FakeStorage
+) -> None:
+    other = Person(integration_settings, app_client)
+    rental = other.reserve(add_car(integration_settings, CAR_POINT)).json()["id"]
+
+    response = person.client.post(
+        f"/support/messages/photos?rental_id={rental}",
+        content=photo(),
+        headers={**person.headers, "Content-Type": "image/jpeg"},
+    )
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert problem_type(response) == "rental-not-found"
     assert storage.objects == {}
 
 

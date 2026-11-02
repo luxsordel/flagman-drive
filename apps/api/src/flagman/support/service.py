@@ -31,6 +31,8 @@ from flagman.core.storage import ObjectStorage
 from flagman.fleet import service as fleet
 from flagman.fleet.domain import CarTransition
 from flagman.identity import service as identity
+from flagman.notifications import service as notifications
+from flagman.notifications.domain import Notification, NotificationEvent
 from flagman.rentals import service as rentals
 from flagman.support import repository
 from flagman.support.domain import (
@@ -105,6 +107,21 @@ _EVENT_ACTIONS = {
 # An accident during a trip comes before anything else in the operator's queue.
 _URGENT = 0
 _NORMAL = 1
+
+
+@dataclass(frozen=True)
+class PhotoTarget:
+    rental_id: UUID | None = None
+    client_message_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class IncidentReport:
+    type: IncidentType
+    description: str
+    location: tuple[float, float] | None
+    rental_id: UUID | None
+    client_report_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -244,17 +261,38 @@ class ClientSupportService:
             conversation.rental_id = rental_id
         return conversation
 
+    async def _resent(self, user_id: UUID, client_message_id: UUID | None) -> MessageOut | None:
+        if client_message_id is None:
+            return None
+        message = await repository.find_resent_message(self.db, user_id, client_message_id)
+        return None if message is None else _message_out(message, {})
+
     async def send_text(
-        self, user_id: UUID, text: str, rental_id: UUID | None, now: datetime
+        self,
+        user_id: UUID,
+        text: str,
+        rental_id: UUID | None,
+        client_message_id: UUID | None,
+        now: datetime,
     ) -> MessageOut:
         await self.limiter.hit(MESSAGE_LIMIT, str(user_id))
         async with self.db.begin():
+            # Before opening: a resend must not open an empty conversation after a close.
+            if (resent := await self._resent(user_id, client_message_id)) is not None:
+                return resent
             conversation = await self._open(user_id, rental_id, now)
+            # Again under the conversation's lock, for two attempts sent at once.
+            if (resent := await self._resent(user_id, client_message_id)) is not None:
+                return resent
             message = await repository.add_message(
                 self.db,
                 conversation,
                 repository.NewMessage(
-                    author=MessageAuthor.CLIENT, kind=MessageKind.TEXT, at=now, body=text
+                    author=MessageAuthor.CLIENT,
+                    kind=MessageKind.TEXT,
+                    at=now,
+                    body=text,
+                    client_message_id=client_message_id,
                 ),
             )
             out = _message_out(message, {})
@@ -266,8 +304,17 @@ class ClientSupportService:
         await self.limiter.hit(UPLOAD_LIMIT, str(user_id))
 
     async def send_photo(
-        self, storage: ObjectStorage, user_id: UUID, data: bytes, now: datetime
+        self,
+        storage: ObjectStorage,
+        user_id: UUID,
+        data: bytes,
+        target: PhotoTarget,
+        now: datetime,
     ) -> MessageOut:
+        async with self.db.begin():
+            resent = await self._resent(user_id, target.client_message_id)
+        if resent is not None:
+            return resent
         photo = await _clean(data)
         # A new key for every photo, without anything about the client in it. The conversation
         # is opened only after the upload, so a failed upload leaves no empty one in the queue.
@@ -275,12 +322,20 @@ class ClientSupportService:
         await storage.put(key, photo, OUTPUT_CONTENT_TYPE)
         try:
             async with self.db.begin():
-                conversation = await self._open(user_id, None, now)
+                conversation = await self._open(user_id, target.rental_id, now)
+                resent = await self._resent(user_id, target.client_message_id)
+                if resent is not None:
+                    await _delete_quietly(storage, key)
+                    return resent
                 message = await repository.add_message(
                     self.db,
                     conversation,
                     repository.NewMessage(
-                        author=MessageAuthor.CLIENT, kind=MessageKind.PHOTO, at=now, object_key=key
+                        author=MessageAuthor.CLIENT,
+                        kind=MessageKind.PHOTO,
+                        at=now,
+                        object_key=key,
+                        client_message_id=target.client_message_id,
                     ),
                 )
                 out = _message_out(message, {})
@@ -301,39 +356,51 @@ class ClientSupportService:
         return await _signed(storage, message.object_key)
 
     async def report_incident(
-        self,
-        user_id: UUID,
-        type_: IncidentType,
-        description: str,
-        location: tuple[float, float] | None,
-        now: datetime,
+        self, user_id: UUID, report: IncidentReport, now: datetime
     ) -> IncidentOut:
         await self.limiter.hit(INCIDENT_LIMIT, str(user_id))
         async with self.db.begin():
             await repository.lock_client_incidents(self.db, user_id)
+            # Before the count: the report may be the very one that reached the limit.
+            if report.client_report_id is not None:
+                resent = await repository.find_resent_incident(
+                    self.db, user_id, report.client_report_id
+                )
+                if resent is not None:
+                    return await _incident_out(self.db, resent)
             if await repository.count_open_incidents(self.db, user_id) >= (
                 MAX_OPEN_INCIDENTS_PER_CLIENT
             ):
                 raise TooManyOpenIncidentsError
             # The rental is found by the server: the client cannot attach someone else's car.
             rental = await rentals.get_client_active_rental(self.db, user_id, now)
+            if rental is None and report.rental_id is not None:
+                # From a receipt: only the client's own rental, whichever id the app sent.
+                rental = await rentals.get_client_rental(self.db, user_id, report.rental_id)
+                if rental is None:
+                    raise SupportRentalNotFoundError
             # Before the trip nobody is on the road: an accident by a reserved car waits its turn.
-            urgent = type_ is IncidentType.ACCIDENT and rental is not None and rental.is_driving
+            urgent = (
+                report.type is IncidentType.ACCIDENT and rental is not None and rental.is_driving
+            )
             incident = await repository.create_incident(
                 self.db,
                 repository.NewIncident(
                     user_id=user_id,
                     rental_id=rental.id if rental else None,
                     car_id=rental.car_id if rental else None,
-                    type=type_,
+                    type=report.type,
                     priority=_URGENT if urgent else _NORMAL,
-                    description=description,
-                    location=location,
+                    description=report.description,
+                    location=report.location,
                     at=now,
+                    client_report_id=report.client_report_id,
                 ),
             )
             out = await _incident_out(self.db, incident)
-        logger.info("support_incident_reported", incident_id=str(incident.id), type=type_.value)
+        logger.info(
+            "support_incident_reported", incident_id=str(incident.id), type=report.type.value
+        )
         return out
 
     async def incidents(self, user_id: UUID, cursor: str | None, limit: int) -> IncidentListOut:
@@ -434,11 +501,17 @@ class StaffSupportService:
         )
         car_ids = {rental.car_id for rental in attached.values()}
         cars = {car.id: car for car in await fleet.get_cars(self.db, car_ids)} if car_ids else {}
+        names = await identity.get_staff_display_names(
+            self.db,
+            {item.assigned_staff_id for item in conversations if item.assigned_staff_id},
+        )
+        last_messages = await repository.last_messages(self.db, [item.id for item in conversations])
         items = []
         for item in conversations:
             person = people.get(item.user_id)
             rental = attached.get(item.rental_id) if item.rental_id else None
             car = cars.get(rental.car_id) if rental else None
+            last = last_messages.get(item.id)
             items.append(
                 ConversationOut(
                     id=item.id,
@@ -449,9 +522,13 @@ class StaffSupportService:
                     car_plate=car.plate if car else None,
                     status=ConversationStatus(item.status),
                     assigned_staff_id=item.assigned_staff_id,
+                    assigned_staff_name=(
+                        names.get(item.assigned_staff_id) if item.assigned_staff_id else None
+                    ),
                     unread=item.staff_unread,
                     first_name=person.first_name if person else None,
                     last_name=person.last_name if person else None,
+                    last_message_text=last.body if last else None,
                     created_at=item.created_at,
                     last_message_at=item.last_message_at,
                 )
@@ -538,6 +615,14 @@ class StaffSupportService:
                     body=text,
                 ),
             )
+            await notifications.notify_client(
+                self.db,
+                conversation.user_id,
+                Notification(
+                    NotificationEvent.SUPPORT_REPLY, conversation.rental_id, {"seq": message.seq}
+                ),
+                now,
+            )
             # A client message that came after the operator's last poll stays unread: they
             # answered without having seen it.
             await repository.mark_read(self.db, conversation.id, MessageAuthor.STAFF, seen_seq)
@@ -588,9 +673,21 @@ class StaffSupportService:
         events = await repository.events_by_incident(
             self.db, [incident.id for incident in incidents]
         )
+        staff_ids = {item.assigned_staff_id for item in incidents if item.assigned_staff_id}
+        staff_ids |= {
+            event.staff_id for page in events.values() for event in page if event.staff_id
+        }
+        names = await identity.get_staff_display_names(self.db, staff_ids)
+        attached = await rentals.get_rentals(
+            self.db, {item.rental_id for item in incidents if item.rental_id}
+        )
+        car_ids = {item.car_id for item in incidents if item.car_id}
+        cars = {car.id: car for car in await fleet.get_cars(self.db, car_ids)} if car_ids else {}
         items = []
         for incident, base in zip(incidents, bases, strict=True):
             person = people.get(incident.user_id)
+            rental = attached.get(incident.rental_id) if incident.rental_id else None
+            car = cars.get(incident.car_id) if incident.car_id else None
             items.append(
                 StaffIncidentOut(
                     **base.model_dump(),
@@ -599,11 +696,19 @@ class StaffSupportService:
                     last_name=person.last_name if person else None,
                     priority=incident.priority,
                     assigned_staff_id=incident.assigned_staff_id,
+                    assigned_staff_name=(
+                        names.get(incident.assigned_staff_id)
+                        if incident.assigned_staff_id
+                        else None
+                    ),
+                    rental_status=rental.status if rental else None,
+                    car_plate=car.plate if car else None,
                     sent_to_service=incident.sent_to_service,
                     events=[
                         IncidentEventOut(
                             action=IncidentEventAction(event.action),
                             staff_id=event.staff_id,
+                            staff_name=names.get(event.staff_id) if event.staff_id else None,
                             comment=event.comment,
                             created_at=event.created_at,
                         )

@@ -4,6 +4,7 @@ import type { Href } from 'expo-router';
 const routes: Readonly<Record<string, Href>> = {
   reservation_expiring: '/rental',
   trip_low_battery: '/rental',
+  support_reply: '/support',
 };
 // An ended rental and its payment are on the receipt, which loads the rental by its id even after
 // a restart; an expiry may have billed the paid wait (ADR-0024).

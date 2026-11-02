@@ -351,6 +351,72 @@ a {
   background: var(--color-surface);
 }
 
+.support-details {
+  margin: 0 0 var(--space-lg);
+}
+
+.support-description {
+  white-space: pre-wrap;
+}
+
+.support-chat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  margin: 0 0 var(--space-lg);
+  padding: 0;
+  list-style: none;
+}
+
+.support-message {
+  max-width: 40rem;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+
+.support-message p {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.support-message-staff {
+  align-self: flex-end;
+}
+
+.support-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.support-photos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  padding: 0;
+  list-style: none;
+}
+
+.support-photo {
+  display: block;
+  max-width: 100%;
+  max-height: 24rem;
+  border-radius: var(--radius-card);
+}
+
+.support-history {
+  padding-left: var(--space-lg);
+}
+
+.incident-map {
+  height: 18rem;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+}
+
 .kyc-layout {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr));

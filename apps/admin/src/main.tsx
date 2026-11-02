@@ -27,6 +27,7 @@ import { createKycReviewApi } from './kyc/api';
 import { routes } from './routes';
 import { createStaffListApi } from './staff/api';
 import { createTariffsApi } from './tariffs/api';
+import { createSupportApi } from './support/api';
 import { applyTheme, currentTheme, installTheme } from './theme';
 import { createZonesApi } from './zones/api';
 
@@ -49,6 +50,7 @@ const apis: AdminApis = {
   kycReview: createKycReviewApi(client),
   staffList: createStaffListApi(client),
   staffSignIn: staffAuth,
+  support: createSupportApi(client),
   tariffs: createTariffsApi(client),
   zones: createZonesApi(client),
 };

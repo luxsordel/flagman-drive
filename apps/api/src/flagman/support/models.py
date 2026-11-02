@@ -83,6 +83,13 @@ class Message(Base):
         CheckConstraint(
             "(author = 'staff') = (staff_id IS NOT NULL)", name="staff_id_matches_author"
         ),
+        # The last line of defence against a resend; the service finds the first copy earlier.
+        Index(
+            "uq_support_messages_client_message",
+            "conversation_id",
+            "client_message_id",
+            unique=True,
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -96,6 +103,8 @@ class Message(Base):
     kind: Mapped[str] = mapped_column(String(ENUM_LENGTH))
     body: Mapped[str | None] = mapped_column(String(MESSAGE_TEXT_MAX_LENGTH))
     object_key: Mapped[str | None] = mapped_column(String(OBJECT_KEY_LENGTH), unique=True)
+    # Chosen by the app before the first attempt, so a resend is recognised as the same message.
+    client_message_id: Mapped[UUID | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -112,6 +121,8 @@ class Incident(Base):
             "created_at",
             postgresql_where=text("status IN ('new', 'in_progress')"),
         ),
+        # The last line of defence against a resend; the service finds the first copy earlier.
+        Index("uq_support_incidents_client_report", "user_id", "client_report_id", unique=True),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -123,6 +134,7 @@ class Incident(Base):
     # 0 for an accident in a rental in progress, 1 otherwise: sorts the queue.
     priority: Mapped[int] = mapped_column(Integer)
     description: Mapped[str] = mapped_column(String(INCIDENT_DESCRIPTION_MAX_LENGTH))
+    client_report_id: Mapped[UUID | None] = mapped_column()
     lat: Mapped[float | None] = mapped_column(Float)
     lon: Mapped[float | None] = mapped_column(Float)
     assigned_staff_id: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))

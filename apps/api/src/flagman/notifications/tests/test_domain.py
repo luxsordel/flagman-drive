@@ -26,6 +26,7 @@ EXAMPLES = [
     Notification(NotificationEvent.TRIP_LOW_BATTERY, RENTAL, {"battery_pct": 14}),
     Notification(NotificationEvent.TRIP_FINISHED, RENTAL, {"total": 1250}),
     Notification(NotificationEvent.PAYMENT_FAILED, RENTAL, {"amount": 990}),
+    Notification(NotificationEvent.SUPPORT_REPLY, None, {"seq": 7}),
 ]
 
 
@@ -36,6 +37,19 @@ def test_every_event_has_a_template_in_both_languages() -> None:
             content = render(notification, language)
             assert content.title
             assert "{" not in content.body
+
+
+def test_every_support_answer_is_its_own_notification() -> None:
+    first = Notification(NotificationEvent.SUPPORT_REPLY, RENTAL, {"seq": 7})
+    second = Notification(NotificationEvent.SUPPORT_REPLY, RENTAL, {"seq": 8})
+
+    assert first.dedup_key != second.dedup_key
+
+
+def test_a_conversation_without_a_rental_sends_no_rental_id() -> None:
+    notification = Notification(NotificationEvent.SUPPORT_REPLY, None, {"seq": 7})
+
+    assert render(notification, Language.RU).data == {"event": "support_reply"}
 
 
 def test_text_follows_the_client_language() -> None:

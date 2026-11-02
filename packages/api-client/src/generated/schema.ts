@@ -1807,6 +1807,8 @@ export interface components {
     ConversationOut: {
       /** Assigned Staff Id */
       assigned_staff_id: string | null;
+      /** Assigned Staff Name */
+      assigned_staff_name: string | null;
       /** Car Id */
       car_id: string | null;
       /** Car Plate */
@@ -1828,6 +1830,11 @@ export interface components {
        * Format: date-time
        */
       last_message_at: string;
+      /**
+       * Last Message Text
+       * @description None when the last message is a photo.
+       */
+      last_message_text: string | null;
       /** Last Name */
       last_name: string | null;
       /** Rental Id */
@@ -2014,12 +2021,24 @@ export interface components {
       created_at: string;
       /** Staff Id */
       staff_id: string | null;
+      /** Staff Name */
+      staff_name: string | null;
     };
     /** IncidentIn */
     IncidentIn: {
+      /**
+       * Client Report Id
+       * @description Chosen by the app once per report: sending it again returns the incident already saved instead of a duplicate.
+       */
+      client_report_id?: string | null;
       /** Description */
       description: string;
       location?: components['schemas']['LocationIn'] | null;
+      /**
+       * Rental Id
+       * @description A finished rental of the client the report is about; an active one is attached without it and wins.
+       */
+      rental_id?: string | null;
       type: components['schemas']['IncidentType'];
     };
     /** IncidentListOut */
@@ -2361,6 +2380,11 @@ export interface components {
     /** MessageIn */
     MessageIn: {
       /**
+       * Client Message Id
+       * @description Chosen by the app once per message: sending it again returns the message already saved instead of a duplicate.
+       */
+      client_message_id?: string | null;
+      /**
        * Rental Id
        * @description Attaches the conversation to the client's rental, an open one too: the latest rental the client wrote from is the one the operator sees.
        */
@@ -2430,7 +2454,7 @@ export interface components {
      * NotificationCategory
      * @enum {string}
      */
-    NotificationCategory: 'reservation' | 'trip' | 'payment';
+    NotificationCategory: 'reservation' | 'trip' | 'payment' | 'support';
     /** NotificationCategoryOut */
     NotificationCategoryOut: {
       category: components['schemas']['NotificationCategory'];
@@ -2924,8 +2948,12 @@ export interface components {
     StaffIncidentOut: {
       /** Assigned Staff Id */
       assigned_staff_id: string | null;
+      /** Assigned Staff Name */
+      assigned_staff_name: string | null;
       /** Car Id */
       car_id: string | null;
+      /** Car Plate */
+      car_plate: string | null;
       /**
        * Created At
        * Format: date-time
@@ -2954,6 +2982,7 @@ export interface components {
       priority: number;
       /** Rental Id */
       rental_id: string | null;
+      rental_status: components['schemas']['RentalStatus'] | null;
       /** Sent To Service */
       sent_to_service: boolean;
       status: components['schemas']['IncidentStatus'];
@@ -8906,6 +8935,15 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
+      /** @description `urn:flagman:problem:rental-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
       /** @description `urn:flagman:problem:too-many-open-incidents`. */
       409: {
         headers: {
@@ -9319,7 +9357,10 @@ export interface operations {
   };
   send_photo_support_messages_photos_post: {
     parameters: {
-      query?: never;
+      query?: {
+        rental_id?: string | null;
+        client_message_id?: string | null;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -9344,6 +9385,15 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
       401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`. */
+      404: {
         headers: {
           [name: string]: unknown;
         };

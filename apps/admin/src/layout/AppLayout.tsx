@@ -6,6 +6,8 @@ import { useApis } from '../api/context';
 import { useStaff } from '../auth/context';
 import { RefreshKycCountContext } from '../kyc/pendingCount';
 import { sectionsFor } from '../navigation';
+import type { SupportUnread } from '../support/api';
+import { menuPollMs, useInterval } from '../support/useInterval';
 import { Header } from './Header';
 
 export function AppLayout() {
@@ -15,6 +17,10 @@ export function AppLayout() {
   const [kycPending, refreshKycCount] = useKycPendingCount(
     sections.some((section) => section.key === 'kyc'),
   );
+  const unread = useSupportUnread(sections.some((section) => section.key === 'support'));
+  const counts: Partial<Record<(typeof sections)[number]['key'], number>> = unread
+    ? { support: unread.conversations, incidents: unread.incidents }
+    : {};
 
   return (
     <div className="layout">
@@ -36,6 +42,12 @@ export function AppLayout() {
                       >
                         {kycPending}
                       </span>
+                    </>
+                  ) : null}
+                  {counts[section.key] ? (
+                    <>
+                      {' '}
+                      <span className="menu-count">{counts[section.key]}</span>
                     </>
                   ) : null}
                 </NavLink>
@@ -63,6 +75,24 @@ export function AppLayout() {
       </div>
     </div>
   );
+}
+
+/** Unread conversations and new incidents, for the menu; after a failure the last count stays. */
+function useSupportUnread(visible: boolean): SupportUnread | null {
+  const { support } = useApis();
+  const { pathname } = useLocation();
+  const [unread, setUnread] = useState<SupportUnread | null>(null);
+
+  const load = useCallback(() => {
+    if (!visible) return;
+    support.unread().then(setUnread, () => {
+      // A page's own requests report the failure; the count only goes stale.
+    });
+  }, [support, visible]);
+
+  useEffect(load, [load, pathname]);
+  useInterval(load, menuPollMs);
+  return visible ? unread : null;
 }
 
 /**

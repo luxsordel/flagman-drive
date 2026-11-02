@@ -59,8 +59,8 @@ async def notify_client(
 ) -> None:
     """Queues a push for the client; runs in the caller's transaction.
 
-    Does nothing when the client switched the category off or the same event for the same
-    rental is already queued, so callers may report an event as often as they see it.
+    Does nothing when the client switched the category off or the same event is already
+    queued (`Notification.dedup_key`), so callers may report an event as often as they see it.
     `until`: when the news stops being true, if the caller knows it better than the event's
     usual lifetime, e.g. the exact end of a reservation.
     """
