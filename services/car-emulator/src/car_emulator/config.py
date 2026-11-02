@@ -33,10 +33,13 @@ class Settings(BaseSettings):
     speed_kmh: float = Field(default=30.0, gt=0, le=150)
     idle_drain_pct_per_h: float = Field(default=1.0, ge=0, le=100)
     drive_drain_pct_per_km: float = Field(default=0.2, ge=0, le=100)
-    # Above the API's FLEET_MIN_BATTERY_PCT by default, so cars charge before they leave the map.
+    # Below it a car takes no trips, and with self_charge it charges in place.
     charge_below_pct: float = Field(default=25.0, ge=0, le=100)
     charge_until_pct: float = Field(default=90.0, ge=0, le=100)
     charge_rate_pct_per_h: float = Field(default=40.0, gt=0, le=1000)
+    # Off by default: a low car waits for a technician to plug it in, so the demo shows the cycle
+    # "ran low -> charging task -> charged -> back on the map" (the API's docs/adr/0025).
+    self_charge: bool = False
     # A rented car (opened, engine free) drives hops up to this long, resting between them.
     rental_trip_km: float = Field(default=1.5, gt=0, le=20)
     rental_rest_s: float = Field(default=120.0, ge=0, le=3600)

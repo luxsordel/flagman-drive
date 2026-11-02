@@ -855,3 +855,52 @@ a {
   display: grid;
   gap: var(--space-sm);
 }
+
+.tasks-tabs {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
+}
+
+.tasks-tabs .button {
+  flex: 1;
+}
+
+.tasks-form {
+  display: grid;
+  gap: var(--space-sm);
+}
+
+.tasks-photos,
+.car-tasks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A technician works from a phone (docs/01-vision-and-mvp.md): the map gives way to the list. */
+@media (max-width: 40rem) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    gap: var(--space-sm);
+    padding: var(--space-md);
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .header,
+  .content {
+    padding: var(--space-md);
+  }
+
+  .card {
+    padding: var(--space-md);
+  }
+
+  .fleet-map {
+    height: 40vh;
+  }
+}

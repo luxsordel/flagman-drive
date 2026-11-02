@@ -300,6 +300,15 @@ async def list_staff(db: AsyncSession) -> list[StaffSummary]:
     return [StaffSummary(row.id, row.email, row.disabled_at is not None) for row in rows]
 
 
+async def get_active_staff_emails(db: AsyncSession, role: StaffRole) -> dict[UUID, str]:
+    rows = await db.execute(
+        select(StaffMember.id, StaffMember.email)
+        .where(StaffMember.role == role, StaffMember.disabled_at.is_(None))
+        .order_by(StaffMember.email)
+    )
+    return {row.id: row.email for row in rows}
+
+
 async def get_staff_display_names(db: AsyncSession, staff_ids: Collection[UUID]) -> dict[UUID, str]:
     """Staff without a name are left out."""
     rows = await db.execute(

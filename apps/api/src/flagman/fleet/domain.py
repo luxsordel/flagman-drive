@@ -135,9 +135,20 @@ class CarCommand(StrEnum):
     """What staff may ask a car to do; values are stored in the audit log as is."""
 
     OPEN = "open"
+    # For a technician: a telematics box may treat it as `open`; no client is in the car.
+    SERVICE_OPEN = "service_open"
     CLOSE = "close"
     LOCK_ENGINE = "lock_engine"
     UNLOCK_ENGINE = "unlock_engine"
+    # A technician plugs the car in or out on a charging task (docs/adr/0025).
+    START_CHARGING = "start_charging"
+    STOP_CHARGING = "stop_charging"
+
+
+# What the fleet's manual commands send; charging is service access of a task only (ADR-0025).
+MANUAL_COMMANDS = frozenset(
+    {CarCommand.OPEN, CarCommand.CLOSE, CarCommand.LOCK_ENGINE, CarCommand.UNLOCK_ENGINE}
+)
 
 
 class CommandOutcome(StrEnum):

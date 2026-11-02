@@ -14,6 +14,7 @@ const labelKeys: Record<AuditTargetType, TargetLabelKey> = {
   tariff: 'tariff',
   car: 'car',
   payment_operation: 'paymentOperation',
+  maintenance_task: 'maintenanceTask',
   support_conversation: 'supportConversation',
   incident: 'incident',
 };

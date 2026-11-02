@@ -28,9 +28,14 @@ CAR_ID_NAMESPACE = uuid.UUID("b3dbc708-f7ca-4013-88f6-d3564a1f0b2c")
 
 class CommandType(StrEnum):
     OPEN = "open"
+    # Opens for a technician: nobody drives off in it, unlike after `open` (ADR-0025 of the API).
+    SERVICE_OPEN = "service_open"
     CLOSE = "close"
     LOCK_ENGINE = "lock_engine"
     UNLOCK_ENGINE = "unlock_engine"
+    # A technician plugs the car in and out on a charging task (the API's docs/adr/0025).
+    START_CHARGING = "start_charging"
+    STOP_CHARGING = "stop_charging"
 
 
 class CommandRejectedError(Exception):
@@ -77,6 +82,8 @@ class Car:
     driven_by_client: bool = False
     # A rented car stands until then: the client gets in, stops for a coffee, finishes.
     rest_until: datetime | None = None
+    # A technician has it, not a client: it stays where it is until a client opens it.
+    in_service: bool = False
 
     @property
     def battery_pct(self) -> int:
@@ -95,6 +102,8 @@ class SimulationParams:
     charge_below_pct: float
     charge_until_pct: float
     charge_rate_pct_per_h: float
+    # Off: a car below `charge_below_pct` waits for a technician's charging task instead.
+    self_charge: bool = False
     # A rented car drives short hops around where it is, with a pause before each.
     rental_trip_km: float = 1.5
     rental_rest: timedelta = timedelta(minutes=2)
@@ -105,6 +114,14 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
         case CommandType.OPEN:
             car.doors_locked = False
             car.rest_until = None
+            car.in_service = False
+        case CommandType.SERVICE_OPEN:
+            # On its way it is out of a technician's reach; the task waits for it to stop.
+            if car.mode is CarMode.DRIVING or car.ignition_on:
+                raise CommandRejectedError("ignition_on")
+            car.doors_locked = False
+            car.rest_until = None
+            car.in_service = True
         case CommandType.CLOSE:
             # Locking a running car would strand the driver outside it.
             if car.ignition_on:
@@ -116,6 +133,15 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
             car.engine_locked = True
         case CommandType.UNLOCK_ENGINE:
             car.engine_locked = False
+        case CommandType.START_CHARGING:
+            # A car on its way cannot be plugged in.
+            if car.mode is CarMode.DRIVING or car.ignition_on:
+                raise CommandRejectedError("ignition_on")
+            car.mode = CarMode.CHARGING
+            car.in_service = True
+        case CommandType.STOP_CHARGING:
+            if car.mode is CarMode.CHARGING:
+                car.mode = CarMode.PARKED
     car.updated_at = now
 
 
@@ -206,7 +232,7 @@ def pick_nearby(car: Car, rng: random.Random, max_km: float) -> Destination:
 
 def is_rented(car: Car) -> bool:
     """Opened and free to start: a client has it. The emulator knows nothing else of rentals."""
-    return not car.doors_locked and not car.engine_locked
+    return not car.doors_locked and not car.engine_locked and not car.in_service
 
 
 def stop_for_client(car: Car, rest: timedelta, now: datetime) -> None:
@@ -238,6 +264,7 @@ def can_start_trip(car: Car, params: SimulationParams) -> bool:
         and car.doors_locked
         and not car.ignition_on
         and not car.engine_locked
+        and not car.in_service
         and car.charge_pct >= params.charge_below_pct
     )
 
@@ -299,7 +326,8 @@ def step_car(car: Car, elapsed: timedelta, params: SimulationParams, now: dateti
             car.charge_pct = max(0.0, car.charge_pct - params.idle_drain_pct_per_h * hours)
     # A rented car is the client's to charge or to finish with; it never leaves for a charger.
     if (
-        car.mode is CarMode.PARKED
+        params.self_charge
+        and car.mode is CarMode.PARKED
         and car.charge_pct < params.charge_below_pct
         and not is_rented(car)
     ):

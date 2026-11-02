@@ -9,6 +9,7 @@ import {
   carStatuses,
   needsRentalConfirmation,
   type CarCommand,
+  type CarStatus,
   type FleetCar,
   type FleetRules,
 } from '../fleet/api';
@@ -23,6 +24,8 @@ import {
   type FleetState,
 } from '../fleet/state';
 import type { CommandNotice } from '../fleet/stream';
+import { listPollMs, useInterval } from '../support/useInterval';
+import { openStatuses, type Task } from '../tasks/api';
 import { formatMinskTime } from '../time/minsk';
 import type { Zone } from '../zones/api';
 
@@ -309,7 +312,56 @@ function CarCard({
           })}
         </p>
       )}
+      <CarTasks carId={car.id} carStatus={car.status} />
       {canSendCommands(role) && <CommandPanel car={car} />}
+    </section>
+  );
+}
+
+/** The open tasks of the car, which is often why it is in service. */
+function CarTasks({ carId, carStatus }: { carId: string; carStatus: CarStatus }) {
+  const { t } = useTranslation();
+  const { tasks: tasksApi } = useApis();
+  const [tasks, setTasks] = useState<Task[] | 'failed' | null>(null);
+  const [revision, setRevision] = useState(0);
+  // An automatic task does not change the car's status, so nothing else would show it.
+  useInterval(() => {
+    setRevision((value) => value + 1);
+  }, listPollMs);
+
+  useEffect(() => {
+    let active = true;
+    tasksApi.list({ car_id: carId, status: [...openStatuses] }).then(
+      ({ items }) => {
+        if (active) setTasks(items);
+      },
+      () => {
+        if (active) setTasks('failed');
+      },
+    );
+    return () => {
+      active = false;
+    };
+    // A new status is often a task taken or finished.
+  }, [tasksApi, carId, carStatus, revision]);
+
+  if (tasks === null) return null;
+  return (
+    <section aria-label={t('tasks.carTasks.title')}>
+      <h3>{t('tasks.carTasks.title')}</h3>
+      {tasks === 'failed' && <p className="muted">{t('tasks.carTasks.failed')}</p>}
+      {tasks !== 'failed' && tasks.length === 0 && (
+        <p className="muted">{t('tasks.carTasks.none')}</p>
+      )}
+      {tasks !== 'failed' && tasks.length > 0 && (
+        <ul className="car-tasks">
+          {tasks.map((task) => (
+            <li key={task.id}>
+              {`${t(`tasks.type.${task.type}`)} · ${t(`tasks.status.${task.status}`)}`}
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
 }

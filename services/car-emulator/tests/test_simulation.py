@@ -10,11 +10,16 @@ from car_emulator.domain import (
     MINSK_LON_RANGE,
     Car,
     CarMode,
+    CommandRejectedError,
+    CommandType,
     Destination,
     Gear,
     SimulationParams,
+    apply_command,
+    can_start_trip,
     distance_km,
     drive_toward,
+    is_rented,
     pick_destination,
     seed_fleet,
     start_trip,
@@ -63,11 +68,17 @@ def _driving(car: Car, destination: Destination = NORTH_EAST) -> Car:
     return car
 
 
-def _run(cars: list[Car], steps: int, rng: random.Random, tick: timedelta = TICK) -> datetime:
+def _run(
+    cars: list[Car],
+    steps: int,
+    rng: random.Random,
+    tick: timedelta = TICK,
+    params: SimulationParams = PARAMS,
+) -> datetime:
     now = NOW
     for _ in range(steps):
         now += tick
-        step_fleet(cars, tick, PARAMS, rng, now)
+        step_fleet(cars, tick, params, rng, now)
     return now
 
 
@@ -111,19 +122,54 @@ def test_charge_never_goes_below_zero(car: Car) -> None:
 
 
 def test_low_car_charges_in_place_up_to_the_threshold(car: Car) -> None:
+    params = replace(PARAMS, self_charge=True)
     car.charge_pct = 26.0
-    step_car(car, timedelta(hours=2), PARAMS, NOW)
+    step_car(car, timedelta(hours=2), params, NOW)
     assert car.mode is CarMode.CHARGING
 
-    step_car(car, timedelta(hours=1), PARAMS, NOW)
+    step_car(car, timedelta(hours=1), params, NOW)
     assert _mode(car) is CarMode.CHARGING
     assert car.charge_pct == pytest.approx(64.0)
 
-    step_car(car, timedelta(hours=5), PARAMS, NOW)
+    step_car(car, timedelta(hours=5), params, NOW)
     assert _mode(car) is CarMode.PARKED
     assert car.charge_pct == 90.0
     assert (car.lat, car.lon) == (SOUTH_WEST.lat, SOUTH_WEST.lon)
     assert not car.ignition_on
+
+
+def test_without_self_charge_low_car_waits_for_a_technician(car: Car) -> None:
+    car.charge_pct = 26.0
+
+    step_car(car, timedelta(hours=10), PARAMS, NOW)
+
+    assert car.mode is CarMode.PARKED
+    assert car.charge_pct == pytest.approx(16.0)
+
+
+def test_plugged_in_car_charges_up_to_the_threshold(car: Car) -> None:
+    car.charge_pct = 10.0
+    apply_command(car, CommandType.START_CHARGING, NOW)
+
+    step_car(car, timedelta(hours=1), PARAMS, NOW)
+    assert _mode(car) is CarMode.CHARGING
+    assert car.charge_pct == pytest.approx(50.0)
+
+    step_car(car, timedelta(hours=5), PARAMS, NOW)
+    assert _mode(car) is CarMode.PARKED
+    assert car.charge_pct == 90.0
+
+
+def test_charging_car_takes_no_trips() -> None:
+    cars = seed_fleet(10, seed=3, now=NOW)
+    for car in cars:
+        # Far below the end of charging: a car charged up is parked again and may leave.
+        car.charge_pct = 10.0
+        apply_command(car, CommandType.START_CHARGING, NOW)
+
+    _run(cars, 20, _rng(3))
+
+    assert all(not car.ignition_on for car in cars)
 
 
 def test_charge_never_goes_above_100(car: Car) -> None:
@@ -188,7 +234,8 @@ def test_empty_car_stops_where_it_is(car: Car) -> None:
         5.0, abs=0.01
     )
     assert not car.ignition_on
-    assert car.mode is CarMode.CHARGING
+    # Waits for a technician to plug it in.
+    assert car.mode is CarMode.PARKED
 
 
 def test_drive_toward_reports_arrival(car: Car) -> None:
@@ -247,13 +294,15 @@ def test_trips_start_with_ignition_and_lights_on_in_drive() -> None:
 def test_cars_stay_in_minsk_for_a_long_demo() -> None:
     cars = seed_fleet(30, seed=5, now=NOW)
 
-    _run(cars, 2000, _rng(1), tick=timedelta(minutes=1))
+    params = replace(PARAMS, self_charge=True)
+
+    _run(cars, 2000, _rng(1), tick=timedelta(minutes=1), params=params)
 
     for car in cars:
         assert MINSK_LAT_RANGE[0] <= car.lat <= MINSK_LAT_RANGE[1]
         assert MINSK_LON_RANGE[0] <= car.lon <= MINSK_LON_RANGE[1]
         assert 0 <= car.charge_pct <= 100
-        # Charging keeps the fleet alive: nobody runs flat over 33 hours.
+        # Charging on its own keeps the fleet alive: nobody runs flat over 33 hours.
         assert car.charge_pct > 0
 
 
@@ -293,3 +342,43 @@ def test_trips_lead_somewhere_else() -> None:
     destination = pick_destination(seeded, rng)
 
     assert distance_km(seeded.lat, seeded.lon, destination.lat, destination.lon) >= MIN_TRIP_KM
+
+
+def test_car_opened_for_service_stays_where_it_is(car: Car) -> None:
+    apply_command(car, CommandType.SERVICE_OPEN, NOW)
+    where = (car.lat, car.lon)
+
+    now = NOW
+    for _ in range(100):
+        now += timedelta(minutes=1)
+        step_fleet([car], timedelta(minutes=1), PARAMS, _rng(1), now)
+
+    assert not car.doors_locked
+    assert not car.ignition_on
+    assert (car.lat, car.lon) == where
+
+
+def test_closed_car_stays_for_the_technician_until_a_client_opens_it(car: Car) -> None:
+    apply_command(car, CommandType.SERVICE_OPEN, NOW)
+    apply_command(car, CommandType.CLOSE, NOW)
+    assert not can_start_trip(car, PARAMS)
+
+    apply_command(car, CommandType.OPEN, NOW)
+    apply_command(car, CommandType.CLOSE, NOW)
+
+    assert can_start_trip(car, PARAMS)
+
+
+def test_driving_car_is_not_opened_for_service(car: Car) -> None:
+    _driving(car)
+
+    with pytest.raises(CommandRejectedError):
+        apply_command(car, CommandType.SERVICE_OPEN, NOW)
+
+
+def test_a_client_opening_after_service_is_a_rental(car: Car) -> None:
+    apply_command(car, CommandType.SERVICE_OPEN, NOW)
+    apply_command(car, CommandType.CLOSE, NOW)
+    apply_command(car, CommandType.OPEN, NOW)
+
+    assert is_rented(car)

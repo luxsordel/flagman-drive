@@ -43,9 +43,16 @@ id машины — `uuid5(CAR_ID_NAMESPACE, "<seed>:<номер>")`, где н�
   фары включены, селектор `gear` в `D`; по приезде зажигание и фары выключаются, селектор встаёт в `P`,
   двери запираются. Не уезжают машины с заблокированным двигателем, открытыми дверями, на зарядке
   или с зарядом ниже порога зарядки.
-- Ниже `EMULATOR_CHARGE_BELOW_PCT` (25 %) машина заряжается на месте со скоростью
-  `EMULATOR_CHARGE_RATE_PCT_PER_H` (40 % в час) до `EMULATOR_CHARGE_UNTIL_PCT` (90 %). Нижний порог выше
-  `FLEET_MIN_BATTERY_PCT` API (20 %), поэтому разряженная машина почти не пропадает с карты.
+- Ниже `EMULATOR_CHARGE_BELOW_PCT` (25 %) машина не уезжает в поездки.
+- Заряжается машина по команде `start_charging` до `EMULATOR_CHARGE_UNTIL_PCT` (90 %) со скоростью
+  `EMULATOR_CHARGE_RATE_PCT_PER_H` (40 % в час); `stop_charging` снимает её с зарядки. Команды шлёт
+  техник по задаче на зарядку (ADR-0025 в `docs/adr`): на демо видно, как машина разряжается, API
+  ставит задачу, техник ставит машину на зарядку, и она возвращается на карту.
+- `service_open` открывает машину для техника: она не считается арендованной и никуда не уезжает,
+  даже запертая, пока клиент не откроет её обычным `open`. То же после `start_charging`.
+  На едущей машине `service_open` отклоняется с `ignition_on`.
+- `EMULATOR_SELF_CHARGE=true` — старое поведение: машина сама заряжается на месте ниже
+  `EMULATOR_CHARGE_BELOW_PCT`. По умолчанию выключено, иначе заряд не опускается до порога задачи.
 - Арендованная машина — открытая, с незаблокированным двигателем — ездит сама. Эмулятор ничего не знает
   об арендах: «клиент» в ней — это открытые двери.
   - Сначала она стоит `EMULATOR_RENTAL_REST_S` секунд (по умолчанию 120), потом едет в точку
@@ -81,7 +88,7 @@ id машины — `uuid5(CAR_ID_NAMESPACE, "<seed>:<номер>")`, где н�
 | `GET` | `/health` | не нужна |
 | `GET` | `/cars` | нужна |
 | `GET` | `/cars/{car_id}` | нужна |
-| `POST` | `/cars/{car_id}/commands` — `{"command_id": "<uuid>", "type": "open" \| "close" \| "lock_engine" \| "unlock_engine"}` | нужна |
+| `POST` | `/cars/{car_id}/commands` — `{"command_id": "<uuid>", "type": "open" \| "service_open" \| "close" \| "lock_engine" \| "unlock_engine" \| "start_charging" \| "stop_charging"}` | нужна |
 
 Ответы на ошибки: `401 invalid_signature`, `404 car_not_found`, `409 duplicate_command`,
 `409 command_rejected:<причина>` (например, `close` при включённом зажигании), `413 body_too_large`.

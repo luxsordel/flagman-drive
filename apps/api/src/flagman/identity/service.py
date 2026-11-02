@@ -747,6 +747,11 @@ async def list_staff(db: AsyncSession) -> StaffMemberList:
     )
 
 
+async def get_active_technicians(db: AsyncSession) -> dict[UUID, str]:
+    """Technicians who may take tasks (#122), by email; in the caller's transaction."""
+    return await repository.get_active_staff_emails(db, StaffRole.TECHNICIAN)
+
+
 async def create_staff(
     db: AsyncSession, email: str, password: str, role: StaffRole, now: datetime
 ) -> UUID:

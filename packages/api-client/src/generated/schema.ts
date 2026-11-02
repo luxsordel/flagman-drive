@@ -166,6 +166,189 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/maintenance/tasks': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Tasks: all of them for planners, free and own ones for a technician */
+    get: operations['list_tasks_admin_maintenance_tasks_get'];
+    put?: never;
+    /** Create a task for a car, optionally assigned to a technician */
+    post: operations['create_task_admin_maintenance_tasks_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/tasks/{task_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One task with its car and photos */
+    get: operations['get_task_admin_maintenance_tasks__task_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/tasks/{task_id}/assign': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Assign the task to a technician, or reassign it before it starts */
+    post: operations['assign_task_admin_maintenance_tasks__task_id__assign_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/tasks/{task_id}/cancel': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Cancel an open task; a car in service goes back to clients if it may
+     * @description A charging task already taken also stops the charging, as when it is finished.
+     */
+    post: operations['cancel_task_admin_maintenance_tasks__task_id__cancel_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/tasks/{task_id}/commands': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Service access: open, close, plug in or out the car of your task in progress
+     * @description Only within reach of the car, by its last fresh telemetry. Charging commands are for charging tasks only. Audited as `car.command_sent` with the task id.
+     */
+    post: operations['send_task_command_admin_maintenance_tasks__task_id__commands_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/tasks/{task_id}/complete': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Finish your task in progress
+     * @description The car goes back to clients if no other task holds it and its charge is enough; otherwise it stays in service. A charging task then stops the charging; the task stays finished whatever the car answers.
+     */
+    post: operations['complete_task_admin_maintenance_tasks__task_id__complete_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/tasks/{task_id}/photos': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Add a photo to your task in progress
+     * @description Photos are evidence: they cannot be deleted or replaced once uploaded.
+     */
+    post: operations['add_task_photo_admin_maintenance_tasks__task_id__photos_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/tasks/{task_id}/photos/{photo_id}/url': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A short-lived link to a photo of the task */
+    get: operations['get_task_photo_url_admin_maintenance_tasks__task_id__photos__photo_id__url_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/tasks/{task_id}/start': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Take the task: the car goes to service and leaves the client map */
+    post: operations['start_task_admin_maintenance_tasks__task_id__start_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/maintenance/technicians': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Active technicians to assign tasks to */
+    get: operations['list_technicians_admin_maintenance_technicians_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/admin/staff': {
     parameters: {
       query?: never;
@@ -1493,6 +1676,15 @@ export interface components {
      * @enum {string}
      */
     ActorType: 'staff' | 'client' | 'system';
+    /** AssignIn */
+    AssignIn: {
+      /**
+       * Assignee Id
+       * Format: uuid
+       * @description An active technician.
+       */
+      assignee_id: string;
+    };
     /**
      * AuditAction
      * @description Every recorded action is listed here, so filtering by action is reliable.
@@ -1523,6 +1715,12 @@ export interface components {
       | 'payment.declined'
       | 'payment.failed'
       | 'car.command_sent'
+      | 'maintenance_task.created'
+      | 'maintenance_task.assigned'
+      | 'maintenance_task.started'
+      | 'maintenance_task.completed'
+      | 'maintenance_task.cancelled'
+      | 'maintenance_task.photo_viewed'
       | 'support.conversation_taken'
       | 'support.message_sent'
       | 'support.conversation_closed'
@@ -1605,8 +1803,14 @@ export interface components {
       | 'tariff'
       | 'payment_operation'
       | 'car'
+      | 'maintenance_task'
       | 'support_conversation'
       | 'incident';
+    /** CancelIn */
+    CancelIn: {
+      /** Comment */
+      comment?: string | null;
+    };
     /**
      * CancelReason
      * @description Why a reservation ended without a trip; values are stored as is.
@@ -1618,9 +1822,17 @@ export interface components {
      * @description What staff may ask a car to do; values are stored in the audit log as is.
      * @enum {string}
      */
-    CarCommand: 'open' | 'close' | 'lock_engine' | 'unlock_engine';
+    CarCommand:
+      | 'open'
+      | 'service_open'
+      | 'close'
+      | 'lock_engine'
+      | 'unlock_engine'
+      | 'start_charging'
+      | 'stop_charging';
     /** CarCommandIn */
     CarCommandIn: {
+      /** @description `start_charging` and `stop_charging` are refused here: technicians send them through their task (`/admin/maintenance/tasks/{task_id}/commands`). */
       command: components['schemas']['CarCommand'];
       /**
        * Comment
@@ -1802,6 +2014,14 @@ export interface components {
       lat: number;
       /** Lon */
       lon: number;
+    };
+    /** CompleteIn */
+    CompleteIn: {
+      /**
+       * Comment
+       * @description What was done; staff read it next to the photos.
+       */
+      comment: string;
     };
     /** ConversationOut */
     ConversationOut: {
@@ -2307,6 +2527,12 @@ export interface components {
        */
       refresh_token?: string | null;
     };
+    /**
+     * MaintenanceCommand
+     * @description Service access of a technician; the service maps them to car commands (ADR-0025).
+     * @enum {string}
+     */
+    MaintenanceCommand: 'open' | 'close' | 'start_charging' | 'stop_charging';
     /** MapCarList */
     MapCarList: {
       /** Items */
@@ -3241,6 +3467,196 @@ export interface components {
        */
       valid_from: string;
     };
+    /**
+     * TaskCarOut
+     * @description What a technician needs to find the car and see its charge.
+     */
+    TaskCarOut: {
+      /** Battery Pct */
+      battery_pct: number | null;
+      /** Brand */
+      brand: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Lat */
+      lat: number | null;
+      /** Lon */
+      lon: number | null;
+      /** Model */
+      model: string;
+      /** Plate */
+      plate: string;
+      /** Recorded At */
+      recorded_at: string | null;
+      status: components['schemas']['CarStatus'];
+    };
+    /**
+     * TaskCommandIn
+     * @description Where the technician is right now, for the distance to the car; never logged or stored.
+     */
+    TaskCommandIn: {
+      command: components['schemas']['MaintenanceCommand'];
+      /** Lat */
+      lat: number;
+      /** Lon */
+      lon: number;
+    };
+    /** TaskCommandOut */
+    TaskCommandOut: {
+      /**
+       * Command Id
+       * Format: uuid
+       */
+      command_id: string;
+      task: components['schemas']['TaskOut'];
+    };
+    /** TaskDetailsOut */
+    TaskDetailsOut: {
+      /** Assignee Id */
+      assignee_id: string | null;
+      car: components['schemas']['TaskCarOut'];
+      /**
+       * Comment
+       * @description Left on completion or cancellation.
+       */
+      comment: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Created By
+       * @description Empty for a task the system created.
+       */
+      created_by: string | null;
+      /** Description */
+      description: string | null;
+      /** Finished At */
+      finished_at: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Photos */
+      photos: components['schemas']['TaskPhotoOut'][];
+      /** Started At */
+      started_at: string | null;
+      status: components['schemas']['TaskStatus'];
+      type: components['schemas']['TaskType'];
+    };
+    /** TaskIn */
+    TaskIn: {
+      /**
+       * Assignee Id
+       * @description An active technician.
+       */
+      assignee_id?: string | null;
+      /**
+       * Car Id
+       * Format: uuid
+       */
+      car_id: string;
+      /** Description */
+      description?: string | null;
+      type: components['schemas']['TaskType'];
+    };
+    /** TaskList */
+    TaskList: {
+      /**
+       * Items
+       * @description Newest first.
+       */
+      items: components['schemas']['TaskOut'][];
+      /** Total */
+      total: number;
+    };
+    /** TaskOut */
+    TaskOut: {
+      /** Assignee Id */
+      assignee_id: string | null;
+      car: components['schemas']['TaskCarOut'];
+      /**
+       * Comment
+       * @description Left on completion or cancellation.
+       */
+      comment: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Created By
+       * @description Empty for a task the system created.
+       */
+      created_by: string | null;
+      /** Description */
+      description: string | null;
+      /** Finished At */
+      finished_at: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Started At */
+      started_at: string | null;
+      status: components['schemas']['TaskStatus'];
+      type: components['schemas']['TaskType'];
+    };
+    /** TaskPhotoOut */
+    TaskPhotoOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Uploaded At
+       * Format: date-time
+       */
+      uploaded_at: string;
+    };
+    /** TaskPhotosOut */
+    TaskPhotosOut: {
+      /** Photos */
+      photos: components['schemas']['TaskPhotoOut'][];
+    };
+    /**
+     * TaskStatus
+     * @description Values are stored as is: renaming one needs a migration.
+     * @enum {string}
+     */
+    TaskStatus: 'new' | 'assigned' | 'in_progress' | 'done' | 'cancelled';
+    /**
+     * TaskType
+     * @description Values are stored as is: renaming one needs a migration.
+     * @enum {string}
+     */
+    TaskType: 'charging' | 'washing' | 'inspection' | 'repair' | 'other';
+    /** TechnicianList */
+    TechnicianList: {
+      /**
+       * Items
+       * @description Active technicians by email.
+       */
+      items: components['schemas']['TechnicianOut'][];
+    };
+    /** TechnicianOut */
+    TechnicianOut: {
+      /** Email */
+      email: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+    };
     /** TokenPair */
     TokenPair: {
       /**
@@ -3991,6 +4407,908 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:kyc-not-pending`: already decided or not submitted. */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_tasks_admin_maintenance_tasks_get: {
+    parameters: {
+      query?: {
+        /** @description Any of these. */
+        status?: components['schemas']['TaskStatus'][];
+        /** @description Any of these. */
+        type?: components['schemas']['TaskType'][];
+        car_id?: string | null;
+        assignee_id?: string | null;
+        /** @description New tasks without an assignee only. */
+        free?: boolean;
+        limit?: number;
+        offset?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  create_task_admin_maintenance_tasks_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TaskIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:car-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-duplicate`: the car has an open task of this type. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-assignee-invalid`: not an active technician. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_task_admin_maintenance_tasks__task_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskDetailsOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-found`, also for a task a technician may not see. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  assign_task_admin_maintenance_tasks__task_id__assign_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AssignIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-found`, also for a task a technician may not see. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-transition-not-allowed`: not from this status. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-assignee-invalid`: not an active technician. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  cancel_task_admin_maintenance_tasks__task_id__cancel_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CancelIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-found`, also for a task a technician may not see. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-transition-not-allowed`: not from this status. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  send_task_command_admin_maintenance_tasks__task_id__commands_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['TaskCommandIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskCommandOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-found`, also for a task a technician may not see. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-in-progress`: not your task in progress. `maintenance-command-not-for-task`; `too-far-from-car`; `car-location-unknown`: no fresh telemetry from the car; `car-command-rejected`: the car refused, `detail` is its reason. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:telematics-unavailable`: nothing was done, try again. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:telematics-timeout`: the car may or may not have done it. */
+      504: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  complete_task_admin_maintenance_tasks__task_id__complete_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CompleteIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-found`, also for a task a technician may not see. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-in-progress`: not your task in progress. `maintenance-car-doors-open`; `maintenance-charge-too-low`: a charging task waits for its charge. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  add_task_photo_admin_maintenance_tasks__task_id__photos_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+      };
+      cookie?: never;
+    };
+    /** @description The photo of the work done, at most 10 MB. The type is detected from the content; the stored copy is a JPEG without metadata. */
+    requestBody: {
+      content: {
+        'image/jpeg': string;
+        'image/png': string;
+        'image/webp': string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskPhotosOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-found`, also for a task a technician may not see. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-in-progress`: not your task in progress. `maintenance-task-photo-limit`. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-photo-too-large`. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-photo-type-unsupported`: not a photo. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:photo-storage-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_task_photo_url_admin_maintenance_tasks__task_id__photos__photo_id__url_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+        photo_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PhotoUrlOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-found`, `maintenance-task-photo-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:photo-storage-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  start_task_admin_maintenance_tasks__task_id__start_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        task_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TaskOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-not-found`, also for a task a technician may not see. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:maintenance-task-transition-not-allowed`: not from this status. `maintenance-car-busy`: the car is reserved or rented; `maintenance-task-assigned`: another technician has it. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_technicians_admin_maintenance_technicians_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['TechnicianList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: not a role of this action. */
+      403: {
         headers: {
           [name: string]: unknown;
         };
