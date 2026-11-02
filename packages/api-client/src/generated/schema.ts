@@ -3934,7 +3934,7 @@ export interface components {
       operations: components['schemas']['OperationOut'][];
       /**
        * Owed
-       * @description Kopecks still owed; negative: paid above the total, a refund is due.
+       * @description Kopecks still owed; negative: paid above the total, a refund is due. 0 while the rental runs or its first payment is on its way.
        */
       owed: number;
       rental: components['schemas']['RentalOut'];
