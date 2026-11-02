@@ -48,6 +48,7 @@ id машины — `uuid5(CAR_ID_NAMESPACE, "<seed>:<номер>")`, где н�
   `EMULATOR_CHARGE_RATE_PCT_PER_H` (40 % в час); `stop_charging` снимает её с зарядки. Команды шлёт
   техник по задаче на зарядку (ADR-0025 в `docs/adr`): на демо видно, как машина разряжается, API
   ставит задачу, техник ставит машину на зарядку, и она возвращается на карту.
+- `service_open` открывает машину для техника: она остаётся на месте и не считается арендованной.
 - `EMULATOR_SELF_CHARGE=true` — старое поведение: машина сама заряжается на месте ниже
   `EMULATOR_CHARGE_BELOW_PCT`. По умолчанию выключено, иначе заряд не опускается до порога задачи.
 - Арендованная машина — открытая, с незаблокированным двигателем — ездит сама. Эмулятор ничего не знает
@@ -85,7 +86,7 @@ id машины — `uuid5(CAR_ID_NAMESPACE, "<seed>:<номер>")`, где н�
 | `GET` | `/health` | не нужна |
 | `GET` | `/cars` | нужна |
 | `GET` | `/cars/{car_id}` | нужна |
-| `POST` | `/cars/{car_id}/commands` — `{"command_id": "<uuid>", "type": "open" \| "close" \| "lock_engine" \| "unlock_engine" \| "start_charging" \| "stop_charging"}` | нужна |
+| `POST` | `/cars/{car_id}/commands` — `{"command_id": "<uuid>", "type": "open" \| "service_open" \| "close" \| "lock_engine" \| "unlock_engine" \| "start_charging" \| "stop_charging"}` | нужна |
 
 Ответы на ошибки: `401 invalid_signature`, `404 car_not_found`, `409 duplicate_command`,
 `409 command_rejected:<причина>` (например, `close` при включённом зажигании), `413 body_too_large`.

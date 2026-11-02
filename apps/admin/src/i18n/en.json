@@ -374,7 +374,8 @@
       "lock_engine": "Lock the engine",
       "unlock_engine": "Unlock the engine",
       "start_charging": "Start charging",
-      "stop_charging": "Stop charging"
+      "stop_charging": "Stop charging",
+      "service_open": "Open for service"
     },
     "outcome": {
       "done": "done",

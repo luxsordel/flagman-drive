@@ -28,6 +28,8 @@ CAR_ID_NAMESPACE = uuid.UUID("b3dbc708-f7ca-4013-88f6-d3564a1f0b2c")
 
 class CommandType(StrEnum):
     OPEN = "open"
+    # Opens for a technician: nobody drives off in it, unlike after `open` (ADR-0025 of the API).
+    SERVICE_OPEN = "service_open"
     CLOSE = "close"
     LOCK_ENGINE = "lock_engine"
     UNLOCK_ENGINE = "unlock_engine"
@@ -80,6 +82,8 @@ class Car:
     driven_by_client: bool = False
     # A rented car stands until then: the client gets in, stops for a coffee, finishes.
     rest_until: datetime | None = None
+    # Opened by a technician, not a client: it stays where it is.
+    in_service: bool = False
 
     @property
     def battery_pct(self) -> int:
@@ -110,12 +114,18 @@ def apply_command(car: Car, command: CommandType, now: datetime) -> None:
         case CommandType.OPEN:
             car.doors_locked = False
             car.rest_until = None
+            car.in_service = False
+        case CommandType.SERVICE_OPEN:
+            car.doors_locked = False
+            car.rest_until = None
+            car.in_service = True
         case CommandType.CLOSE:
             # Locking a running car would strand the driver outside it.
             if car.ignition_on:
                 raise CommandRejectedError("ignition_on")
             car.doors_locked = True
             car.rest_until = None
+            car.in_service = False
         case CommandType.LOCK_ENGINE:
             # Like real immobilizers, this blocks the next start instead of stopping a moving car.
             car.engine_locked = True
@@ -219,7 +229,7 @@ def pick_nearby(car: Car, rng: random.Random, max_km: float) -> Destination:
 
 def is_rented(car: Car) -> bool:
     """Opened and free to start: a client has it. The emulator knows nothing else of rentals."""
-    return not car.doors_locked and not car.engine_locked
+    return not car.doors_locked and not car.engine_locked and not car.in_service
 
 
 def stop_for_client(car: Car, rest: timedelta, now: datetime) -> None:

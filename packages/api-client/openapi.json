@@ -263,6 +263,7 @@
         "description": "What staff may ask a car to do; values are stored in the audit log as is.",
         "enum": [
           "open",
+          "service_open",
           "close",
           "lock_engine",
           "unlock_engine",
@@ -1715,7 +1716,7 @@
         "type": "object"
       },
       "MaintenanceCommand": {
-        "description": "Service access of a technician; values are the fleet's car commands (ADR-0025).",
+        "description": "Service access of a technician; the service maps them to car commands (ADR-0025).",
         "enum": ["open", "close", "start_charging", "stop_charging"],
         "title": "MaintenanceCommand",
         "type": "string"

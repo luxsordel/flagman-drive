@@ -82,6 +82,12 @@ COMMAND_LIMIT = Limit("maintenance-commands-staff", 20, 60)
 # The audit comment of a service access command: the task id goes in the details next to it.
 _COMMAND_COMMENT = "Service access by a maintenance task"
 _BUSY_STATUSES = frozenset({CarStatus.RESERVED, CarStatus.IN_RENTAL})
+_CAR_COMMANDS = {
+    MaintenanceCommand.OPEN: CarCommand.SERVICE_OPEN,
+    MaintenanceCommand.CLOSE: CarCommand.CLOSE,
+    MaintenanceCommand.START_CHARGING: CarCommand.START_CHARGING,
+    MaintenanceCommand.STOP_CHARGING: CarCommand.STOP_CHARGING,
+}
 
 
 @dataclass(frozen=True)
@@ -420,7 +426,7 @@ class TaskWork:
             )
         car_request = fleet.CarCommandRequest(
             car_id=car.id,
-            command=CarCommand(request.command.value),
+            command=_CAR_COMMANDS[request.command],
             comment=_COMMAND_COMMENT,
             confirm_active_rental=False,
             maintenance_task_id=task.id,

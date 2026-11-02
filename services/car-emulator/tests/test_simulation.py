@@ -17,6 +17,7 @@ from car_emulator.domain import (
     apply_command,
     distance_km,
     drive_toward,
+    is_rented,
     pick_destination,
     seed_fleet,
     start_trip,
@@ -339,3 +340,25 @@ def test_trips_lead_somewhere_else() -> None:
     destination = pick_destination(seeded, rng)
 
     assert distance_km(seeded.lat, seeded.lon, destination.lat, destination.lon) >= MIN_TRIP_KM
+
+
+def test_car_opened_for_service_stays_where_it_is(car: Car) -> None:
+    apply_command(car, CommandType.SERVICE_OPEN, NOW)
+    where = (car.lat, car.lon)
+
+    now = NOW
+    for _ in range(100):
+        now += timedelta(minutes=1)
+        step_fleet([car], timedelta(minutes=1), PARAMS, _rng(1), now)
+
+    assert not car.doors_locked
+    assert not car.ignition_on
+    assert (car.lat, car.lon) == where
+
+
+def test_closing_ends_the_service_opening(car: Car) -> None:
+    apply_command(car, CommandType.SERVICE_OPEN, NOW)
+    apply_command(car, CommandType.CLOSE, NOW)
+    apply_command(car, CommandType.OPEN, NOW)
+
+    assert is_rented(car)

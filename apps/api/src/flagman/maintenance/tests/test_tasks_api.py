@@ -346,7 +346,7 @@ def test_technician_opens_car_of_own_task_nearby(
     technician.start(task_id)
     response = technician.command(task_id, "open")
     assert response.status_code == HTTPStatus.OK, response.text
-    assert [call[2] for call in gateway.calls] == [CarCommand.OPEN]
+    assert [call[2] for call in gateway.calls] == [CarCommand.SERVICE_OPEN]
     rows = query(
         integration_settings,
         "SELECT actor_id, details FROM audit_events "

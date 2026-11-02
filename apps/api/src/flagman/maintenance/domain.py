@@ -70,7 +70,7 @@ _RULES: dict[TaskTransition, _Rule] = {
 
 
 class MaintenanceCommand(StrEnum):
-    """Service access of a technician; values are the fleet's car commands (ADR-0025)."""
+    """Service access of a technician; the service maps them to car commands (ADR-0025)."""
 
     OPEN = "open"
     CLOSE = "close"

@@ -135,6 +135,8 @@ class CarCommand(StrEnum):
     """What staff may ask a car to do; values are stored in the audit log as is."""
 
     OPEN = "open"
+    # For a technician: a telematics box may treat it as `open`; no client is in the car.
+    SERVICE_OPEN = "service_open"
     CLOSE = "close"
     LOCK_ENGINE = "lock_engine"
     UNLOCK_ENGINE = "unlock_engine"

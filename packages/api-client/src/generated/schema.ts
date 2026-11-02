@@ -1819,7 +1819,13 @@ export interface components {
      * @enum {string}
      */
     CarCommand:
-      'open' | 'close' | 'lock_engine' | 'unlock_engine' | 'start_charging' | 'stop_charging';
+      | 'open'
+      | 'service_open'
+      | 'close'
+      | 'lock_engine'
+      | 'unlock_engine'
+      | 'start_charging'
+      | 'stop_charging';
     /** CarCommandIn */
     CarCommandIn: {
       /** @description `start_charging` and `stop_charging` are refused here: technicians send them through their task (`/admin/maintenance/tasks/{task_id}/commands`). */
@@ -2519,7 +2525,7 @@ export interface components {
     };
     /**
      * MaintenanceCommand
-     * @description Service access of a technician; values are the fleet's car commands (ADR-0025).
+     * @description Service access of a technician; the service maps them to car commands (ADR-0025).
      * @enum {string}
      */
     MaintenanceCommand: 'open' | 'close' | 'start_charging' | 'stop_charging';
