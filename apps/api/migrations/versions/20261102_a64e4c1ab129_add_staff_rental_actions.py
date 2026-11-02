@@ -124,6 +124,22 @@ def upgrade() -> None:
         "client_block_events",
         ["user_id", "created_at"],
     )
+    # The reasons behind the audit log's block events: as unchangeable as the log itself.
+    # The receipts' function says only which table and which operation was refused.
+    op.execute(
+        """
+        CREATE TRIGGER client_block_events_no_update_delete
+            BEFORE UPDATE OR DELETE ON client_block_events
+            FOR EACH ROW EXECUTE FUNCTION rental_receipts_reject_change()
+        """
+    )
+    op.execute(
+        """
+        CREATE TRIGGER client_block_events_no_truncate
+            BEFORE TRUNCATE ON client_block_events
+            FOR EACH STATEMENT EXECUTE FUNCTION rental_receipts_reject_change()
+        """
+    )
 
 
 def downgrade() -> None:

@@ -1,4 +1,3 @@
-import unicodedata
 from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
@@ -7,6 +6,7 @@ from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Fie
 from pydantic.json_schema import SkipJsonSchema
 
 from flagman.core.dates import require_date_string
+from flagman.core.text import normalize_note
 from flagman.identity.domain import (
     BLOCK_REASON_MAX_LENGTH,
     CLIENT_PAGE_DEFAULT,
@@ -401,13 +401,12 @@ class ClientBlockEventOut(BaseModel):
 
 
 def _block_reason(value: str) -> str:
-    normalized = " ".join(value.split())
+    # The rule of every staff note (rentals' reasons and comments too): see normalize_note.
+    normalized = normalize_note(value)
     if not normalized:
         raise ValueError("must not be empty")
     if len(normalized) > BLOCK_REASON_MAX_LENGTH:
         raise ValueError(f"at most {BLOCK_REASON_MAX_LENGTH} characters")
-    if any(unicodedata.category(char) in ("Cc", "Cf") for char in normalized):
-        raise ValueError("must not contain control or format characters")
     return normalized
 
 

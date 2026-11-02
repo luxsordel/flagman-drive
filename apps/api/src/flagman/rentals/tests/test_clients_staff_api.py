@@ -160,6 +160,15 @@ def test_a_repeated_block_changes_nothing(
     assert len(again.json()["block_history"]) == 1
 
 
+def test_a_block_reason_follows_the_rule_of_every_staff_note(
+    person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    # A private-use character, refused in a rental's comment as well.
+    response = _block(app_client, operator, person, "Fraud" + chr(0xE000))
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
 def test_a_block_needs_a_reason(person: Person, operator: Staff, app_client: TestClient) -> None:
     response = _block(app_client, operator, person, "  ")
 

@@ -5,14 +5,20 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 
 from flagman.core.config import Settings
+from flagman.core.db import create_engine, create_session_factory
 from flagman.fleet.domain import TelematicsTimeoutError
 from flagman.fleet.tests.conftest import FakeGateway, Staff, run_in_db
 from flagman.geo import service as geo
 from flagman.identity.domain import StaffRole
+from flagman.payments import service as payments_service
+from flagman.payments.domain import IdempotencyKeyReusedError
 from flagman.payments.fake_provider import FakeProvider
 from flagman.payments.ports import OperationRequest, OperationResult, PaymentProviderError
+from flagman.rentals.service import StaffRentalService
 from flagman.rentals.tests.conftest import (
     CAR_POINT,
     DECLINED_CARD,
@@ -819,3 +825,148 @@ def _shift_reservation(settings: Settings, rental_id: str, minutes: int) -> None
         id=uuid.UUID(rental_id),
         minutes=minutes,
     )
+
+
+def test_a_repeat_finishes_the_refund_a_crash_left_unmade(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    original = StaffRentalService._refund_decreases
+    crashes = [1]
+
+    async def crash_once(self: StaffRentalService, *args: Any) -> None:
+        if crashes:
+            crashes.pop()
+            raise RuntimeError("the process died before the provider was asked")
+        await original(self, *args)
+
+    monkeypatch.setattr(StaffRentalService, "_refund_decreases", crash_once)
+    key = uuid.uuid4()
+    crashed = _adjust(app_client, operator, rental_id, -100, "Late unlock", key)
+    assert crashed.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    card = _card(app_client, operator, rental_id).json()
+    assert (card["owed"], len(card["adjustments"])) == (-100, 1)
+
+    again = _adjust(app_client, operator, rental_id, -100, "Late unlock", key)
+
+    assert again.status_code == HTTPStatus.CREATED, again.text
+    assert (again.json()["owed"], len(again.json()["adjustments"])) == (0, 1)
+    refunds = [op for op in _operations(integration_settings, rental_id) if op.kind == "refund"]
+    assert [(op.amount, op.status) for op in refunds] == [(100, "succeeded")]
+
+
+def test_refunds_another_request_is_making_answer_a_conflict(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+
+    async def refused(*_args: Any) -> None:
+        raise IdempotencyKeyReusedError
+
+    monkeypatch.setattr(payments_service, "refund", refused)
+
+    response = _adjust(app_client, operator, rental_id, -100, "Late unlock")
+
+    assert response.status_code == HTTPStatus.CONFLICT
+    assert problem_type(response) == "rental-settlement-pending"
+
+
+def test_a_failed_lock_of_another_kind_leaves_the_trip_as_it_was(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    gateway: FakeGateway,
+) -> None:
+    rental_id = _start(person, car)
+    gateway.outcome = RuntimeError("a bug in the telematics client")
+
+    response = _force(app_client, operator, rental_id)
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    [row] = query(
+        integration_settings,
+        "SELECT status, command_until FROM rentals WHERE id = :id",
+        id=uuid.UUID(rental_id),
+    )
+    assert (row.status, row.command_until) == ("in_trip", None)
+
+
+def test_an_increase_during_a_debt_try_stays_owed(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    person.bind_card(DECLINED_CARD)
+    _make_default(person, "9995")
+    _adjust(app_client, operator, rental_id, 300, "Smoking in the car")
+    _make_default(person, "4242")
+    original = FakeProvider.charge
+    increases = [1]
+
+    async def charge(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        result = await original(self, request)
+        if increases:
+            # Another operator's increase lands while the provider answers the debt try.
+            increases.pop()
+            engine = create_engine(integration_settings)
+            try:
+                async with create_session_factory(engine)() as db, db.begin():
+                    await db.execute(
+                        text(
+                            "INSERT INTO rental_adjustments (id, rental_id, seq, amount, comment,"
+                            " staff_id, idempotency_key, created_at) VALUES (:id, :rental, 2, 50,"
+                            " 'Late', :staff, :key, now())"
+                        ),
+                        {
+                            "id": uuid.uuid4(),
+                            "rental": uuid.UUID(rental_id),
+                            "staff": operator.id,
+                            "key": uuid.uuid4(),
+                        },
+                    )
+            finally:
+                await engine.dispose()
+        return result
+
+    monkeypatch.setattr(FakeProvider, "charge", charge)
+
+    first = app_client.post(f"/rentals/{rental_id}/pay", headers=person.headers)
+
+    assert first.json()["status"] == "payment_failed", first.text
+    debts = app_client.get("/rentals/debts", headers=person.headers).json()["debts"]
+    assert [debt["amount"] for debt in debts] == [50]
+    second = app_client.post(f"/rentals/{rental_id}/pay", headers=person.headers)
+    assert second.json()["status"] == "paid"
+
+
+def test_the_block_history_never_changes(
+    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    blocked = app_client.post(
+        f"/admin/clients/{person.id}/block", json={"reason": "Fraud"}, headers=operator.headers
+    )
+    assert blocked.status_code == HTTPStatus.OK, blocked.text
+
+    with pytest.raises(DBAPIError, match="append-only"):
+        execute(
+            integration_settings,
+            "UPDATE client_block_events SET reason = 'nothing' WHERE user_id = :id",
+            id=person.id,
+        )

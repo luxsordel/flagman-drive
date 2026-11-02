@@ -63,6 +63,7 @@ from flagman.payments.domain import (
     OperationKind,
     OperationStatus,
     PaymentOperation,
+    PaymentOperationInvalidError,
     PaymentsUnavailableError,
 )
 from flagman.pricing import service as pricing
@@ -605,13 +606,26 @@ async def _retry_debt(
 async def _record(
     db: AsyncSession, rental_id: UUID, settled: _Settled, rules: SettlementRules, now: datetime
 ) -> None:
+    operations = await payments.operations_with_key_prefix(db, rental_key_prefix(rental_id))
     async with db.begin():
         rental = await repository.get_rental_by_id(db, rental_id, for_update=True)
         if rental is None:
             return
+        total = await _billed(db, rental_id)
+        taken = _refund_state(operations).taken
+        if settled.status is ChargeStatus.PAID and taken < total:
+            # A staff increase came between the try's amount and its answer (docs/adr/0025):
+            # the rest is a debt, due at once.
+            settled = _Settled(ChargeStatus.FAILED, settled.attempts, total - taken)
+            logger.info("rental_debt_left_after_an_increase", rental_id=str(rental_id))
+            left_after_increase = True
+        else:
+            left_after_increase = False
         next_at: datetime | None = None
         if settled.unknown:
             next_at = now + rules.pending_retry
+        elif left_after_increase:
+            next_at = now
         elif settled.status is ChargeStatus.FAILED:
             next_at = next_charge_attempt(settled.attempts, rules.retry, now)
         state = ChargeState(settled.status, settled.attempts, next_at)
@@ -1355,6 +1369,21 @@ def _refund_state(operations: list[PaymentOperation]) -> _Refunds:
 
 
 @dataclass(frozen=True)
+class _Recorded:
+    adjustment: Adjustment
+    # False for a repeat of an earlier request with the same key.
+    added: bool
+    # The client owed already before it: told of the debt then, not again.
+    owing: bool
+
+
+def _repeated(repeat: Adjustment, change: AdjustmentRequest) -> _Recorded:
+    if (repeat.amount, repeat.comment) != (change.amount, change.comment):
+        raise IdempotencyKeyReusedError
+    return _Recorded(repeat, added=False, owing=True)
+
+
+@dataclass(frozen=True)
 class StaffRentalService:
     """What `operator` and `admin` do with any client's rental; the router checks the role."""
 
@@ -1456,7 +1485,15 @@ class StaffRentalService:
                 raise RentalBusyError
             hold_until = now + self.rentals.rules.command_hold
             await repository.set_command_until(self.db, rental.id, hold_until, now)
-        locked = await self._lock(commander, rental, now)
+        try:
+            locked = await self._lock(commander, rental, now)
+        except Exception:
+            # Not a refusal of the car but a bug or a missing car: the trip goes on as it was.
+            async with self.db.begin():
+                await repository.release_command(
+                    self.db, rental.id, hold_until, self.rentals.clock()
+                )
+            raise
         details: dict[str, DetailValue] = {"locked": locked, "status_before": rental.status.value}
         entry = AuditEntry(
             Actor(ActorType.STAFF, self.staff_id),
@@ -1491,67 +1528,85 @@ class StaffRentalService:
         """An increase is a debt charged right away; a decrease lowers the debt and refunds
         what was paid above the new total. The receipt never changes.
 
-        A repeat with the same key answers the rental as it is and moves no money again.
+        A repeat with the same key adds nothing and finishes the refunds the first request
+        left unmade, e.g. after a crash between the adjustment and the provider.
         """
         gw = self.rentals._gateway()
         now = self.rentals.clock()
-        seen = await self._debt_try_known(rental_id)
+        recorded = await self._repeat_of(rental_id, change)
+        if recorded is None:
+            seen = await self._debt_try_known(rental_id)
+            recorded = await self._record_adjustment(rental_id, change, seen, now)
+        if recorded.added:
+            logger.info("rental_adjusted", rental_id=str(rental_id), amount=change.amount)
+        if change.amount > 0:
+            if recorded.added:
+                await self._charge_increase(gw, rental_id, now, owing=recorded.owing)
+        else:
+            await self._refund_decreases(gw, rental_id, [recorded.adjustment])
+        return await self.card(rental_id)
+
+    async def _repeat_of(self, rental_id: UUID, change: AdjustmentRequest) -> _Recorded | None:
+        async with self.db.begin():
+            if await repository.get_rental_by_id(self.db, rental_id) is None:
+                raise RentalNotFoundError
+            repeat = await repository.get_adjustment_by_key(self.db, rental_id, change.key)
+        return _repeated(repeat, change) if repeat else None
+
+    async def _record_adjustment(
+        self,
+        rental_id: UUID,
+        change: AdjustmentRequest,
+        seen: tuple[ChargeStatus | None, int],
+        now: datetime,
+    ) -> _Recorded:
         async with self.db.begin():
             rental = await repository.get_rental_by_id(self.db, rental_id, for_update=True)
             if rental is None:
                 raise RentalNotFoundError
+            # A parallel request with the same key got here first.
             repeat = await repository.get_adjustment_by_key(self.db, rental.id, change.key)
             if repeat is not None:
-                if (repeat.amount, repeat.comment) != (change.amount, change.comment):
-                    raise IdempotencyKeyReusedError
-            else:
-                # A debt try started meanwhile: its outcome was not looked at under this lock.
-                if (rental.charge_status, rental.charge_attempts) != seen:
-                    raise RentalSettlementPendingError
-                receipt = await repository.get_receipt(self.db, rental.id)
-                adjustments = await repository.get_adjustments(self.db, rental.id)
-                receipt_total = receipt.quote.total if receipt else None
-                ensure_adjustment_allowed(rental, receipt_total, adjustments, change.amount)
-                before = adjusted_total(receipt_total or 0, adjustments)
-                added = await repository.add_adjustment(
-                    self.db,
-                    NewAdjustment(
-                        rental_id=rental.id,
-                        seq=len(adjustments) + 1,
-                        amount=change.amount,
-                        comment=change.comment,
-                        staff_id=self.staff_id,
-                        idempotency_key=change.key,
-                        created_at=now,
-                    ),
-                )
-                owing = rental.charge_status is ChargeStatus.FAILED
-                if change.amount > 0:
-                    if rental.status is RentalStatus.PAID:
-                        status = apply_transition(rental.status, RentalTransition.ADJUST_DEBT)
-                        await repository.set_status(self.db, rental.id, status, now)
-                    # Due now: the charge below is its first try.
-                    charge = ChargeState(ChargeStatus.FAILED, rental.charge_attempts, now)
-                    await repository.set_charge(self.db, rental.id, charge, now)
-                # The comment stays with the adjustment: the log keeps ids and amounts only.
-                await self._audit(
-                    AuditAction.RENTAL_ADJUSTED,
-                    rental.id,
-                    {
-                        "adjustment_id": added.id,
-                        "amount": change.amount,
-                        "total_before": before,
-                        "total_after": before + change.amount,
-                    },
-                )
-        if repeat is not None:
-            return await self.card(rental.id)
-        logger.info("rental_adjusted", rental_id=str(rental.id), amount=change.amount)
-        if change.amount > 0:
-            await self._charge_increase(gw, rental.id, now, owing=owing)
-        else:
-            await self._refund_decreases(gw, rental.id, [added])
-        return await self.card(rental.id)
+                return _repeated(repeat, change)
+            # A debt try started meanwhile: its outcome was not looked at under this lock.
+            if (rental.charge_status, rental.charge_attempts) != seen:
+                raise RentalSettlementPendingError
+            receipt = await repository.get_receipt(self.db, rental.id)
+            adjustments = await repository.get_adjustments(self.db, rental.id)
+            receipt_total = receipt.quote.total if receipt else None
+            ensure_adjustment_allowed(rental, receipt_total, adjustments, change.amount)
+            before = adjusted_total(receipt_total or 0, adjustments)
+            added = await repository.add_adjustment(
+                self.db,
+                NewAdjustment(
+                    rental_id=rental.id,
+                    seq=len(adjustments) + 1,
+                    amount=change.amount,
+                    comment=change.comment,
+                    staff_id=self.staff_id,
+                    idempotency_key=change.key,
+                    created_at=now,
+                ),
+            )
+            if change.amount > 0:
+                if rental.status is RentalStatus.PAID:
+                    status = apply_transition(rental.status, RentalTransition.ADJUST_DEBT)
+                    await repository.set_status(self.db, rental.id, status, now)
+                # Due now: the charge after this is its first try, the job the fallback.
+                charge = ChargeState(ChargeStatus.FAILED, rental.charge_attempts, now)
+                await repository.set_charge(self.db, rental.id, charge, now)
+            # The comment stays with the adjustment: the log keeps ids and amounts only.
+            await self._audit(
+                AuditAction.RENTAL_ADJUSTED,
+                rental.id,
+                {
+                    "adjustment_id": added.id,
+                    "amount": change.amount,
+                    "total_before": before,
+                    "total_after": before + change.amount,
+                },
+            )
+        return _Recorded(added, added=True, owing=rental.charge_status is ChargeStatus.FAILED)
 
     async def _debt_try_known(self, rental_id: UUID) -> tuple[ChargeStatus | None, int]:
         """Where the money stands, if the last debt try has an outcome; raises
@@ -1572,7 +1627,13 @@ class StaffRentalService:
     async def _charge_increase(
         self, gw: payments.Gateway, rental_id: UUID, now: datetime, *, owing: bool
     ) -> None:
-        await settle(self.db, gw, rental_id, self.rentals.rules.settlement, now)
+        try:
+            await settle(self.db, gw, rental_id, self.rentals.rules.settlement, now)
+        except IdempotencyKeyReusedError:
+            # The charge job took the same debt try with the amount before the increase. The
+            # debt stays due, and the next try, with a key of its own, charges the rest.
+            logger.warning("rental_increase_met_a_debt_try", rental_id=str(rental_id))
+            return
         async with self.db.begin():
             rental = await repository.get_rental_by_id(self.db, rental_id)
         # A client already in debt was told; one the provider has not answered for may yet pay.
@@ -1657,7 +1718,12 @@ class StaffRentalService:
                 payment = payments.Payment(
                     amount, refund_key(rental_id, decrease.seq, operation_id)
                 )
-                await payments.refund(self.db, gw, operation_id, payment, now)
+                try:
+                    await payments.refund(self.db, gw, operation_id, payment, now)
+                except (IdempotencyKeyReusedError, PaymentOperationInvalidError) as error:
+                    # Another request is refunding this decrease right now and planned it from
+                    # the same money: its keys hold, a later retry finishes what is left.
+                    raise RentalSettlementPendingError from error
             used = dict(planned)
             sources = [
                 Refundable(source.operation_id, source.left - used.get(source.operation_id, 0))

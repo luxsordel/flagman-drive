@@ -6,7 +6,6 @@ in docs/adr/0022.
 
 import base64
 import binascii
-import unicodedata
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -16,6 +15,7 @@ from http import HTTPStatus
 
 from flagman.core.errors import AppError
 from flagman.core.geo import GeoPoint
+from flagman.core.text import normalize_note
 from flagman.pricing.domain import Interval, IntervalKind, Quote
 
 
@@ -372,20 +372,10 @@ class Inspection:
             raise InspectionIncompleteError
 
 
-def _is_refused_in_comment(char: str) -> bool:
-    return char not in {"\n", "\r", "\t"} and unicodedata.category(char).startswith("C")
-
-
 def normalize_damage_comment(comment: str) -> str:
-    """Squeezes the spaces; raises ValueError for control and format characters.
-
-    Operators read the comment next to the photos: invisible characters (bidi overrides,
-    zero-width) could make it read differently there, and NUL is refused by Postgres.
-    """
-    # Line breaks and tabs from a multiline field are spaces like any other.
-    if any(_is_refused_in_comment(char) for char in comment):
-        raise ValueError("the comment must not contain control or format characters")
-    return " ".join(comment.split())
+    """Squeezes the spaces; raises ValueError for control and format characters: operators
+    read the comment next to the photos."""
+    return normalize_note(comment)
 
 
 class RentalCommand(StrEnum):
@@ -775,9 +765,9 @@ class Adjustment:
 
 
 def normalize_staff_text(value: str) -> str:
-    """A reason or a comment the client or another operator reads later: the same rules as
-    a damage comment, so invisible characters cannot make it read differently."""
-    return normalize_damage_comment(value)
+    """A reason or a comment the client or another operator reads later; a client's block
+    reason follows the same rule (identity)."""
+    return normalize_note(value)
 
 
 def adjusted_total(receipt_total: int, adjustments: Sequence[Adjustment]) -> int:
