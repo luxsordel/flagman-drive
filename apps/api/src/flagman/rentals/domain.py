@@ -747,14 +747,6 @@ class RentalSettlementPendingError(AppError):
     title = "The rental's payment is not settled yet; try again later"
 
 
-class RefundStatus(StrEnum):
-    """Values are stored as is."""
-
-    SUCCEEDED = "succeeded"
-    # The provider did not answer or declined: an operator retries with the same keys.
-    PENDING = "pending"
-
-
 @dataclass(frozen=True)
 class Adjustment:
     id: uuid.UUID
@@ -766,8 +758,6 @@ class Adjustment:
     comment: str
     staff_id: uuid.UUID
     created_at: datetime
-    # Only for a decrease that had paid money to return.
-    refund_status: RefundStatus | None = None
 
 
 def normalize_staff_text(value: str) -> str:
