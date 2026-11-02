@@ -7,9 +7,11 @@ import { createStaffSession } from '../auth/session';
 import type { Staff } from '../auth/staff';
 import { routes } from '../routes';
 import { fakeAuditLogApi } from './audit';
+import { fakeClientsApi } from './clients';
 import { fakeFleetApi, fakeFleetStream } from './fleet';
 import { fakeStaffAuthApi, fakeStaffSignInApi, testStaff } from './auth';
 import { fakeKycReviewApi } from './kyc';
+import { fakeRentalsApi } from './rentals';
 import { fakeStaffListApi } from './staff';
 import { fakeSupportApi } from './support';
 import { fakeTariffsApi } from './tariffs';
@@ -36,9 +38,11 @@ export function renderAt(
       <ApiContext
         value={{
           auditLog: fakeAuditLogApi(),
+          clients: fakeClientsApi(),
           fleet: fakeFleetApi(),
           fleetStream: fakeFleetStream().open,
           kycReview: fakeKycReviewApi(),
+          rentals: fakeRentalsApi(),
           staffList: fakeStaffListApi(),
           staffSignIn: fakeStaffSignInApi(),
           support: fakeSupportApi(),

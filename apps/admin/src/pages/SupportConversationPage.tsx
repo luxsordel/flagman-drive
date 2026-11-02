@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type SyntheticEvent } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useParams } from 'react-router';
+import { Link, useParams } from 'react-router';
 
 import { ApiError } from '../api/client';
 import { useApis } from '../api/context';
@@ -112,14 +112,22 @@ function ConversationView({ conversationId }: { conversationId: string }) {
   const open = conversation.status === 'open';
   return (
     <>
-      <h1>{fullName(conversation) ?? t('support.noName')}</h1>
+      <h1>
+        <Link to={`/clients/${conversation.user_id}`}>
+          {fullName(conversation) ?? t('support.noName')}
+        </Link>
+      </h1>
       <dl className="details support-details">
         <dt>{t('support.columns.car')}</dt>
         <dd>{conversation.car_plate ?? t('support.noRental')}</dd>
-        {conversation.rental_status && (
+        {conversation.rental_id && conversation.rental_status && (
           <>
             <dt>{t('support.rental')}</dt>
-            <dd>{t(`support.rentalStatus.${conversation.rental_status}`)}</dd>
+            <dd>
+              <Link to={`/rentals/${conversation.rental_id}`}>
+                {t(`support.rentalStatus.${conversation.rental_status}`)}
+              </Link>
+            </dd>
           </>
         )}
         <dt>{t('support.columns.operator')}</dt>

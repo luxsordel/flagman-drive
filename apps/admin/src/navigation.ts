@@ -3,10 +3,14 @@ import { lazy, type ComponentType } from 'react';
 import type { StaffRole } from './auth/staff';
 import type ru from './i18n/ru.json';
 import { AuditLogPage } from './pages/AuditLogPage';
+import { ClientPage } from './pages/ClientPage';
+import { ClientsPage } from './pages/ClientsPage';
 import { KycApplicationPage } from './pages/KycApplicationPage';
 import { IncidentPage } from './pages/IncidentPage';
 import { IncidentsPage } from './pages/IncidentsPage';
 import { KycQueuePage } from './pages/KycQueuePage';
+import { RentalPage } from './pages/RentalPage';
+import { RentalsPage } from './pages/RentalsPage';
 import { SupportConversationPage } from './pages/SupportConversationPage';
 import { SupportQueuePage } from './pages/SupportQueuePage';
 import { TariffsPage } from './pages/TariffsPage';
@@ -47,8 +51,20 @@ export const sections: readonly Section[] = [
     subpages: [{ path: ':applicationId', page: KycApplicationPage }],
   },
   { key: 'fleet', path: '/fleet', roles: everyone, page: FleetPage },
-  { key: 'rentals', path: '/rentals', roles: support },
-  { key: 'clients', path: '/clients', roles: support },
+  {
+    key: 'rentals',
+    path: '/rentals',
+    roles: support,
+    page: RentalsPage,
+    subpages: [{ path: ':rentalId', page: RentalPage }],
+  },
+  {
+    key: 'clients',
+    path: '/clients',
+    roles: support,
+    page: ClientsPage,
+    subpages: [{ path: ':clientId', page: ClientPage }],
+  },
   {
     key: 'support',
     path: '/support',
