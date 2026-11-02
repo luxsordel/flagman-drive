@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -77,6 +77,41 @@ describe('rentals list', () => {
       expect(screen.queryByRole('button', { name: ru.rentals.more })).toBeNull();
     });
     expect(rentals.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the rows when the next page fails and drops a page of an older filter', async () => {
+    const rentals = fakeRentalsApi();
+    rentals.list.mockResolvedValueOnce({ items: [rentalItem()], next_cursor: 'c-1' });
+    rentals.list.mockRejectedValueOnce(new ApiError(500));
+    const { router } = renderAt('/rentals', operator, { rentals });
+
+    await userEvent.click(await screen.findByRole('button', { name: ru.rentals.more }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ru.load.moreFailed);
+    expect(screen.getByRole('link', { name: 'Petrov Ivan' })).toBeDefined();
+
+    let release: () => void = () => undefined;
+    rentals.list.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => {
+            resolve({ items: [rentalItem({ id: 'stale' })], next_cursor: null });
+          };
+        }),
+    );
+    await userEvent.click(screen.getByRole('button', { name: ru.rentals.more }));
+    rentals.list.mockResolvedValueOnce({ items: [], next_cursor: null });
+    await act(async () => {
+      await router.navigate('/rentals?status=paid');
+    });
+    expect(await screen.findByText(ru.rentals.empty)).toBeDefined();
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByRole('link', { name: 'Petrov Ivan' })).toBeNull();
+    expect(screen.getByText(ru.rentals.empty)).toBeDefined();
   });
 
   it('is not open to a technician', async () => {

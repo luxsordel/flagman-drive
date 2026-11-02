@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 
@@ -32,6 +32,9 @@ export function ClientsPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready' | LoadProblem>('loading');
   const [loadingMore, setLoadingMore] = useState(false);
+  const [moreFailed, setMoreFailed] = useState(false);
+  // Counts the filters shown: a next page asked for under an older one is dropped.
+  const shown = useRef(0);
 
   const refused = useCallback(
     (error: unknown) => {
@@ -44,6 +47,7 @@ export function ClientsPage() {
   useEffect(() => {
     // An answer to the filter before is dropped: it would replace the list of this one.
     let active = true;
+    shown.current += 1;
     clients.list(filter).then(
       (page) => {
         if (!active) return;
@@ -154,13 +158,24 @@ export function ClientsPage() {
           className="button list-more"
           disabled={loadingMore}
           onClick={() => {
+            const asked = shown.current;
             setLoadingMore(true);
+            setMoreFailed(false);
             clients
               .list(filter, cursor)
-              .then((page) => {
-                setItems((known) => [...known, ...page.items]);
-                setCursor(page.next_cursor ?? null);
-              }, refused)
+              .then(
+                (page) => {
+                  if (asked !== shown.current) return;
+                  setItems((known) => [...known, ...page.items]);
+                  setCursor(page.next_cursor ?? null);
+                },
+                (error: unknown) => {
+                  if (asked !== shown.current) return;
+                  // The rows loaded so far stay: only the next page failed.
+                  if (error instanceof ApiError && error.status === 401) void signOut();
+                  else setMoreFailed(true);
+                },
+              )
               .finally(() => {
                 setLoadingMore(false);
               });
@@ -168,6 +183,11 @@ export function ClientsPage() {
         >
           {t('clients.more')}
         </button>
+      )}
+      {status === 'ready' && moreFailed && (
+        <p role="alert" className="list-error">
+          {t('load.moreFailed')}
+        </p>
       )}
     </>
   );

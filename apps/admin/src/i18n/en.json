@@ -830,6 +830,7 @@
     "forbidden": "This section is not available to your role.",
     "notFound": "Not found. The link may be out of date.",
     "rejected": "The request was not accepted. Check the filters.",
-    "failed": "Could not load. Check the connection and reload the page."
+    "failed": "Could not load. Check the connection and reload the page.",
+    "moreFailed": "Could not load the next page. Try again."
   }
 }
