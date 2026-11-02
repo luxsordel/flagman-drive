@@ -524,6 +524,8 @@ export const en: Translation = {
     ongoing: 'Going on now',
     debt: 'Not paid: open it to pay',
     paying: 'Payment in progress',
+    paid: 'Paid',
+    cancelled: 'Reservation cancelled',
     more: 'Show more',
     retry: 'Retry',
     loading: 'Loading…',

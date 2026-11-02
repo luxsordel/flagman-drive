@@ -99,6 +99,25 @@ describe('TripsScreen', () => {
     expect(screen.queryByText('Показать ещё')).toBeNull();
   });
 
+  it('tells a paid trip and a cancelled reservation apart', async () => {
+    const fake = fakeRentalApi();
+    const items = [
+      trip(),
+      trip({
+        id: 'cancelled',
+        status: 'cancelled',
+        trip_started_at: null,
+        total: 0,
+        charge_status: null,
+      }),
+    ];
+    fake.api.history.mockResolvedValue(ok({ items, next_cursor: null }));
+    await renderTrips(fake);
+
+    expect(await screen.findByText('Оплачено')).toBeOnTheScreen();
+    expect(screen.getByText('Бронь отменена')).toBeOnTheScreen();
+  });
+
   it('says when there were no trips', async () => {
     await renderTrips(fakeRentalApi());
 

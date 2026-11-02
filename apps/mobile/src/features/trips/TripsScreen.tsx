@@ -106,6 +106,8 @@ function TripRow({ item }: { item: HistoryItem }) {
         ) : (
           <AppText>{formatKopecks(item.total, i18n.language)}</AppText>
         )}
+        {item.status === 'cancelled' && <AppText tone="muted">{t('trips.cancelled')}</AppText>}
+        {item.charge_status === 'paid' && <AppText tone="muted">{t('trips.paid')}</AppText>}
         {item.charge_status === 'failed' && <AppText tone="danger">{t('trips.debt')}</AppText>}
         {item.charge_status === 'pending' && <AppText tone="muted">{t('trips.paying')}</AppText>}
       </Card>
