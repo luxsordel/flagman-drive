@@ -65,6 +65,12 @@ class AuditAction(StrEnum):
     INCIDENT_REJECTED = "incident.rejected"
     INCIDENT_CAR_SENT_TO_SERVICE = "incident.car_sent_to_service"
     INCIDENT_PHOTO_VIEWED = "incident.photo_viewed"
+    RENTAL_FORCE_FINISHED = "rental.force_finished"
+    RENTAL_ADJUSTED = "rental.adjusted"
+    RENTAL_REFUND_RETRIED = "rental.refund_retried"
+    RENTAL_PHOTO_VIEWED = "rental.photo_viewed"
+    CLIENT_BLOCKED = "client.blocked"
+    CLIENT_UNBLOCKED = "client.unblocked"
 
 
 class AuditTargetType(StrEnum):
@@ -81,6 +87,8 @@ class AuditTargetType(StrEnum):
     CAR = "car"
     SUPPORT_CONVERSATION = "support_conversation"
     INCIDENT = "incident"
+    RENTAL = "rental"
+    CLIENT = "client"
 
 
 @dataclass(frozen=True)

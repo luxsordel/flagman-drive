@@ -1,16 +1,20 @@
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import select, update
+from geoalchemy2 import Geography, Geometry
+from sqlalchemy import ColumnElement, and_, cast, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.core.geo import SRID_WGS84, GeoPoint
 from flagman.pricing.domain import IntervalKind, Quote, QuoteLine
 from flagman.rentals.domain import (
     ACTIVE_STATUSES,
+    Adjustment,
     CancelReason,
     ChargeStatus,
     Damage,
@@ -21,9 +25,13 @@ from flagman.rentals.domain import (
     Receipt,
     ReceiptCard,
     Rental,
+    RentalCursor,
+    RentalFilter,
     RentalStatus,
+    TripEnds,
     TripInterval,
 )
+from flagman.rentals.models import Adjustment as AdjustmentRow
 from flagman.rentals.models import Inspection as InspectionRow
 from flagman.rentals.models import InspectionDamage as DamageRow
 from flagman.rentals.models import InspectionPhoto as PhotoRow
@@ -55,6 +63,8 @@ def _to_rental(row: RentalRow) -> Rental:
         charge_status=ChargeStatus(row.charge_status) if row.charge_status else None,
         charge_attempts=row.charge_attempts,
         charge_next_at=row.charge_next_at,
+        force_finish_reason=row.force_finish_reason,
+        force_finished_by=row.force_finished_by,
     )
 
 
@@ -186,14 +196,49 @@ async def cancel(  # noqa: PLR0913 - the fields of one cancellation
     )
 
 
+def _geography(point: GeoPoint | None) -> ColumnElement[Any] | None:
+    if point is None:
+        return None
+    # Bound parameters, not WKT text: coordinates never become part of the SQL string.
+    return cast(func.ST_SetSRID(func.ST_MakePoint(point.lon, point.lat), SRID_WGS84), Geography)
+
+
 async def start_trip(
-    db: AsyncSession, rental_id: UUID, status: RentalStatus, now: datetime
+    db: AsyncSession,
+    rental_id: UUID,
+    status: RentalStatus,
+    now: datetime,
+    *,
+    location: GeoPoint | None = None,
 ) -> None:
     await db.execute(
         update(RentalRow)
         .where(RentalRow.id == rental_id)
-        .values(status=status, trip_started_at=now, command_until=None, updated_at=now)
+        .values(
+            status=status,
+            trip_started_at=now,
+            command_until=None,
+            start_location=_geography(location),
+            updated_at=now,
+        )
     )
+
+
+def _lat_lon(column: Any) -> tuple[ColumnElement[Any], ColumnElement[Any]]:
+    point = cast(column, Geometry)
+    return func.ST_Y(point), func.ST_X(point)
+
+
+async def get_trip_ends(db: AsyncSession, rental_id: UUID) -> TripEnds:
+    start_lat, start_lon = _lat_lon(RentalRow.start_location)
+    end_lat, end_lon = _lat_lon(RentalRow.end_location)
+    query = select(start_lat, start_lon, end_lat, end_lon).where(RentalRow.id == rental_id)
+    row = (await db.execute(query)).one_or_none()
+    if row is None:
+        return TripEnds(None, None)
+    start = GeoPoint(lat=row[0], lon=row[1]) if row[0] is not None else None
+    end = GeoPoint(lat=row[2], lon=row[3]) if row[2] is not None else None
+    return TripEnds(start, end)
 
 
 async def set_command_until(
@@ -319,11 +364,33 @@ async def set_status(
     )
 
 
-async def finish(db: AsyncSession, rental_id: UUID, status: RentalStatus, now: datetime) -> None:
+@dataclass(frozen=True)
+class ForcedFinish:
+    reason: str
+    staff_id: UUID
+
+
+async def finish(  # noqa: PLR0913 - the end of a trip has this many facts
+    db: AsyncSession,
+    rental_id: UUID,
+    status: RentalStatus,
+    now: datetime,
+    *,
+    location: GeoPoint | None = None,
+    forced: ForcedFinish | None = None,
+) -> None:
     await db.execute(
         update(RentalRow)
         .where(RentalRow.id == rental_id)
-        .values(status=status, ended_at=now, command_until=None, updated_at=now)
+        .values(
+            status=status,
+            ended_at=now,
+            command_until=None,
+            end_location=_geography(location),
+            force_finish_reason=forced.reason if forced else None,
+            force_finished_by=forced.staff_id if forced else None,
+            updated_at=now,
+        )
     )
 
 
@@ -486,3 +553,95 @@ async def get_receipt(db: AsyncSession, rental_id: UUID) -> Receipt | None:
         card=card,
         issued_at=row.issued_at,
     )
+
+
+# History and staff actions (docs/adr/0025)
+
+
+async def list_rentals(
+    db: AsyncSession, filters: RentalFilter, cursor: RentalCursor | None, limit: int
+) -> list[Rental]:
+    """Newest reservation first; a client's own history passes its id in the filter."""
+    query = select(RentalRow)
+    if filters.statuses:
+        query = query.where(RentalRow.status.in_(filters.statuses))
+    if filters.user_id is not None:
+        query = query.where(RentalRow.user_id == filters.user_id)
+    if filters.car_id is not None:
+        query = query.where(RentalRow.car_id == filters.car_id)
+    if filters.reserved_from is not None:
+        query = query.where(RentalRow.reserved_at >= filters.reserved_from)
+    if filters.reserved_to is not None:
+        query = query.where(RentalRow.reserved_at < filters.reserved_to)
+    if cursor is not None:
+        query = query.where(
+            or_(
+                RentalRow.reserved_at < cursor.reserved_at,
+                and_(RentalRow.reserved_at == cursor.reserved_at, RentalRow.id < cursor.rental_id),
+            )
+        )
+    query = query.order_by(RentalRow.reserved_at.desc(), RentalRow.id.desc()).limit(limit)
+    return [_to_rental(row) for row in await db.scalars(query)]
+
+
+async def get_receipt_totals(db: AsyncSession, rental_ids: Collection[UUID]) -> dict[UUID, int]:
+    query = select(ReceiptRow.rental_id, ReceiptRow.total).where(
+        ReceiptRow.rental_id.in_(rental_ids)
+    )
+    return dict((await db.execute(query)).tuples().all())
+
+
+def _to_adjustment(row: AdjustmentRow) -> Adjustment:
+    return Adjustment(
+        id=row.id,
+        rental_id=row.rental_id,
+        seq=row.seq,
+        amount=row.amount,
+        comment=row.comment,
+        staff_id=row.staff_id,
+        created_at=row.created_at,
+    )
+
+
+async def get_adjustments(db: AsyncSession, rental_id: UUID) -> list[Adjustment]:
+    query = (
+        select(AdjustmentRow)
+        .where(AdjustmentRow.rental_id == rental_id)
+        .order_by(AdjustmentRow.seq)
+    )
+    return [_to_adjustment(row) for row in await db.scalars(query)]
+
+
+async def get_adjusted_amounts(db: AsyncSession, rental_ids: Collection[UUID]) -> dict[UUID, int]:
+    """The sum of the adjustments of each rental, for a page of the history."""
+    query = (
+        select(AdjustmentRow.rental_id, func.sum(AdjustmentRow.amount))
+        .where(AdjustmentRow.rental_id.in_(rental_ids))
+        .group_by(AdjustmentRow.rental_id)
+    )
+    return {rental_id: int(total) for rental_id, total in (await db.execute(query)).tuples()}
+
+
+@dataclass(frozen=True)
+class NewAdjustment:
+    rental_id: UUID
+    seq: int
+    amount: int
+    comment: str
+    staff_id: UUID
+    created_at: datetime
+
+
+async def add_adjustment(db: AsyncSession, adjustment: NewAdjustment) -> Adjustment:
+    """The caller holds the rental's row: `seq` is the next one under that lock."""
+    row = AdjustmentRow(
+        rental_id=adjustment.rental_id,
+        seq=adjustment.seq,
+        amount=adjustment.amount,
+        comment=adjustment.comment,
+        staff_id=adjustment.staff_id,
+        created_at=adjustment.created_at,
+    )
+    db.add(row)
+    await db.flush()
+    return _to_adjustment(row)

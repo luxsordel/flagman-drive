@@ -285,6 +285,12 @@ async def find_operation(db: AsyncSession, idempotency_key: str) -> PaymentOpera
         return await repository.get_operation_by_key(db, idempotency_key)
 
 
+async def operations_with_key_prefix(db: AsyncSession, prefix: str) -> list[PaymentOperation]:
+    """Every operation a caller made under its keys, oldest first: a rental's whole money."""
+    async with db.begin():
+        return await repository.operations_with_key_prefix(db, prefix)
+
+
 async def card_of(db: AsyncSession, operation_id: UUID) -> CardDetails | None:
     """The card an operation went to, for a receipt; within the caller's transaction."""
     operation = await repository.get_operation(db, operation_id)

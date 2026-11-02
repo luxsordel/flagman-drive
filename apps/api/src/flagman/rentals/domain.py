@@ -15,6 +15,7 @@ from enum import StrEnum
 from http import HTTPStatus
 
 from flagman.core.errors import AppError
+from flagman.core.geo import GeoPoint
 from flagman.pricing.domain import Interval, IntervalKind, Quote
 
 
@@ -204,6 +205,9 @@ class Rental:
     # Retries of a declined debt so far, and when the worker tries the next one.
     charge_attempts: int = 0
     charge_next_at: datetime | None = None
+    # Set when an operator ended the trip (docs/adr/0025).
+    force_finish_reason: str | None = None
+    force_finished_by: uuid.UUID | None = None
 
     @property
     def is_active(self) -> bool:
@@ -730,7 +734,15 @@ class Receipt:
 STAFF_REASON_MAX_LENGTH = 500
 
 # A paid wait of a cancelled reservation is adjusted like a trip; its status stays as it is.
-_ADJUSTABLE = frozenset({RentalStatus.PAID, RentalStatus.PAYMENT_FAILED, RentalStatus.CANCELLED})
+# A finished one is a free trip, with nothing to settle: any other is still settling.
+_ADJUSTABLE = frozenset(
+    {
+        RentalStatus.FINISHED,
+        RentalStatus.PAID,
+        RentalStatus.PAYMENT_FAILED,
+        RentalStatus.CANCELLED,
+    }
+)
 
 
 class RentalAdjustmentInvalidError(AppError):
@@ -774,8 +786,7 @@ def ensure_adjustment_allowed(
     rental: Rental, receipt_total: int | None, adjustments: Sequence[Adjustment], amount: int
 ) -> None:
     """Only a rental whose money is known, with a receipt to start from, and never below zero."""
-    # A finished rental is one whose first settlement has not answered yet.
-    if rental.status is RentalStatus.FINISHED or rental.charge_status is ChargeStatus.PENDING:
+    if rental.charge_status is ChargeStatus.PENDING:
         raise RentalSettlementPendingError
     if rental.status not in _ADJUSTABLE:
         raise RentalTransitionNotAllowedError
@@ -812,6 +823,10 @@ def plan_refunds(overpaid: int, sources: Sequence[Refundable]) -> tuple[tuple[uu
 
 def refund_key(rental_id: uuid.UUID, seq: int, operation_id: uuid.UUID) -> str:
     return f"rental:{rental_id}:refund:{seq}:{operation_id}"
+
+
+def refund_prefix(rental_id: uuid.UUID) -> str:
+    return f"rental:{rental_id}:refund:"
 
 
 def rental_key_prefix(rental_id: uuid.UUID) -> str:
@@ -852,3 +867,12 @@ class RentalFilter:
     car_id: uuid.UUID | None = None
     reserved_from: datetime | None = None
     reserved_to: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TripEnds:
+    """Where the car stood at the start and at the end; unknown for a car without telemetry
+    and for the trips before #112."""
+
+    start: GeoPoint | None
+    end: GeoPoint | None

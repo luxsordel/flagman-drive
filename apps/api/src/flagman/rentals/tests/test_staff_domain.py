@@ -81,10 +81,12 @@ def test_the_total_is_the_receipt_plus_every_adjustment() -> None:
         (RentalStatus.PAYMENT_FAILED, ChargeStatus.FAILED),
         (RentalStatus.CANCELLED, ChargeStatus.PAID),
         (RentalStatus.CANCELLED, ChargeStatus.FAILED),
+        # A free trip: nothing was ever charged.
+        (RentalStatus.FINISHED, None),
     ],
 )
 def test_a_rental_whose_money_is_known_may_be_adjusted(
-    status: RentalStatus, charge: ChargeStatus
+    status: RentalStatus, charge: ChargeStatus | None
 ) -> None:
     rental = replace(RENTAL, status=status, charge_status=charge)
 

@@ -200,7 +200,11 @@ class Person:
         return str(started.json()["id"])
 
     def block(self) -> None:
-        execute(self.settings, "UPDATE users SET blocked_at = now() WHERE id = :id", id=self.id)
+        execute(
+            self.settings,
+            "UPDATE users SET blocked_at = now(), blocked_reason = 'test' WHERE id = :id",
+            id=self.id,
+        )
 
     def reserve(self, car_id: str) -> Any:
         return self.client.post("/rentals", json={"car_id": car_id}, headers=self.headers)

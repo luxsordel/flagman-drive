@@ -15,6 +15,17 @@ from uuid import UUID, uuid4
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.audit import service as audit
+from flagman.audit.domain import (
+    Actor,
+    ActorType,
+    AuditAction,
+    AuditEntry,
+    AuditTarget,
+    AuditTargetType,
+    DetailValue,
+    RequestOrigin,
+)
 from flagman.core.config import Settings, TripSettings
 from flagman.core.geo import GeoPoint
 from flagman.core.photos import (
@@ -30,10 +41,13 @@ from flagman.fleet.domain import (
     AvailabilityRules,
     Car,
     CarCommand,
+    CarCommandDuplicateError,
     CarCommandRejectedError,
     CarNotFoundError,
     CarTransition,
     Gear,
+    TelematicsTimeoutError,
+    TelematicsUnavailableError,
     range_left_km,
 )
 from flagman.geo import service as geo
@@ -63,6 +77,7 @@ from flagman.rentals import repository
 from flagman.rentals.domain import (
     SIGNED_URL_TTL,
     ActiveRentalExistsError,
+    Adjustment,
     CancelReason,
     CardRequiredError,
     ChargeRetryRules,
@@ -86,20 +101,28 @@ from flagman.rentals.domain import (
     Receipt,
     ReceiptCard,
     ReceiptNotFoundError,
+    Refundable,
     Rental,
     RentalBusyError,
     RentalCommand,
+    RentalCursor,
+    RentalFilter,
     RentalNotFoundError,
+    RentalSettlementPendingError,
     RentalStatus,
     RentalTransition,
     RentalTransitionNotAllowedError,
     ReservationExpiredError,
     ReservationTerms,
     SettlementStep,
+    TripEnds,
+    TripInterval,
     TripWarning,
     TripWarningRules,
+    adjusted_total,
     apply_transition,
     debt_key,
+    ensure_adjustment_allowed,
     ensure_command_allowed,
     ensure_finish_allowed,
     ensure_near_car,
@@ -110,15 +133,21 @@ from flagman.rentals.domain import (
     next_charge_attempt,
     normalize_damage_comment,
     payment_key,
+    plan_refunds,
     plan_settlement,
+    refund_key,
+    refund_prefix,
     rental_intervals,
+    rental_key_prefix,
     reservation_deadlines,
     trip_warnings,
 )
 from flagman.rentals.repository import (
     ActiveRentalTakenError,
     ChargeState,
+    ForcedFinish,
     InspectionRecord,
+    NewAdjustment,
     NewRental,
 )
 
@@ -227,6 +256,55 @@ class RentalView:
     warnings: tuple[TripWarning, ...] = ()
     receipt: Receipt | None = None
     after_inspection_submitted: bool = False
+    adjustments: tuple[Adjustment, ...] = ()
+    ends: TripEnds = field(default_factory=lambda: TripEnds(None, None))
+
+    @property
+    def total(self) -> int:
+        """What the rental costs after the staff adjustments; the receipt keeps the original."""
+        return adjusted_total(self.cost.total, self.adjustments)
+
+
+HISTORY_PAGE_DEFAULT = 20
+HISTORY_PAGE_MAX = 100
+
+
+@dataclass(frozen=True)
+class HistoryEntry:
+    rental: Rental
+    car: Car
+    # Kopecks: the receipt's total with the staff adjustments; 0 for a free cancelled reservation.
+    total: int
+
+
+@dataclass(frozen=True)
+class HistoryPage:
+    entries: list[HistoryEntry]
+    # None on the last page.
+    next_cursor: RentalCursor | None
+
+
+async def history_page(
+    db: AsyncSession, filters: RentalFilter, cursor: RentalCursor | None, limit: int
+) -> HistoryPage:
+    async with db.begin():
+        # One more than asked tells whether another page follows.
+        found = await repository.list_rentals(db, filters, cursor, limit + 1)
+        rentals = found[:limit]
+        ids = [rental.id for rental in rentals]
+        receipts = await repository.get_receipt_totals(db, ids)
+        adjusted = await repository.get_adjusted_amounts(db, ids)
+        cars = {car.id: car for car in await fleet.get_cars(db, {r.car_id for r in rentals})}
+    entries = [
+        HistoryEntry(
+            rental=rental,
+            car=cars[rental.car_id],
+            total=receipts.get(rental.id, 0) + adjusted.get(rental.id, 0),
+        )
+        for rental in rentals
+    ]
+    last = rentals[-1] if len(found) > limit else None
+    return HistoryPage(entries, RentalCursor(last.reserved_at, last.id) if last else None)
 
 
 @dataclass(frozen=True)
@@ -475,11 +553,26 @@ async def _settle_first(
 
 
 async def _taken_before(db: AsyncSession, rental: Rental, attempts: int) -> int:
-    """What the rental's payments took so far, the first settlement and `attempts` debt tries."""
+    """What the rental's payments took so far, the first settlement and `attempts` debt tries,
+    less what the refunds of staff adjustments gave back."""
     first = (SettlementStep.CAPTURE, SettlementStep.EXTRA, SettlementStep.CHARGE)
     keys = [payment_key(rental.id, step) for step in first]
     keys += [debt_key(rental.id, attempt) for attempt in range(1, attempts + 1)]
-    return sum([_taken(await payments.find_operation(db, key)) for key in keys])
+    taken = sum([_taken(await payments.find_operation(db, key)) for key in keys])
+    return taken - await _refunded(db, rental.id)
+
+
+async def _refunded(db: AsyncSession, rental_id: UUID) -> int:
+    refunds = await payments.operations_with_key_prefix(db, refund_prefix(rental_id))
+    return sum(_taken(refund) for refund in refunds)
+
+
+async def _billed(db: AsyncSession, rental_id: UUID) -> int:
+    """The receipt's total with the staff adjustments; within the caller's transaction."""
+    receipt = await repository.get_receipt(db, rental_id)
+    if receipt is None:
+        return 0
+    return adjusted_total(receipt.quote.total, await repository.get_adjustments(db, rental_id))
 
 
 async def _retry_debt(
@@ -487,9 +580,10 @@ async def _retry_debt(
 ) -> _Settled:
     attempt = rental.charge_attempts
     last = await payments.find_operation(db, debt_key(rental.id, attempt)) if attempt else None
-    # A try the provider has not answered goes again with its own key; only a declined one,
-    # or one that never reached the provider, makes room for the next.
-    if last is None or last.status is OperationStatus.DECLINED:
+    # A try the provider has not answered goes again with its own key. A declined one, one that
+    # never reached the provider, or a paid one before a staff increase makes room for the next:
+    # its key is spent on its own amount (docs/adr/0025).
+    if last is None or last.is_final:
         attempt += 1
     owed = total - await _taken_before(db, rental, attempt - 1)
     if owed <= 0:
@@ -557,11 +651,10 @@ async def settle(  # noqa: PLR0913 - `debt` only tells the callers apart
     """
     async with db.begin():
         rental = await repository.get_rental_by_id(db, rental_id)
-        receipt = await repository.get_receipt(db, rental_id)
+        total = await _billed(db, rental_id)
     owing = (ChargeStatus.PENDING, ChargeStatus.FAILED) if debt else (ChargeStatus.PENDING,)
     if rental is None or rental.charge_status not in owing:
         return
-    total = receipt.quote.total if receipt else 0
     if rental.charge_status is ChargeStatus.PENDING:
         settled = await _settle_first(db, gw, rental, total, now)
     else:
@@ -606,8 +699,7 @@ async def _postpone(db: AsyncSession, rental_id: UUID, next_at: datetime, now: d
 
 async def owed(db: AsyncSession, rental: Rental) -> int:
     async with db.begin():
-        receipt = await repository.get_receipt(db, rental.id)
-    total = receipt.quote.total if receipt else 0
+        total = await _billed(db, rental.id)
     return max(0, total - await _taken_before(db, rental, rental.charge_attempts))
 
 
@@ -702,6 +794,8 @@ class RentalService:
             warnings=warnings,
             receipt=receipt,
             after_inspection_submitted=after is not None and after.inspection.is_submitted,
+            adjustments=tuple(await repository.get_adjustments(self.db, rental.id)),
+            ends=await repository.get_trip_ends(self.db, rental.id),
         )
 
     async def _bill(self, ended: Rental, now: datetime, *, receipt_always: bool) -> Receipt | None:
@@ -964,7 +1058,14 @@ class RentalService:
                 await fleet.change_status(
                     self.db, rental.car_id, CarTransition.START_RENTAL, done_at
                 )
-                await repository.start_trip(self.db, rental.id, status, done_at)
+                started = (await fleet.get_car(self.db, rental.car_id)).state
+                await repository.start_trip(
+                    self.db,
+                    rental.id,
+                    status,
+                    done_at,
+                    location=started.location if started else None,
+                )
                 await repository.open_interval(self.db, rental.id, IntervalKind.DRIVING, done_at)
                 await notifications.withdraw(self.db, rental.id, _RESERVATION_REMINDERS, done_at)
                 logger.info("rental_trip_started", rental_id=str(rental.id))
@@ -1094,7 +1195,14 @@ class RentalService:
                 raise lock_refusal(error.reason) from error
             raise
 
-    async def _end_trip(self, rental: Rental, hold_until: datetime) -> None:
+    async def _end_trip(
+        self,
+        rental: Rental,
+        hold_until: datetime,
+        forced: ForcedFinish | None = None,
+        audit_entry: AuditEntry | None = None,
+    ) -> bool:
+        """False when a parallel finish got here first."""
         done_at = self.clock()
         async with self.db.begin():
             locked = await repository.get_rental(
@@ -1103,21 +1211,36 @@ class RentalService:
             if locked is None:
                 raise RentalNotFoundError
             if locked.status not in _DRIVING:
-                # A parallel finish got here first.
                 await repository.release_command(self.db, rental.id, hold_until, done_at)
-                return
-            status = apply_transition(locked.status, RentalTransition.FINISH)
+                return False
+            transition = RentalTransition.FORCE_FINISH if forced else RentalTransition.FINISH
+            status = apply_transition(locked.status, transition)
+            end_state = (await fleet.get_car(self.db, rental.car_id)).state
             await repository.close_interval(self.db, rental.id, done_at)
-            await repository.finish(self.db, rental.id, status, done_at)
+            await repository.finish(
+                self.db,
+                rental.id,
+                status,
+                done_at,
+                location=end_state.location if end_state else None,
+                forced=forced,
+            )
             await fleet.change_status(self.db, rental.car_id, CarTransition.END_RENTAL, done_at)
             ended = replace(locked, status=status, ended_at=done_at)
+            if audit_entry is not None:
+                await audit.record(self.db, audit_entry)
             receipt = await self._bill(ended, done_at, receipt_always=True)
             total = receipt.quote.total if receipt else 0
             notification = Notification(
                 NotificationEvent.TRIP_FINISHED, rental.id, {"total": total}
             )
             await notifications.notify_client(self.db, rental.user_id, notification, done_at)
-        logger.info("rental_finished", rental_id=str(rental.id))
+        logger.info("rental_finished", rental_id=str(rental.id), forced=forced is not None)
+        return True
+
+    async def history(self, user_id: UUID, cursor: RentalCursor | None, limit: int) -> HistoryPage:
+        """The client's own rentals, newest first; the filter carries the owner."""
+        return await history_page(self.db, RentalFilter(user_id=user_id), cursor, limit)
 
     async def receipt(self, user_id: UUID, rental_id: UUID) -> Receipt:
         async with self.db.begin():
@@ -1153,3 +1276,320 @@ async def _delete_quietly(storage: ObjectStorage, key: str) -> None:
     except Exception:
         # An orphan photo is a storage cost, not a reason to fail the request.
         logger.warning("rental_inspection_photo_orphaned")
+
+
+# Staff: every rental, forced finishes, adjustments (docs/adr/0025)
+
+# A car that does not answer must not keep an operator from ending a stuck trip.
+_LOCK_FAILURES = (
+    CarCommandRejectedError,
+    CarCommandDuplicateError,
+    TelematicsUnavailableError,
+    TelematicsTimeoutError,
+)
+_PAYING = frozenset({OperationKind.CAPTURE, OperationKind.CHARGE})
+
+
+@dataclass(frozen=True)
+class StaffRentalPage:
+    page: HistoryPage
+    clients: dict[UUID, identity.ClientIdentity]
+
+
+@dataclass(frozen=True)
+class StaffRentalCard:
+    view: RentalView
+    client: identity.ClientIdentity | None
+    intervals: tuple[TripInterval, ...]
+    # Oldest first: holds, the settlement, debt tries and refunds.
+    operations: list[PaymentOperation]
+    inspections: list[Inspection]
+    # Kopecks still owed; what was paid above the total, waiting for a refund, if negative.
+    owed: int
+    staff_names: dict[UUID, str]
+
+
+@dataclass(frozen=True)
+class ForcedFinishOutcome:
+    card: StaffRentalCard
+    # False: the car did not confirm the lock, someone has to go and close it.
+    locked: bool
+
+
+@dataclass(frozen=True)
+class _Refunds:
+    taken: int
+    # Refunds sent whose outcome is not known yet: they may still give the money back.
+    unsettled: list[PaymentOperation]
+    sources: list[Refundable]
+
+
+def _refund_state(operations: list[PaymentOperation]) -> _Refunds:
+    refunds = [op for op in operations if op.kind is OperationKind.REFUND]
+    given = {op.id: 0 for op in operations}
+    for refund in refunds:
+        if refund.parent_id is not None and refund.status is not OperationStatus.DECLINED:
+            given[refund.parent_id] = given.get(refund.parent_id, 0) + refund.amount
+    paid = [
+        op for op in operations if op.kind in _PAYING and op.status is OperationStatus.SUCCEEDED
+    ]
+    taken = sum(op.amount for op in paid) - sum(_taken(op) for op in refunds)
+    sources = [Refundable(op.id, op.amount - given[op.id]) for op in reversed(paid)]
+    return _Refunds(taken, [op for op in refunds if not op.is_final], sources)
+
+
+@dataclass(frozen=True)
+class StaffRentalService:
+    """What `operator` and `admin` do with any client's rental; the router checks the role."""
+
+    rentals: RentalService
+    staff_id: UUID
+    origin: RequestOrigin
+
+    @property
+    def db(self) -> AsyncSession:
+        return self.rentals.db
+
+    async def _audit(
+        self, action: AuditAction, rental_id: UUID, details: dict[str, DetailValue]
+    ) -> None:
+        await audit.record(
+            self.db,
+            AuditEntry(
+                Actor(ActorType.STAFF, self.staff_id),
+                action,
+                self.origin,
+                AuditTarget(AuditTargetType.RENTAL, rental_id),
+                details=details,
+            ),
+        )
+
+    async def list(
+        self, filters: RentalFilter, cursor: RentalCursor | None, limit: int
+    ) -> StaffRentalPage:
+        page = await history_page(self.db, filters, cursor, limit)
+        async with self.db.begin():
+            clients = await identity.get_client_identities(
+                self.db, {entry.rental.user_id for entry in page.entries}
+            )
+        return StaffRentalPage(page, clients)
+
+    async def card(self, rental_id: UUID) -> StaffRentalCard:
+        now = self.rentals.clock()
+        async with self.db.begin():
+            rental = await repository.get_rental_by_id(self.db, rental_id)
+            if rental is None:
+                raise RentalNotFoundError
+            rental = await _expire_if_due(self.db, rental, now)
+            view = await self.rentals._view(rental, now)
+            intervals = await repository.get_intervals(self.db, rental.id)
+            inspections = [
+                record.inspection
+                for stage in InspectionStage
+                if (record := await repository.get_inspection(self.db, rental.id, stage))
+            ]
+            client = (await identity.get_client_identities(self.db, {rental.user_id})).get(
+                rental.user_id
+            )
+            authors = {adjustment.staff_id for adjustment in view.adjustments}
+            if rental.force_finished_by is not None:
+                authors.add(rental.force_finished_by)
+            names = await identity.get_staff_display_names(self.db, authors)
+        operations = await payments.operations_with_key_prefix(
+            self.db, rental_key_prefix(rental.id)
+        )
+        return StaffRentalCard(
+            view=view,
+            client=client,
+            intervals=intervals,
+            operations=operations,
+            inspections=inspections,
+            owed=view.total - _refund_state(operations).taken,
+            staff_names=names,
+        )
+
+    async def photo_url(
+        self, storage: ObjectStorage, rental_id: UUID, stage: InspectionStage, photo_id: UUID
+    ) -> str:
+        async with self.db.begin():
+            record = await repository.get_inspection(self.db, rental_id, stage)
+            key = record.object_keys.get(photo_id) if record else None
+            if key is None:
+                raise InspectionPhotoNotFoundError
+            # Who looked at whose photos; recorded before the link exists.
+            await self._audit(
+                AuditAction.RENTAL_PHOTO_VIEWED,
+                rental_id,
+                {"stage": stage.value, "photo_id": photo_id},
+            )
+        return await storage.signed_get_url(key, SIGNED_URL_TTL)
+
+    async def force_finish(
+        self, commander: fleet.CarCommander, rental_id: UUID, reason: str
+    ) -> ForcedFinishOutcome:
+        """Ends a trip without the client's checks: the car is locked if it answers, the rental
+        ends either way and is settled as any other (docs/adr/0025)."""
+        now = self.rentals.clock()
+        async with self.db.begin():
+            rental = await repository.get_rental_by_id(self.db, rental_id, for_update=True)
+            if rental is None:
+                raise RentalNotFoundError
+            apply_transition(rental.status, RentalTransition.FORCE_FINISH)
+            if rental.is_busy(now):
+                raise RentalBusyError
+            hold_until = now + self.rentals.rules.command_hold
+            await repository.set_command_until(self.db, rental.id, hold_until, now)
+        locked = await self._lock(commander, rental, now)
+        details: dict[str, DetailValue] = {"locked": locked, "status_before": rental.status.value}
+        entry = AuditEntry(
+            Actor(ActorType.STAFF, self.staff_id),
+            AuditAction.RENTAL_FORCE_FINISHED,
+            self.origin,
+            AuditTarget(AuditTargetType.RENTAL, rental.id),
+            details=details,
+        )
+        forced = ForcedFinish(reason=reason, staff_id=self.staff_id)
+        if not await self.rentals._end_trip(rental, hold_until, forced, entry):
+            # The client finished it meanwhile.
+            raise RentalTransitionNotAllowedError
+        await self.rentals._settle(rental.id)
+        return ForcedFinishOutcome(await self.card(rental.id), locked)
+
+    async def _lock(self, commander: fleet.CarCommander, rental: Rental, now: datetime) -> bool:
+        request = fleet.CarCommandRequest(
+            car_id=rental.car_id,
+            command=CarCommand.CLOSE,
+            comment="force finish",
+            confirm_active_rental=True,
+        )
+        try:
+            await commander.send(request, now)
+        except _LOCK_FAILURES:
+            # Audited by the fleet with its outcome; the trip ends anyway.
+            logger.warning("rental_force_finish_not_locked", rental_id=str(rental.id))
+            return False
+        return True
+
+    async def adjust(self, rental_id: UUID, amount: int, comment: str) -> StaffRentalCard:
+        """An increase is a debt charged right away; a decrease lowers the debt and refunds
+        what was paid above the new total. The receipt never changes."""
+        gw = self.rentals._gateway()
+        now = self.rentals.clock()
+        async with self.db.begin():
+            rental = await repository.get_rental_by_id(self.db, rental_id, for_update=True)
+            if rental is None:
+                raise RentalNotFoundError
+            receipt = await repository.get_receipt(self.db, rental.id)
+            adjustments = await repository.get_adjustments(self.db, rental.id)
+            receipt_total = receipt.quote.total if receipt else None
+            ensure_adjustment_allowed(rental, receipt_total, adjustments, amount)
+            before = adjusted_total(receipt_total or 0, adjustments)
+            added = await repository.add_adjustment(
+                self.db,
+                NewAdjustment(
+                    rental_id=rental.id,
+                    seq=len(adjustments) + 1,
+                    amount=amount,
+                    comment=comment,
+                    staff_id=self.staff_id,
+                    created_at=now,
+                ),
+            )
+            if amount > 0:
+                if rental.status is RentalStatus.PAID:
+                    status = apply_transition(rental.status, RentalTransition.ADJUST_DEBT)
+                    await repository.set_status(self.db, rental.id, status, now)
+                # Due now: the charge below is its first try.
+                charge = ChargeState(ChargeStatus.FAILED, rental.charge_attempts, now)
+                await repository.set_charge(self.db, rental.id, charge, now)
+            # The comment stays with the adjustment: the log keeps ids and amounts only.
+            await self._audit(
+                AuditAction.RENTAL_ADJUSTED,
+                rental.id,
+                {
+                    "adjustment_id": added.id,
+                    "amount": amount,
+                    "total_before": before,
+                    "total_after": before + amount,
+                },
+            )
+        logger.info("rental_adjusted", rental_id=str(rental.id), amount=amount)
+        if amount > 0:
+            await self._charge_increase(gw, rental.id, now)
+        else:
+            await self._refund_decrease(gw, rental.id, added.seq)
+        return await self.card(rental.id)
+
+    async def _charge_increase(self, gw: payments.Gateway, rental_id: UUID, now: datetime) -> None:
+        await settle(self.db, gw, rental_id, self.rentals.rules.settlement, now)
+        async with self.db.begin():
+            rental = await repository.get_rental_by_id(self.db, rental_id)
+        if rental is None or rental.charge_status is not ChargeStatus.FAILED:
+            return
+        # Marked failed before the try, so settling did not tell the client by itself.
+        amount = await owed(self.db, rental)
+        async with self.db.begin():
+            notification = Notification(
+                NotificationEvent.PAYMENT_FAILED, rental.id, {"amount": amount}
+            )
+            await notifications.notify_client(self.db, rental.user_id, notification, now)
+
+    async def retry_refunds(self, rental_id: UUID) -> StaffRentalCard:
+        """Sends again the refunds the provider has not answered, with the same keys."""
+        gw = self.rentals._gateway()
+        async with self.db.begin():
+            rental = await repository.get_rental_by_id(self.db, rental_id)
+            if rental is None:
+                raise RentalNotFoundError
+            adjustments = await repository.get_adjustments(self.db, rental.id)
+            decreases = [adjustment for adjustment in adjustments if adjustment.amount < 0]
+            if not decreases:
+                raise RentalTransitionNotAllowedError
+            await self._audit(AuditAction.RENTAL_REFUND_RETRIED, rental.id, {})
+        await self._refund_decrease(gw, rental.id, decreases[-1].seq)
+        return await self.card(rental.id)
+
+    async def _refund_decrease(self, gw: payments.Gateway, rental_id: UUID, seq: int) -> None:
+        now = self.rentals.clock()
+        prefix = rental_key_prefix(rental_id)
+        state = _refund_state(await payments.operations_with_key_prefix(self.db, prefix))
+        for refund in state.unsettled:
+            if refund.parent_id is not None:
+                again = payments.Payment(refund.amount, refund.idempotency_key)
+                await payments.refund(self.db, gw, refund.parent_id, again, now)
+        operations = await payments.operations_with_key_prefix(self.db, prefix)
+        state = _refund_state(operations)
+        async with self.db.begin():
+            rental = await repository.get_rental_by_id(self.db, rental_id, for_update=True)
+            if rental is None:
+                raise RentalNotFoundError
+            total = await _billed(self.db, rental_id)
+            if rental.charge_status is ChargeStatus.PENDING:
+                raise RentalSettlementPendingError
+            if rental.charge_status is ChargeStatus.FAILED and state.taken >= total:
+                # The decrease covered the debt: nothing is owed any more.
+                await repository.set_charge(
+                    self.db,
+                    rental.id,
+                    ChargeState(ChargeStatus.PAID, rental.charge_attempts, None),
+                    now,
+                )
+                if rental.status is RentalStatus.PAYMENT_FAILED:
+                    status = apply_transition(rental.status, RentalTransition.MARK_PAID)
+                    await repository.set_status(self.db, rental.id, status, now)
+        unsettled = sum(refund.amount for refund in state.unsettled)
+        overpaid = state.taken - unsettled - total
+        if overpaid <= 0:
+            return
+        # A payment refunded under this adjustment already, even if declined, has spent its key.
+        spent = {
+            op.parent_id
+            for op in operations
+            if op.idempotency_key.startswith(f"{refund_prefix(rental_id)}{seq}:")
+        }
+        sources = [source for source in state.sources if source.operation_id not in spent]
+        left = sum(source.left for source in sources)
+        for operation_id, amount in plan_refunds(min(overpaid, left), sources):
+            payment = payments.Payment(amount, refund_key(rental_id, seq, operation_id))
+            await payments.refund(self.db, gw, operation_id, payment, now)
+        logger.info("rental_overpayment_refunded", rental_id=str(rental_id), amount=overpaid)
