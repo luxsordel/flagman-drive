@@ -190,6 +190,14 @@ async def change_status(
     return new_status
 
 
+async def lock_car(db: AsyncSession, car_id: UUID) -> Car:
+    """The car as it is now, with its row held until commit, for a decision about its status."""
+    _require_transaction(db, "lock_car")
+    if await repository.get_status_for_update(db, car_id) is None:
+        raise CarNotFoundError
+    return await get_car(db, car_id)
+
+
 async def reserve_car(
     db: AsyncSession, car_id: UUID, rules: AvailabilityRules, now: datetime
 ) -> Car:
@@ -319,6 +327,8 @@ class CarCommandRequest:
     # Why the staff member sends it: kept in the audit log, checked for personal data before.
     comment: str
     confirm_active_rental: bool
+    # Set for the service access of a technician (docs/adr/0025): the audit links the two.
+    maintenance_task_id: UUID | None = None
 
 
 @dataclass(frozen=True)
@@ -392,6 +402,11 @@ class CarCommander:
                 "car_status": car.status.value,
                 "during_active_rental": during_rental,
                 "comment": request.comment,
+                **(
+                    {"maintenance_task_id": request.maintenance_task_id}
+                    if request.maintenance_task_id
+                    else {}
+                ),
             },
         )
 

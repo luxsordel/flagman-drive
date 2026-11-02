@@ -458,7 +458,7 @@ async def send_command(
 
 
 # Ids in the path are fine here: every operator may open every rental, and nobody else gets
-# past the role check; a technician has no business in clients' money (docs/adr/0025).
+# past the role check; a technician has no business in clients' money (docs/adr/0026).
 staff_router = APIRouter(
     prefix="/admin/rentals",
     tags=["rentals-staff"],

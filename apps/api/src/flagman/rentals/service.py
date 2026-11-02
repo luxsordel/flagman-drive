@@ -584,7 +584,7 @@ async def _retry_debt(
     last = await payments.find_operation(db, debt_key(rental.id, attempt)) if attempt else None
     # A try the provider has not answered goes again with its own key. A declined one, one that
     # never reached the provider, or a paid one before a staff increase makes room for the next:
-    # its key is spent on its own amount (docs/adr/0025).
+    # its key is spent on its own amount (docs/adr/0026).
     if last is None or last.is_final:
         attempt += 1
     owed = total - await _taken_before(db, rental, attempt - 1)
@@ -614,7 +614,7 @@ async def _record(
         total = await _billed(db, rental_id)
         taken = _refund_state(operations).taken
         if settled.status is ChargeStatus.PAID and taken < total:
-            # A staff increase came between the try's amount and its answer (docs/adr/0025):
+            # A staff increase came between the try's amount and its answer (docs/adr/0026):
             # the rest is a debt, due at once.
             settled = _Settled(ChargeStatus.FAILED, settled.attempts, total - taken)
             logger.info("rental_debt_left_after_an_increase", rental_id=str(rental_id))
@@ -713,7 +713,7 @@ async def _postpone(db: AsyncSession, rental_id: UUID, next_at: datetime, now: d
 
 
 async def client_debt(db: AsyncSession, user_id: UUID) -> int:
-    """Kopecks the client owes for every earlier rental, for the staff (docs/adr/0025)."""
+    """Kopecks the client owes for every earlier rental, for the staff (docs/adr/0026)."""
     async with db.begin():
         rentals = await repository.get_debts(db, user_id)
     return sum([await owed(db, rental) for rental in rentals])
@@ -1300,7 +1300,7 @@ async def _delete_quietly(storage: ObjectStorage, key: str) -> None:
         logger.warning("rental_inspection_photo_orphaned")
 
 
-# Staff: every rental, forced finishes, adjustments (docs/adr/0025)
+# Staff: every rental, forced finishes, adjustments (docs/adr/0026)
 
 # A car that does not answer must not keep an operator from ending a stuck trip.
 _LOCK_FAILURES = (
@@ -1474,7 +1474,7 @@ class StaffRentalService:
         self, commander: fleet.CarCommander, rental_id: UUID, reason: str
     ) -> ForcedFinishOutcome:
         """Ends a trip without the client's checks: the car is locked if it answers, the rental
-        ends either way and is settled as any other (docs/adr/0025)."""
+        ends either way and is settled as any other (docs/adr/0026)."""
         now = self.rentals.clock()
         async with self.db.begin():
             rental = await repository.get_rental_by_id(self.db, rental_id, for_update=True)
@@ -1611,7 +1611,7 @@ class StaffRentalService:
     async def _debt_try_known(self, rental_id: UUID) -> tuple[ChargeStatus | None, int]:
         """Where the money stands, if the last debt try has an outcome; raises
         RentalSettlementPendingError otherwise: a new amount under its key would be refused
-        by the provider's idempotency, and the debt could never be paid (docs/adr/0025)."""
+        by the provider's idempotency, and the debt could never be paid (docs/adr/0026)."""
         async with self.db.begin():
             rental = await repository.get_rental_by_id(self.db, rental_id)
         if rental is None:
@@ -1670,7 +1670,7 @@ class StaffRentalService:
         self, gw: payments.Gateway, rental_id: UUID, decreases: Sequence[Adjustment]
     ) -> None:
         """Each decrease refunds at most its own amount, under its own keys: two operators
-        lowering the total at once cannot both refund the other's share (docs/adr/0025)."""
+        lowering the total at once cannot both refund the other's share (docs/adr/0026)."""
         now = self.rentals.clock()
         prefix = rental_key_prefix(rental_id)
         state = _refund_state(await payments.operations_with_key_prefix(self.db, prefix))

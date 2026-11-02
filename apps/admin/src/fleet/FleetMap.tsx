@@ -22,7 +22,6 @@ import {
   zonesOutlineLayerId,
   zonesSourceId,
 } from '../zones/mapStyle';
-import type { FleetCar } from './api';
 import {
   carFeatures,
   carOpacity,
@@ -31,13 +30,14 @@ import {
   carsSourceId,
   carStrokeWidth,
   statusColorExpression,
+  type MapCar,
 } from './mapStyle';
 
-export interface FleetMapProps {
-  cars: readonly FleetCar[];
+export interface FleetMapProps<T extends MapCar = MapCar> {
+  cars: readonly T[];
   zones: readonly Zone[];
   selectedId: string | null;
-  isStale: (car: FleetCar) => boolean;
+  isStale: (car: T) => boolean;
   onSelect: (id: string | null) => void;
   label: string;
   /** Shown instead of the map in a browser that cannot draw it. */
@@ -57,7 +57,7 @@ const selectedZoom = 15;
  * The fleet on MapLibre over the zones. Kept thin on purpose: the section's logic lives in
  * state.ts, and tests replace this component, since jsdom has no WebGL.
  */
-export function FleetMap({
+export function FleetMap<T extends MapCar>({
   cars,
   zones,
   selectedId,
@@ -65,7 +65,7 @@ export function FleetMap({
   onSelect,
   label,
   unsupportedText,
-}: FleetMapProps) {
+}: FleetMapProps<T>) {
   const container = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [unsupported] = useState(() => !canDrawMaps());

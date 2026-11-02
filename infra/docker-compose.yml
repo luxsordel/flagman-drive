@@ -129,6 +129,7 @@ services:
       KYC_MIN_DRIVING_YEARS: ${KYC_MIN_DRIVING_YEARS:-}
       FLEET_MIN_BATTERY_PCT: ${FLEET_MIN_BATTERY_PCT:-}
       FLEET_TELEMETRY_MAX_AGE_SECONDS: ${FLEET_TELEMETRY_MAX_AGE_SECONDS:-}
+      MAINTENANCE_CHARGING_THRESHOLD_PCT: ${MAINTENANCE_CHARGING_THRESHOLD_PCT:-}
       RENTAL_MAX_RESERVATION_MINUTES: ${RENTAL_MAX_RESERVATION_MINUTES:-}
       RENTAL_COMMAND_MAX_DISTANCE_M: ${RENTAL_COMMAND_MAX_DISTANCE_M:-}
       RENTAL_FINISH_MAX_STATE_AGE_SECONDS: ${RENTAL_FINISH_MAX_STATE_AGE_SECONDS:-}
@@ -171,8 +172,9 @@ services:
     restart: unless-stopped
 
   # Periodic jobs, see docs/adr/0013, and push notifications, docs/adr/0020. The image of the
-  # API, but only the database, push and payment settings: the payments retry declined charges
-  # (docs/adr/0024); the worker signs and checks nothing else, so it gets no other API secret.
+  # API, but only the database, push, payment and fleet threshold settings: the payments retry
+  # declined charges (docs/adr/0024); the worker signs and checks nothing else, so it gets no
+  # other API secret.
   worker:
     # The same build and tag as the api service, so `up worker` alone still finds the image.
     image: flagman-api:local
@@ -197,6 +199,10 @@ services:
       EXPO_PUSH_TIMEOUT_SECONDS: ${EXPO_PUSH_TIMEOUT_SECONDS:-}
       NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS: ${NOTIFICATIONS_DISPATCH_INTERVAL_SECONDS:-}
       NOTIFICATIONS_RETENTION_DAYS: ${NOTIFICATIONS_RETENTION_DAYS:-}
+      FLEET_MIN_BATTERY_PCT: ${FLEET_MIN_BATTERY_PCT:-}
+      FLEET_TELEMETRY_MAX_AGE_SECONDS: ${FLEET_TELEMETRY_MAX_AGE_SECONDS:-}
+      MAINTENANCE_CHARGING_THRESHOLD_PCT: ${MAINTENANCE_CHARGING_THRESHOLD_PCT:-}
+      MAINTENANCE_CHARGING_INTERVAL_SECONDS: ${MAINTENANCE_CHARGING_INTERVAL_SECONDS:-}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
@@ -240,6 +246,7 @@ services:
       EMULATOR_CHARGE_BELOW_PCT: ${EMULATOR_CHARGE_BELOW_PCT:-}
       EMULATOR_CHARGE_UNTIL_PCT: ${EMULATOR_CHARGE_UNTIL_PCT:-}
       EMULATOR_CHARGE_RATE_PCT_PER_H: ${EMULATOR_CHARGE_RATE_PCT_PER_H:-}
+      EMULATOR_SELF_CHARGE: ${EMULATOR_SELF_CHARGE:-}
       EMULATOR_RENTAL_TRIP_KM: ${EMULATOR_RENTAL_TRIP_KM:-}
       EMULATOR_RENTAL_REST_S: ${EMULATOR_RENTAL_REST_S:-}
       EMULATOR_DEMO_ENDPOINTS: ${EMULATOR_DEMO_ENDPOINTS:-}

@@ -292,6 +292,19 @@ async def get_incident(
     return await db.scalar(query)
 
 
+async def car_held_by_incident(db: AsyncSession, car_id: UUID) -> bool:
+    found = await db.scalar(
+        select(Incident.id)
+        .where(
+            Incident.car_id == car_id,
+            Incident.sent_to_service.is_(True),
+            Incident.status.in_(OPEN_INCIDENT_STATUSES),
+        )
+        .limit(1)
+    )
+    return found is not None
+
+
 async def count_open_incidents(db: AsyncSession, user_id: UUID) -> int:
     return (
         await db.scalar(

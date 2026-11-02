@@ -404,7 +404,7 @@ class HistoryPageOut(BaseModel):
         )
 
 
-# Staff (docs/adr/0025)
+# Staff (docs/adr/0026)
 
 # A correction, not a new price list: anything bigger is a typo in the amount.
 ADJUSTMENT_MAX = 1_000_00

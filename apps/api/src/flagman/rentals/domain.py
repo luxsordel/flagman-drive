@@ -41,7 +41,7 @@ class RentalTransition(StrEnum):
     FORCE_FINISH = "force_finish"
     MARK_PAID = "mark_paid"
     MARK_PAYMENT_FAILED = "mark_payment_failed"
-    # A staff increase of a paid rental is charged as a debt (docs/adr/0025).
+    # A staff increase of a paid rental is charged as a debt (docs/adr/0026).
     ADJUST_DEBT = "adjust_debt"
 
 
@@ -205,7 +205,7 @@ class Rental:
     # Retries of a declined debt so far, and when the worker tries the next one.
     charge_attempts: int = 0
     charge_next_at: datetime | None = None
-    # Set when an operator ended the trip (docs/adr/0025).
+    # Set when an operator ended the trip (docs/adr/0026).
     force_finish_reason: str | None = None
     force_finished_by: uuid.UUID | None = None
 
@@ -719,7 +719,7 @@ class Receipt:
     issued_at: datetime
 
 
-# Staff actions on rentals (docs/adr/0025).
+# Staff actions on rentals (docs/adr/0026).
 
 STAFF_REASON_MAX_LENGTH = 500
 

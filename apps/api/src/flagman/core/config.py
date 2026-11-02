@@ -139,6 +139,13 @@ class TripSettings(PaymentsSettings):
     rental_charge_max_attempts: int = Field(default=5, ge=0, le=50)
 
 
+def _check_charging_threshold(threshold_pct: int | None, min_battery_pct: int) -> None:
+    if threshold_pct is not None and threshold_pct < min_battery_pct:
+        raise ValueError(
+            "MAINTENANCE_CHARGING_THRESHOLD_PCT must not be below FLEET_MIN_BATTERY_PCT"
+        )
+
+
 class WorkerSettings(TripSettings):
     """`flagman-worker` gets the payment settings to retry charges (docs/adr/0024) and none of
     the other API secrets: it does not sign or check anything."""
@@ -162,11 +169,27 @@ class WorkerSettings(TripSettings):
     # Sent and undelivered notifications are kept this long, for support to see what went out.
     notifications_retention_days: int = Field(default=30, ge=1)
 
+    # The charging task job (docs/adr/0025) reads the fleet's rules under the API's own names,
+    # so one .env drives both.
+    fleet_min_battery_pct: int = Field(default=20, ge=0, le=100)
+    fleet_telemetry_max_age_seconds: int = Field(default=300, gt=0)
+    # A free car below this charge gets a charging task; unset: FLEET_MIN_BATTERY_PCT. Not below
+    # it: such a car would stop being rented without anyone sent to charge it.
+    maintenance_charging_threshold_pct: int | None = Field(default=None, ge=0, le=100)
+    maintenance_charging_interval_seconds: float = Field(default=60.0, gt=0, le=3600)
+
     @model_validator(mode="after")
     def _validate_notifications(self) -> Self:
         if self.is_prod and self.notifications_provider == "fake":
             # Clients would silently get nothing.
             raise ValueError("NOTIFICATIONS_PROVIDER=fake is not allowed when API_ENV=prod")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_charging_threshold(self) -> Self:
+        _check_charging_threshold(
+            self.maintenance_charging_threshold_pct, self.fleet_min_battery_pct
+        )
         return self
 
 
@@ -217,6 +240,9 @@ class Settings(TripSettings):
     # somewhere, and telemetry recent enough that the car is where the map shows it.
     fleet_min_battery_pct: int = Field(default=20, ge=0, le=100)
     fleet_telemetry_max_age_seconds: int = Field(default=300, gt=0)
+    # The same setting as the worker's: a charging task ends at the charge that started it, or
+    # the worker would create the next one at once (docs/adr/0025).
+    maintenance_charging_threshold_pct: int | None = Field(default=None, ge=0, le=100)
 
     # Read by the demo seed (`flagman-fleet seed`) to derive the emulator's car ids; the names
     # are the emulator's own, so one .env drives both.
@@ -344,9 +370,17 @@ class Settings(TripSettings):
         return self
 
     @model_validator(mode="after")
+    def _validate_charging_threshold(self) -> Self:
+        # The worker reads the same environment.
+        _check_charging_threshold(
+            self.maintenance_charging_threshold_pct, self.fleet_min_battery_pct
+        )
+        return self
+
+    @model_validator(mode="after")
     def _validate_trip_battery(self) -> Self:
         # Every trip starts above the rentable charge, so the low battery push means a crossing
-        # and comes once (docs/adr/0024). The worker reads the same environment.
+        # and comes once (docs/adr/0024).
         if self.rental_low_battery_pct >= self.fleet_min_battery_pct:
             raise ValueError("RENTAL_LOW_BATTERY_PCT must be below FLEET_MIN_BATTERY_PCT")
         return self

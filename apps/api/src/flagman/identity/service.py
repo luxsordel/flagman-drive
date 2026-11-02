@@ -762,6 +762,11 @@ async def list_staff(db: AsyncSession) -> StaffMemberList:
     )
 
 
+async def get_active_technicians(db: AsyncSession) -> dict[UUID, str]:
+    """Technicians who may take tasks (#122), by email; in the caller's transaction."""
+    return await repository.get_active_staff_emails(db, StaffRole.TECHNICIAN)
+
+
 async def create_staff(
     db: AsyncSession, email: str, password: str, role: StaffRole, now: datetime
 ) -> UUID:
@@ -942,7 +947,7 @@ async def _end_access(db: AsyncSession, staff_id: UUID, action: AuditAction, now
     )
 
 
-# Clients for staff (docs/adr/0025)
+# Clients for staff (docs/adr/0026)
 
 
 @dataclass(frozen=True)
@@ -1054,7 +1059,7 @@ class StaffClientService:
             if (record.blocked_at is not None) == (block is not None):
                 return
             await repository.set_client_block(self.db, user_id, block)
-            # The reasons stay here: the audit log keeps ids only (docs/adr/0025).
+            # The reasons stay here: the audit log keeps ids only (docs/adr/0026).
             event = ClientBlockEvent(user_id, block is not None, reason, self.staff_id, now)
             await repository.add_client_block_event(self.db, event)
             action = AuditAction.CLIENT_BLOCKED if block else AuditAction.CLIENT_UNBLOCKED

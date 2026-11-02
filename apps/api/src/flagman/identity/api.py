@@ -481,7 +481,7 @@ async def update_my_profile(
     return await service.update_profile(client.user_id, body, datetime.now(UTC))
 
 
-# Clients for staff (docs/adr/0025)
+# Clients for staff (docs/adr/0026)
 
 clients_router = APIRouter(
     prefix="/admin/clients",

@@ -35,6 +35,7 @@ def build_simulation(settings: Settings) -> Simulation | None:
         charge_below_pct=settings.charge_below_pct,
         charge_until_pct=settings.charge_until_pct,
         charge_rate_pct_per_h=settings.charge_rate_pct_per_h,
+        self_charge=settings.self_charge,
         rental_trip_km=settings.rental_trip_km,
         rental_rest=timedelta(seconds=settings.rental_rest_s),
     )

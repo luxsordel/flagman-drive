@@ -573,7 +573,7 @@ def check_birth_date(birth_date: date, today: date) -> None:
         raise BirthDateInvalidError(f"The birth date must not be before {earliest.isoformat()}.")
 
 
-# Clients for staff (docs/adr/0025)
+# Clients for staff (docs/adr/0026)
 
 BLOCK_REASON_MAX_LENGTH = 500
 CLIENT_PAGE_DEFAULT = 50

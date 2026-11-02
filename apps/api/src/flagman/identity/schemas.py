@@ -317,7 +317,7 @@ class ClientProfileUpdate(BaseModel):
         }
 
 
-# Clients for staff (docs/adr/0025)
+# Clients for staff (docs/adr/0026)
 
 
 class ClientListQuery(BaseModel):

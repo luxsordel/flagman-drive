@@ -555,7 +555,7 @@ async def get_receipt(db: AsyncSession, rental_id: UUID) -> Receipt | None:
     )
 
 
-# History and staff actions (docs/adr/0025)
+# History and staff actions (docs/adr/0026)
 
 
 async def list_rentals(

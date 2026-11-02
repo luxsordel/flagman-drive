@@ -473,6 +473,30 @@ def test_a_free_car_is_sent_to_service_from_the_incident(
     ]
 
 
+def test_a_car_on_a_task_is_held_by_the_incident_sent_to_service(
+    integration_settings: Settings,
+    person: Person,
+    operator: Staff,
+    app_client: TestClient,
+    rented_car: tuple[str, str],
+) -> None:
+    car, rental = rented_car
+    incident = _report(person, "malfunction").json()["id"]
+    assert person.cancel(rental).status_code == HTTPStatus.OK
+    _staff_post(app_client, operator, incident, "take")
+    execute(
+        integration_settings,
+        "UPDATE cars SET status = 'service' WHERE id = :id",
+        id=uuid.UUID(car),
+    )
+
+    response = _staff_post(app_client, operator, incident, "send-to-service")
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["sent_to_service"] is True
+    assert car_status(integration_settings, car) == "service"
+
+
 def test_sending_to_service_needs_a_live_session(
     person: Person, operator: Staff, app_client: TestClient, rented_car: tuple[str, str]
 ) -> None:

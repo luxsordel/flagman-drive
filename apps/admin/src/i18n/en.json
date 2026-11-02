@@ -11,6 +11,7 @@
     "dashboard": "Overview",
     "kyc": "Document checks",
     "fleet": "Fleet",
+    "tasks": "Tasks",
     "rentals": "Rentals",
     "clients": "Clients",
     "support": "Support",
@@ -138,6 +139,12 @@
       "incidentRejected": "Incident rejected",
       "incidentCarSentToService": "Car sent to service from an incident",
       "incidentPhotoViewed": "Incident photo viewed",
+      "maintenanceTaskCreated": "Task created",
+      "maintenanceTaskAssigned": "Task assigned",
+      "maintenanceTaskStarted": "Task taken",
+      "maintenanceTaskCompleted": "Task done",
+      "maintenanceTaskCancelled": "Task cancelled",
+      "maintenanceTaskPhotoViewed": "Task photo viewed",
       "rentalForceFinished": "Rental force-finished",
       "rentalAdjusted": "Rental total adjusted",
       "rentalRefundRetried": "Rental refund sent again",
@@ -154,6 +161,7 @@
       "paymentOperation": "Payment operation",
       "supportConversation": "Support conversation",
       "incident": "Incident",
+      "maintenanceTask": "Technician task",
       "rental": "Rental",
       "client": "Client"
     },
@@ -373,7 +381,10 @@
       "open": "Open",
       "close": "Close",
       "lock_engine": "Lock the engine",
-      "unlock_engine": "Unlock the engine"
+      "unlock_engine": "Unlock the engine",
+      "start_charging": "Start charging",
+      "stop_charging": "Stop charging",
+      "service_open": "Open for service"
     },
     "outcome": {
       "done": "done",
@@ -416,6 +427,120 @@
       "forbidden": "Your role may not send manual commands.",
       "failed": "Could not send the command. Check the connection and try again."
     }
+  },
+  "tasks": {
+    "map": "Cars of the tasks on the map",
+    "mapUnsupported": "This browser cannot draw the map; the list below has every task.",
+    "list": "Tasks",
+    "empty": "No tasks here.",
+    "loading": "Loading tasks…",
+    "loadFailed": "Could not load the tasks.",
+    "retry": "Try again",
+    "tabs": {
+      "label": "Which tasks",
+      "mine": "My tasks",
+      "free": "Free"
+    },
+    "filters": {
+      "label": "Filters",
+      "status": "Status",
+      "anyOpen": "Open",
+      "anyStatus": "Any status",
+      "type": "Type",
+      "anyType": "Any type"
+    },
+    "type": {
+      "charging": "Charging",
+      "washing": "Washing",
+      "inspection": "Inspection",
+      "repair": "Repair",
+      "other": "Other"
+    },
+    "status": {
+      "new": "New",
+      "assigned": "Assigned",
+      "in_progress": "In progress",
+      "done": "Done",
+      "cancelled": "Cancelled"
+    },
+    "item": "{{type}} · {{plate}}",
+    "battery": "Charge {{pct}}%",
+    "noTelemetry": "No telemetry",
+    "card": {
+      "car": "Car",
+      "status": "Status",
+      "assignee": "Technician",
+      "nobody": "Not assigned",
+      "otherStaff": "Another staff member",
+      "createdAt": "Created",
+      "automatic": "Created automatically",
+      "description": "What to do",
+      "comment": "Comment",
+      "route": "Route to the car",
+      "photos": "Photos",
+      "openPhoto": "Photo {{number}}"
+    },
+    "create": {
+      "title": "New task",
+      "car": "Car",
+      "pickCar": "Choose a car",
+      "type": "Type",
+      "description": "What to do (optional)",
+      "assignee": "Technician",
+      "nobody": "Do not assign",
+      "submit": "Create"
+    },
+    "assign": {
+      "label": "Assign to",
+      "pick": "Choose a technician",
+      "submit": "Assign"
+    },
+    "cancel": {
+      "comment": "Why it is cancelled (optional)",
+      "submit": "Cancel the task"
+    },
+    "start": "Take",
+    "complete": {
+      "comment": "What was done",
+      "submit": "Done",
+      "commentTooShort": "Write at least {{min}} characters."
+    },
+    "photo": {
+      "add": "Add a photo",
+      "uploading": "Uploading…"
+    },
+    "commands": "Service access",
+    "sending": "Sending…",
+    "sent": "Done: «{{command}}».",
+    "errors": {
+      "notFound": "This task is no longer available to you. Refresh the list.",
+      "changed": "Someone has just changed the task. Refresh it and try again.",
+      "duplicate": "The car already has an open task of this type.",
+      "carBusy": "A client has reserved or rented the car: wait until the rental ends.",
+      "chargeTooLow": "The car is not charged enough yet to finish this task.",
+      "notInProgress": "Take the task first: only its technician works on it.",
+      "assigneeInvalid": "Choose an active technician.",
+      "tooFar": "Come closer to the car.",
+      "locationUnknown": "The car has not reported its location lately. Wait for fresh telemetry.",
+      "noLocation": "Allow the browser to use your location: the car opens only when you are next to it.",
+      "rejected": "The car refused «{{command}}»: {{reason}}.",
+      "unavailable": "The car cannot be reached now; nothing was sent. Try again later.",
+      "timeout": "The car did not answer in time: the command may have run. Check the car before trying again.",
+      "rateLimited": "Too many actions in a row. Wait {{seconds}} s.",
+      "photoLimit": "A task takes at most 8 photos.",
+      "photoInvalid": "Choose a JPEG, PNG or WebP photo up to 10 MB.",
+      "storageUnavailable": "Photos cannot be stored now. Try again later.",
+      "forbidden": "Your role may not do this.",
+      "invalid": "The server did not accept the data. Check the fields.",
+      "failed": "Something went wrong. Check the connection and try again.",
+      "doorsOpen": "Close the car before finishing the task."
+    },
+    "carTasks": {
+      "title": "Open tasks",
+      "none": "No open tasks.",
+      "failed": "Could not load the tasks."
+    },
+    "more": "Show more"
   },
   "tariffs": {
     "title": "Tariffs",

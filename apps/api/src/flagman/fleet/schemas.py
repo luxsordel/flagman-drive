@@ -9,6 +9,7 @@ from flagman.core.geo import GeoPoint
 from flagman.fleet.domain import (
     COMMENT_MAX_LENGTH,
     COMMENT_MIN_LENGTH,
+    MANUAL_COMMANDS,
     AvailabilityRules,
     Car,
     CarCommand,
@@ -258,7 +259,12 @@ class StaffCarList(BaseModel):
 class CarCommandIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    command: CarCommand
+    command: CarCommand = Field(
+        description=(
+            "`start_charging` and `stop_charging` are refused here: technicians send them "
+            "through their task (`/admin/maintenance/tasks/{task_id}/commands`)."
+        )
+    )
     comment: str = Field(
         min_length=COMMENT_MIN_LENGTH,
         max_length=COMMENT_MAX_LENGTH,
@@ -274,6 +280,13 @@ class CarCommandIn(BaseModel):
             "them out or in. Without it such a command answers `car-in-active-rental`."
         ),
     )
+
+    @field_validator("command")
+    @classmethod
+    def _check_command(cls, command: CarCommand) -> CarCommand:
+        if command not in MANUAL_COMMANDS:
+            raise ValueError(f"{command} is sent through a maintenance task only")
+        return command
 
     @field_validator("comment")
     @classmethod

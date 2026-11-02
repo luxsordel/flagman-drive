@@ -1,5 +1,5 @@
-"""`flagman-worker`: periodic jobs that run next to the API, see docs/adr/0013, docs/adr/0020 and
-docs/adr/0022.
+"""`flagman-worker`: periodic jobs that run next to the API, see docs/adr/0013, docs/adr/0020,
+docs/adr/0022 and docs/adr/0025.
 
     flagman-worker
 
@@ -24,6 +24,7 @@ from flagman.core.config import WorkerSettings, load_worker_settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.logging import configure_logging
 from flagman.identity import service as identity
+from flagman.maintenance import service as maintenance
 from flagman.notifications import service as notifications
 from flagman.notifications.expo import ExpoPushProvider
 from flagman.notifications.fake_provider import FakePushProvider
@@ -37,6 +38,8 @@ logger = structlog.get_logger(__name__)
 AUTH_CLEANUP = "auth_cleanup"
 RESERVATION_EXPIRY = "reservation_expiry"
 OUTBOX_CLEANUP = "outbox_cleanup"
+# Every MAINTENANCE_CHARGING_INTERVAL_SECONDS.
+MAINTENANCE_CHARGING = "maintenance_charging"
 TRIP_WATCH = "trip_watch"
 # Scheduled only with PAYMENTS_PROVIDER set (docs/adr/0024).
 RENTAL_CHARGES = "rental_charges"
@@ -70,6 +73,7 @@ OUTBOX_CLEANUP_LOCK = 4_600_004
 RENTAL_CHARGES_LOCK = 4_600_005
 TRIP_WATCH_LOCK = 4_600_006
 NOTIFICATIONS_RECEIPTS_LOCK = 4_600_007
+MAINTENANCE_CHARGING_LOCK = 4_600_008
 
 
 async def _with_lock[T](
@@ -251,6 +255,23 @@ def push_provider(settings: WorkerSettings, http: httpx2.AsyncClient) -> PushPro
             return None
 
 
+async def run_maintenance_charging(
+    engine: AsyncEngine,
+    session_factory: async_sessionmaker[AsyncSession],
+    settings: WorkerSettings,
+    now: datetime,
+) -> int | None:
+    """Returns how many charging tasks were created, None when another copy holds the job."""
+
+    async def create() -> int:
+        async with session_factory() as db:
+            return await maintenance.create_charging_tasks(
+                db, maintenance.charging_rules(settings), now
+            )
+
+    return await _with_lock(engine, MAINTENANCE_CHARGING_LOCK, MAINTENANCE_CHARGING, create)
+
+
 Job = Callable[
     [AsyncEngine, async_sessionmaker[AsyncSession], WorkerSettings, datetime], Awaitable[object]
 ]
@@ -273,6 +294,7 @@ def _schedule(
         AUTH_CLEANUP: run_auth_cleanup,
         RESERVATION_EXPIRY: run_reservation_expiry,
         OUTBOX_CLEANUP: run_outbox_cleanup,
+        MAINTENANCE_CHARGING: run_maintenance_charging,
         TRIP_WATCH: run_trip_watch,
     }
     if gateway is None:
@@ -328,6 +350,7 @@ async def run(
     session_factory = create_session_factory(engine)
     intervals = {
         NOTIFICATIONS_DISPATCH: timedelta(seconds=settings.notifications_dispatch_interval_seconds),
+        MAINTENANCE_CHARGING: timedelta(seconds=settings.maintenance_charging_interval_seconds),
         **intervals,
     }
     try:

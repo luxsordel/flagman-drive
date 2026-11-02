@@ -1,7 +1,14 @@
 import type { Palette } from '@flagman/design-tokens';
 import type { ExpressionSpecification } from 'maplibre-gl';
 
-import type { CarStatus, FleetCar } from './api';
+import type { CarStatus } from './api';
+
+/** What the map draws of a car: the fleet's cars and the cars of tasks alike. */
+export interface MapCar {
+  id: string;
+  status: CarStatus;
+  state: { lat: number; lon: number } | null;
+}
 
 export const carsSourceId = 'fleet-cars';
 export const carsLayerId = 'fleet-cars';
@@ -52,10 +59,10 @@ export interface CarFeatureProperties {
 }
 
 /** Cars with a known position; a car without telemetry is only in the list. */
-export function carFeatures(
-  cars: readonly FleetCar[],
+export function carFeatures<T extends MapCar>(
+  cars: readonly T[],
   selectedId: string | null,
-  isStale: (car: FleetCar) => boolean,
+  isStale: (car: T) => boolean,
 ): GeoJSON.FeatureCollection<GeoJSON.Point, CarFeatureProperties> {
   return {
     type: 'FeatureCollection',

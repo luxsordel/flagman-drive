@@ -83,7 +83,7 @@ class Rental(Base):
             "user_id",
             postgresql_where=text("charge_status = 'failed'"),
         ),
-        # The history pages, newest first (docs/adr/0025).
+        # The history pages, newest first (docs/adr/0026).
         Index("ix_rentals_reserved_at_id", "reserved_at", "id"),
         CheckConstraint(
             "(force_finish_reason IS NULL) = (force_finished_by IS NULL)",
@@ -109,7 +109,7 @@ class Rental(Base):
     charge_status: Mapped[str | None] = mapped_column(String(STATUS_LENGTH))
     charge_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     charge_next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    # Where the car stood when the trip started and ended; no track in between (docs/adr/0025).
+    # Where the car stood when the trip started and ended; no track in between (docs/adr/0026).
     start_location: Mapped[WKBElement | None] = mapped_column(
         Geography(geometry_type="POINT", srid=SRID_WGS84, spatial_index=False)
     )
@@ -219,7 +219,7 @@ class ReceiptLine(Base):
 
 
 class Adjustment(Base):
-    """A staff change of a rental's total; append-only like the receipt (docs/adr/0025)."""
+    """A staff change of a rental's total; append-only like the receipt (docs/adr/0026)."""
 
     __tablename__ = "rental_adjustments"
     __table_args__ = (

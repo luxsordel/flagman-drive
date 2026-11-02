@@ -30,6 +30,7 @@ import { routes } from './routes';
 import { createStaffListApi } from './staff/api';
 import { createTariffsApi } from './tariffs/api';
 import { createSupportApi } from './support/api';
+import { createTasksApi } from './tasks/api';
 import { applyTheme, currentTheme, installTheme } from './theme';
 import { createZonesApi } from './zones/api';
 
@@ -56,6 +57,7 @@ const apis: AdminApis = {
   staffSignIn: staffAuth,
   support: createSupportApi(client),
   tariffs: createTariffsApi(client),
+  tasks: createTasksApi(client),
   zones: createZonesApi(client),
 };
 

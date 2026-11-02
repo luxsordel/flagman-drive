@@ -23,6 +23,10 @@ const FleetPage = lazy(() =>
   import('./pages/FleetPage').then(({ FleetPage }) => ({ default: FleetPage })),
 );
 
+const TasksPage = lazy(() =>
+  import('./pages/TasksPage').then(({ TasksPage }) => ({ default: TasksPage })),
+);
+
 export type SectionKey = keyof typeof ru.nav;
 
 export interface Section {
@@ -51,6 +55,7 @@ export const sections: readonly Section[] = [
     subpages: [{ path: ':applicationId', page: KycApplicationPage }],
   },
   { key: 'fleet', path: '/fleet', roles: everyone, page: FleetPage },
+  { key: 'tasks', path: '/tasks', roles: everyone, page: TasksPage },
   {
     key: 'rentals',
     path: '/rentals',

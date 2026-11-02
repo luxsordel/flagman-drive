@@ -1,7 +1,7 @@
 """add staff rental actions: adjustments, forced finish, trip ends, client block reason
 
 Revision ID: a64e4c1ab129
-Revises: d2a7c9e4b816
+Revises: a7d3f5c19e42
 Create Date: 2026-11-02 15:00:00.000000
 """
 
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "a64e4c1ab129"
-down_revision: str | Sequence[str] | None = "d2a7c9e4b816"
+down_revision: str | Sequence[str] | None = "a7d3f5c19e42"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
@@ -70,7 +70,7 @@ def upgrade() -> None:
             name=op.f("uq_rental_adjustments_rental_id_idempotency_key"),
         ),
     )
-    # An adjustment is part of what the client was charged, like the receipt (docs/adr/0025).
+    # An adjustment is part of what the client was charged, like the receipt (docs/adr/0026).
     op.execute(
         """
         CREATE TRIGGER rental_adjustments_no_update_delete

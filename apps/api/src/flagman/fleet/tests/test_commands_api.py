@@ -80,8 +80,8 @@ def _events(settings: Settings, staff_id: uuid.UUID) -> list[Any]:
     return asyncio.run(read())
 
 
-@pytest.mark.parametrize("role", list(StaffRole))
-def test_every_staff_role_sends_commands(
+@pytest.mark.parametrize("role", [StaffRole.OPERATOR, StaffRole.ADMIN])
+def test_operators_and_admins_send_commands(
     client: TestClient, integration_settings: Settings, gateway: FakeGateway, role: StaffRole
 ) -> None:
     car_id = add_car(integration_settings, POINT)
@@ -91,6 +91,32 @@ def test_every_staff_role_sends_commands(
 
     assert response.status_code == HTTPStatus.OK, response.text
     assert len(gateway.calls) == 1
+
+
+def test_technicians_send_no_manual_commands(
+    client: TestClient, integration_settings: Settings, gateway: FakeGateway
+) -> None:
+    # They reach only the car of their task in progress, near it (docs/adr/0025).
+    car_id = add_car(integration_settings, POINT)
+    caller = Staff(integration_settings, StaffRole.TECHNICIAN)
+
+    response = client.post(_url(car_id), json=_body(), headers=caller.headers)
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert gateway.calls == []
+
+
+@pytest.mark.parametrize("command", ["start_charging", "stop_charging"])
+def test_charging_is_not_a_manual_command(
+    client: TestClient, integration_settings: Settings, gateway: FakeGateway, command: str
+) -> None:
+    car_id = add_car(integration_settings, POINT)
+    caller = Staff(integration_settings, StaffRole.OPERATOR)
+
+    response = client.post(_url(car_id), json=_body(command=command), headers=caller.headers)
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+    assert gateway.calls == []
 
 
 def test_a_done_command_returns_the_car_after_it(
