@@ -300,7 +300,15 @@ export function TasksPage() {
           )}
           {selected && (
             // Keyed by task: a comment typed for one task never goes to another.
-            <TaskCard key={selected.id} task={selected} onChanged={refresh} />
+            <TaskCard
+              key={selected.id}
+              task={selected}
+              onChanged={refresh}
+              onTaken={() => {
+                setTab('mine');
+                setPages(1);
+              }}
+            />
           )}
           {planner && <NewTaskForm onCreated={refresh} />}
         </aside>
@@ -339,7 +347,16 @@ function useAction(onChanged: () => void) {
   return { busy, error, setError, run };
 }
 
-function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
+function TaskCard({
+  task,
+  onChanged,
+  onTaken,
+}: {
+  task: Task;
+  onChanged: () => void;
+  // A taken task leaves the free list, and the technician's work on it is on the card.
+  onTaken: () => void;
+}) {
   const { t, i18n } = useTranslation();
   const { tasks: tasksApi } = useApis();
   const staff = useStaff();
@@ -387,7 +404,7 @@ function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
               {task.assignee_id === null
                 ? t('tasks.card.nobody')
                 : (technicians.find(({ id }) => id === task.assignee_id)?.email ??
-                  task.assignee_id)}
+                  t('tasks.card.otherStaff'))}
             </dd>
           </>
         )}
@@ -429,7 +446,9 @@ function TaskCard({ task, onChanged }: { task: Task; onChanged: () => void }) {
           className="button button-primary"
           disabled={busy}
           onClick={() => {
-            void run(() => tasksApi.start(task.id));
+            void run(() => tasksApi.start(task.id)).then((taken) => {
+              if (taken) onTaken();
+            });
           }}
         >
           {t('tasks.start')}
@@ -514,16 +533,6 @@ function TaskWorkPanel({ task, onChanged }: { task: Task; onChanged: () => void 
     setSending(false);
   };
 
-  // Telemetry does not tell whether the car is plugged in, so this cannot be a check. The task
-  // still closes if the car does not answer: its charge is what the API looks at.
-  const unplug = async () => {
-    try {
-      await tasksApi.command(task.id, 'stop_charging', await currentPosition());
-    } catch {
-      return;
-    }
-  };
-
   const complete = (event: SyntheticEvent<HTMLFormElement, SubmitEvent>) => {
     event.preventDefault();
     if (comment.trim().length < commentMinLength) {
@@ -531,10 +540,7 @@ function TaskWorkPanel({ task, onChanged }: { task: Task; onChanged: () => void 
       return;
     }
     setTooShort(false);
-    void run(async () => {
-      if (task.type === 'charging') await unplug();
-      await tasksApi.complete(task.id, comment.trim());
-    });
+    void run(() => tasksApi.complete(task.id, comment.trim()));
   };
 
   return (
@@ -546,7 +552,7 @@ function TaskWorkPanel({ task, onChanged }: { task: Task; onChanged: () => void 
             key={command}
             type="button"
             className="button"
-            disabled={busy}
+            disabled={busy || sending}
             onClick={() => {
               void send(command);
             }}
@@ -603,7 +609,7 @@ function TaskWorkPanel({ task, onChanged }: { task: Task; onChanged: () => void 
             {t('tasks.complete.commentTooShort', { min: commentMinLength })}
           </p>
         )}
-        <button type="submit" className="button button-primary" disabled={busy}>
+        <button type="submit" className="button button-primary" disabled={busy || sending}>
           {t('tasks.complete.submit')}
         </button>
       </form>

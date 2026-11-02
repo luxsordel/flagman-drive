@@ -370,12 +370,17 @@ class Settings(TripSettings):
         return self
 
     @model_validator(mode="after")
-    def _validate_trip_battery(self) -> Self:
-        # Every trip starts above the rentable charge, so the low battery push means a crossing
-        # and comes once (docs/adr/0024). The worker reads the same environment.
+    def _validate_charging_threshold(self) -> Self:
+        # The worker reads the same environment.
         _check_charging_threshold(
             self.maintenance_charging_threshold_pct, self.fleet_min_battery_pct
         )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_trip_battery(self) -> Self:
+        # Every trip starts above the rentable charge, so the low battery push means a crossing
+        # and comes once (docs/adr/0024).
         if self.rental_low_battery_pct >= self.fleet_min_battery_pct:
             raise ValueError("RENTAL_LOW_BATTERY_PCT must be below FLEET_MIN_BATTERY_PCT")
         return self

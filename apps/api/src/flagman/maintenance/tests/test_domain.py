@@ -265,12 +265,11 @@ def test_car_of_an_open_incident_comes_back_by_repair_only() -> None:
         20,
         other_tasks_in_progress=False,
         held_by_incident=True,
-        task_type=TaskType.WASHING,
     )
     assert returns_to_available(
         state(90),
         20,
         other_tasks_in_progress=False,
         held_by_incident=True,
-        task_type=TaskType.REPAIR,
+        repaired=True,
     )

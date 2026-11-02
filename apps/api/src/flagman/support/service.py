@@ -29,7 +29,7 @@ from flagman.core.photos import (
 from flagman.core.ratelimit import Limit, RateLimiter
 from flagman.core.storage import ObjectStorage
 from flagman.fleet import service as fleet
-from flagman.fleet.domain import CarTransition
+from flagman.fleet.domain import CarStatus, CarTransition
 from flagman.identity import service as identity
 from flagman.notifications import service as notifications
 from flagman.notifications.domain import Notification, NotificationEvent
@@ -809,7 +809,11 @@ class StaffSupportService:
             if IncidentStatus(incident.status) is not IncidentStatus.IN_PROGRESS:
                 raise IncidentTransitionNotAllowedError
             ensure_incident_owner(incident.assigned_staff_id, staff.staff_id, admin=staff.admin)
-            await fleet.change_status(self.db, incident.car_id, CarTransition.SEND_TO_SERVICE, now)
+            # Locked first: a task ending on this car decides by the flag set here. A car already
+            # in service is on a task, and without the flag that task would free it.
+            car = await fleet.lock_car(self.db, incident.car_id)
+            if car.status is not CarStatus.SERVICE:
+                await fleet.change_status(self.db, car.id, CarTransition.SEND_TO_SERVICE, now)
             incident.sent_to_service = True
             incident.updated_at = now
             await repository.add_incident_event(

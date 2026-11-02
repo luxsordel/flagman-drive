@@ -871,7 +871,8 @@ a {
   gap: var(--space-sm);
 }
 
-.tasks-photos {
+.tasks-photos,
+.car-tasks {
   margin: 0;
   padding: 0;
   list-style: none;

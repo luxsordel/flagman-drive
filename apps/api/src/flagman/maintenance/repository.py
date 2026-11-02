@@ -16,7 +16,6 @@ from flagman.maintenance.domain import (
     TaskType,
     Worker,
 )
-from flagman.maintenance.models import OPEN_CONDITION
 from flagman.maintenance.models import MaintenanceTask as TaskRow
 from flagman.maintenance.models import MaintenanceTaskPhoto as PhotoRow
 
@@ -82,10 +81,10 @@ async def add_charging_task_if_absent(db: AsyncSession, car_id: UUID, now: datet
             updated_at=now,
         )
         .on_conflict_do_nothing(
-            # The index's own literal: Postgres matches the condition as written, and a set
-            # of statuses would come out in another order in some processes.
+            # The index's literal, written out: Postgres matches the condition as written,
+            # and Semgrep refuses text() over a name it cannot follow; test_models keeps them equal.
             index_elements=["car_id", "type"],
-            index_where=text(OPEN_CONDITION),
+            index_where=text("status IN ('assigned', 'in_progress', 'new')"),
         )
         .returning(TaskRow)
     )

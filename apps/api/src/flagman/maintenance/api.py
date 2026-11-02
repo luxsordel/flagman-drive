@@ -91,8 +91,11 @@ def get_task_work(
     db: Db,
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
     resources: Annotated[Resources, Depends(get_resources)],
+    origin: Annotated[RequestOrigin, Depends(get_request_origin)],
 ) -> TaskWork:
-    return TaskWork(db=db, limiter=limiter, rules=maintenance_rules(resources.settings))
+    return TaskWork(
+        db=db, limiter=limiter, rules=maintenance_rules(resources.settings), origin=origin
+    )
 
 
 def get_photo_storage(resources: Annotated[Resources, Depends(get_resources)]) -> ObjectStorage:
@@ -247,7 +250,8 @@ async def start_task(task_id: UUID, staff: AnyWorker, service: Service) -> TaskO
     summary="Finish your task in progress",
     description=(
         "The car goes back to clients if no other task holds it and its charge is enough; "
-        "otherwise it stays in service."
+        "otherwise it stays in service. A charging task then stops the charging; the task stays "
+        "finished whatever the car answers."
     ),
     responses={
         HTTPStatus.NOT_FOUND: _NOT_FOUND,
@@ -257,20 +261,37 @@ async def start_task(task_id: UUID, staff: AnyWorker, service: Service) -> TaskO
         ),
     },
 )
-async def complete_task(
-    task_id: UUID, staff: AnyWorker, body: CompleteIn, service: Service
+async def complete_task(  # noqa: PLR0913, PLR0917 - FastAPI dependencies
+    task_id: UUID,
+    staff: LiveWorker,
+    body: CompleteIn,
+    service: Service,
+    work: Work,
+    commander: Commander,
 ) -> TaskOut:
-    await service.complete(_worker(staff), task_id, body.comment, datetime.now(UTC))
+    now = datetime.now(UTC)
+    task = await service.complete(_worker(staff), task_id, body.comment, now)
+    await work.stop_charging(commander, task, now)
     return await _details(service, staff, task_id)
 
 
 @router.post(
     "/tasks/{task_id}/cancel",
     summary="Cancel an open task; a car in service goes back to clients if it may",
+    description="A charging task already taken also stops the charging, as when it is finished.",
     responses={HTTPStatus.NOT_FOUND: _NOT_FOUND, HTTPStatus.CONFLICT: _problem(_TRANSITION)},
 )
-async def cancel_task(task_id: UUID, staff: Planner, body: CancelIn, service: Service) -> TaskOut:
-    await service.cancel(_worker(staff), task_id, body.comment, datetime.now(UTC))
+async def cancel_task(  # noqa: PLR0913, PLR0917 - FastAPI dependencies
+    task_id: UUID,
+    staff: Planner,
+    body: CancelIn,
+    service: Service,
+    work: Work,
+    commander: Commander,
+) -> TaskOut:
+    now = datetime.now(UTC)
+    task = await service.cancel(_worker(staff), task_id, body.comment, now)
+    await work.stop_charging(commander, task, now)
     return await _details(service, staff, task_id)
 
 

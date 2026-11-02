@@ -227,7 +227,10 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Cancel an open task; a car in service goes back to clients if it may */
+    /**
+     * Cancel an open task; a car in service goes back to clients if it may
+     * @description A charging task already taken also stops the charging, as when it is finished.
+     */
     post: operations['cancel_task_admin_maintenance_tasks__task_id__cancel_post'];
     delete?: never;
     options?: never;
@@ -266,7 +269,7 @@ export interface paths {
     put?: never;
     /**
      * Finish your task in progress
-     * @description The car goes back to clients if no other task holds it and its charge is enough; otherwise it stays in service.
+     * @description The car goes back to clients if no other task holds it and its charge is enough; otherwise it stays in service. A charging task then stops the charging; the task stays finished whatever the car answers.
      */
     post: operations['complete_task_admin_maintenance_tasks__task_id__complete_post'];
     delete?: never;
@@ -1717,6 +1720,7 @@ export interface components {
       | 'maintenance_task.started'
       | 'maintenance_task.completed'
       | 'maintenance_task.cancelled'
+      | 'maintenance_task.photo_viewed'
       | 'support.conversation_taken'
       | 'support.message_sent'
       | 'support.conversation_closed'

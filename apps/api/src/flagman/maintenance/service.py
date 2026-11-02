@@ -26,6 +26,7 @@ from flagman.audit.domain import (
     RequestOrigin,
 )
 from flagman.core.config import Settings, WorkerSettings
+from flagman.core.errors import AppError
 from flagman.core.geo import GeoPoint
 from flagman.core.photos import (
     OUTPUT_CONTENT_TYPE,
@@ -292,7 +293,8 @@ class MaintenanceService:
             ensure_can_complete(task, car.state, self.rules.charged_pct)
             status = apply_transition(task.status, TaskTransition.COMPLETE)
             await repository.finish(self.db, task.id, status, _normalize(comment), now)
-            returned = await self._release_car(task, car, now)
+            repaired = task.type is TaskType.REPAIR
+            returned = await self._release_car(task, car, now, repaired=repaired)
             await audit.record(
                 self.db,
                 self._entry(
@@ -315,7 +317,7 @@ class MaintenanceService:
             returned = False
             if task.started_at is not None:
                 car = await fleet.lock_car(self.db, task.car_id)
-                returned = await self._release_car(task, car, now)
+                returned = await self._release_car(task, car, now, repaired=False)
             await audit.record(
                 self.db,
                 self._entry(
@@ -333,7 +335,7 @@ class MaintenanceService:
             raise TaskNotFoundError
         return task
 
-    async def _release_car(self, task: Task, car: Car, now: datetime) -> bool:
+    async def _release_car(self, task: Task, car: Car, now: datetime, *, repaired: bool) -> bool:
         """Back to clients if nothing else holds the car in service and it is charged enough."""
         if car.status is not CarStatus.SERVICE:
             return False
@@ -344,7 +346,7 @@ class MaintenanceService:
             self.rules.min_battery_pct,
             others,
             held_by_incident=held,
-            task_type=task.type,
+            repaired=repaired,
         ):
             return False
         await fleet.change_status(self.db, car.id, CarTransition.RETURN_FROM_SERVICE, now)
@@ -358,6 +360,7 @@ class TaskWork:
     db: AsyncSession
     limiter: RateLimiter
     rules: MaintenanceRules
+    origin: RequestOrigin
 
     async def _own_task(self, worker: Worker, task_id: UUID) -> Task:
         task = await repository.get_task(self.db, task_id)
@@ -411,9 +414,19 @@ class TaskWork:
             if task is None or not can_see(task, worker):
                 raise TaskNotFoundError
             photos = await repository.list_photos(self.db, task.id)
-        key = next((photo.object_key for photo in photos if photo.id == photo_id), None)
-        if key is None:
-            raise TaskPhotoNotFoundError
+            key = next((photo.object_key for photo in photos if photo.id == photo_id), None)
+            if key is None:
+                raise TaskPhotoNotFoundError
+            await audit.record(
+                self.db,
+                AuditEntry(
+                    Actor(ActorType.STAFF, worker.staff_id),
+                    AuditAction.MAINTENANCE_TASK_PHOTO_VIEWED,
+                    self.origin,
+                    AuditTarget(AuditTargetType.MAINTENANCE_TASK, task.id),
+                    details={"photo_id": photo_id},
+                ),
+            )
         return await storage.signed_get_url(key, SIGNED_URL_TTL)
 
     async def send_command(
@@ -442,6 +455,28 @@ class TaskWork:
             maintenance_task_id=task.id,
         )
         return await commander.send(car_request, now)
+
+    async def stop_charging(self, commander: fleet.CarCommander, task: Task, now: datetime) -> None:
+        """After a charging task ended, so a refused finish leaves the car charging.
+
+        No distance check: an operator cancels from the desk. The task stays closed whatever the
+        car answers: the fleet audits the outcome and shows it to staff.
+        """
+        if task.type is not TaskType.CHARGING or task.started_at is None:
+            return
+        request = fleet.CarCommandRequest(
+            car_id=task.car_id,
+            command=CarCommand.STOP_CHARGING,
+            comment=_COMMAND_COMMENT,
+            confirm_active_rental=False,
+            maintenance_task_id=task.id,
+        )
+        try:
+            await commander.send(request, now)
+        except AppError as error:
+            logger.warning(
+                "maintenance_stop_charging_failed", task_id=str(task.id), slug=error.slug
+            )
 
 
 async def create_charging_tasks(db: AsyncSession, rules: ChargingRules, now: datetime) -> int:

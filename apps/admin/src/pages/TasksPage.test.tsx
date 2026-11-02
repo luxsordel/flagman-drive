@@ -80,6 +80,41 @@ describe('tasks of a technician', () => {
     });
   });
 
+  it('goes to own tasks after taking a free one, keeping its card open', async () => {
+    const task = testTask();
+    const tasks = fakeTasksApi(task);
+    renderAt('/tasks', technician, { tasks });
+
+    fireEvent.click(await screen.findByRole('button', { name: ru.tasks.tabs.free }));
+    await screen.findByRole('button', { name: /1234 AB-7/ });
+    openTask(/1234 AB-7/);
+    fireEvent.click(await screen.findByRole('button', { name: ru.tasks.start }));
+
+    await waitFor(() => {
+      expect(
+        screen.getByRole('button', { name: ru.tasks.tabs.mine }).getAttribute('aria-pressed'),
+      ).toBe('true');
+    });
+    expect(screen.getByRole('heading', { name: /1234 AB-7/ })).toBeDefined();
+  });
+
+  it('does not repeat a command while waiting for the location', async () => {
+    stubGeolocation({ getCurrentPosition: () => undefined });
+    const tasks = fakeTasksApi(inProgress());
+    renderAt('/tasks', technician, { tasks });
+
+    await screen.findByRole('button', { name: /1234 AB-7/ });
+    openTask(/1234 AB-7/);
+    const open = await screen.findByRole<HTMLButtonElement>('button', {
+      name: ru.fleet.command.open,
+    });
+    fireEvent.click(open);
+
+    await waitFor(() => {
+      expect(open.disabled).toBe(true);
+    });
+  });
+
   it('tells why a reserved car cannot be taken', async () => {
     const tasks = fakeTasksApi(testTask());
     tasks.start.mockRejectedValue(new ApiError(409, 'maintenance-car-busy'));
@@ -368,15 +403,9 @@ describe('details of a task', () => {
     expect(tab.close).toHaveBeenCalled();
   });
 
-  it('unplugs the car before finishing a charging task, whatever the car answers', async () => {
-    stubGeolocation({
-      getCurrentPosition: (ok: (position: unknown) => void) => {
-        ok({ coords: { latitude: 53.9, longitude: 27.56 } });
-      },
-    });
+  it('leaves unplugging to the API, which does it only once the task is finished', async () => {
     const task = inProgress({ type: 'charging' });
     const tasks = fakeTasksApi(task);
-    tasks.command.mockRejectedValue(new ApiError(503, 'telematics-unavailable'));
     renderAt('/tasks', technician, { tasks });
 
     await screen.findByRole('button', { name: /1234 AB-7/ });
@@ -389,10 +418,17 @@ describe('details of a task', () => {
     await waitFor(() => {
       expect(tasks.complete).toHaveBeenCalledWith(task.id, 'Заряжена');
     });
-    expect(tasks.command).toHaveBeenCalledWith(
-      task.id,
-      'stop_charging',
-      expect.objectContaining({ lat: 53.9 }),
-    );
+    expect(tasks.command).not.toHaveBeenCalled();
+  });
+
+  it('names an assignee who is not a technician without showing an id', async () => {
+    const task = testTask({ status: 'in_progress', assignee_id: 'an-operator' });
+    renderAt('/tasks', testStaff('operator'), { tasks: fakeTasksApi(task) });
+
+    await screen.findByRole('button', { name: /1234 AB-7/ });
+    openTask(/1234 AB-7/);
+
+    expect(await screen.findByText(ru.tasks.card.otherStaff)).toBeDefined();
+    expect(screen.queryByText('an-operator')).toBeNull();
   });
 });

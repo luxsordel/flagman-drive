@@ -143,7 +143,8 @@
       "maintenanceTaskAssigned": "Задача назначена",
       "maintenanceTaskStarted": "Задача взята в работу",
       "maintenanceTaskCompleted": "Задача выполнена",
-      "maintenanceTaskCancelled": "Задача отменена"
+      "maintenanceTaskCancelled": "Задача отменена",
+      "maintenanceTaskPhotoViewed": "Просмотрено фото задачи"
     },
     "targets": {
       "staffMember": "Сотрудник",
@@ -462,6 +463,7 @@
       "status": "Статус",
       "assignee": "Техник",
       "nobody": "Не назначен",
+      "otherStaff": "Другой сотрудник",
       "createdAt": "Создана",
       "automatic": "Создана автоматически",
       "description": "Что сделать",

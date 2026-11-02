@@ -32,6 +32,7 @@ const labelKeys: Record<AuditAction, ActionLabelKey> = {
   'maintenance_task.started': 'maintenanceTaskStarted',
   'maintenance_task.completed': 'maintenanceTaskCompleted',
   'maintenance_task.cancelled': 'maintenanceTaskCancelled',
+  'maintenance_task.photo_viewed': 'maintenanceTaskPhotoViewed',
   'support.conversation_taken': 'supportConversationTaken',
   'support.message_sent': 'supportMessageSent',
   'support.conversation_closed': 'supportConversationClosed',

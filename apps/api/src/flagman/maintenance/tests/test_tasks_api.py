@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flagman.audit.domain import RequestOrigin
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
-from flagman.fleet.domain import CarCommand, CarStatus
+from flagman.fleet.domain import CarCommand, CarStatus, TelematicsUnavailableError
 from flagman.fleet.tests.conftest import FakeGateway, Staff, add_car, run_in_db
 from flagman.identity.domain import StaffRole
 from flagman.maintenance import service
@@ -447,7 +447,11 @@ def test_service_access_needs_live_session(
 
 
 def test_assignee_adds_photos_and_staff_get_short_links(
-    operator: Member, technician: Member, car: str, storage: FakeStorage
+    integration_settings: Settings,
+    operator: Member,
+    technician: Member,
+    car: str,
+    storage: FakeStorage,
 ) -> None:
     task_id = created(operator.create(car))
     technician.start(task_id)
@@ -460,6 +464,7 @@ def test_assignee_adds_photos_and_staff_get_short_links(
     assert link.status_code == HTTPStatus.OK
     assert link.headers["Cache-Control"] == "no-store"
     assert link.json()["expires_in"] == 300
+    assert events(integration_settings, task_id)[-1] == "maintenance_task.photo_viewed"
     details = operator.get(f"/tasks/{task_id}").json()
     assert [item["id"] for item in details["photos"]] == [photo_id]
 
@@ -564,7 +569,6 @@ def test_charging_cycle(
     assert car_status(integration_settings, low) == "service"
     technician.command(task_id, "start_charging")
     set_battery(integration_settings, low, 95)
-    technician.command(task_id, "stop_charging")
     assert technician.complete(task_id, "Charged to 95%").status_code == HTTPStatus.OK
     assert car_status(integration_settings, low) == "available"
     assert [call[2] for call in gateway.calls] == [
@@ -681,6 +685,66 @@ def test_wash_leaves_a_car_of_an_open_incident_in_service(
     technician.start(repair)
     technician.complete(repair, "Dent removed")
     assert car_status(integration_settings, car) == "available"
+
+
+def test_cancelled_repair_leaves_a_car_of_an_open_incident_in_service(
+    integration_settings: Settings, operator: Member, technician: Member, car: str
+) -> None:
+    _hold_by_incident(integration_settings, car)
+    repair = created(operator.create(car, "repair"))
+    technician.start(repair)
+    assert operator.post(f"/tasks/{repair}/cancel", {}).status_code == HTTPStatus.OK
+    assert car_status(integration_settings, car) == "service"
+
+
+def test_refused_finish_leaves_the_car_charging(
+    integration_settings: Settings, operator: Member, technician: Member, gateway: FakeGateway
+) -> None:
+    low = add_car(integration_settings, CAR_POINT, battery_pct=10)
+    task_id = created(operator.create(low, "charging"))
+    technician.start(task_id)
+    response = technician.complete(task_id, "Charged")
+    assert problem_type(response) == "maintenance-charge-too-low"
+    assert gateway.calls == []
+
+
+def test_cancelling_a_charging_task_stops_the_charging(
+    integration_settings: Settings, operator: Member, technician: Member, gateway: FakeGateway
+) -> None:
+    low = add_car(integration_settings, CAR_POINT, battery_pct=10)
+    task_id = created(operator.create(low, "charging"))
+    technician.start(task_id)
+    assert operator.post(f"/tasks/{task_id}/cancel", {}).status_code == HTTPStatus.OK
+    assert [call[2] for call in gateway.calls] == [CarCommand.STOP_CHARGING]
+
+
+def test_cancelling_a_charging_task_not_taken_sends_nothing(
+    integration_settings: Settings, operator: Member, gateway: FakeGateway
+) -> None:
+    low = add_car(integration_settings, CAR_POINT, battery_pct=10)
+    task_id = created(operator.create(low, "charging"))
+    assert operator.post(f"/tasks/{task_id}/cancel", {}).status_code == HTTPStatus.OK
+    assert gateway.calls == []
+
+
+def test_charging_task_closes_when_the_car_does_not_answer(
+    integration_settings: Settings, operator: Member, technician: Member, gateway: FakeGateway
+) -> None:
+    low = add_car(integration_settings, CAR_POINT, battery_pct=10)
+    task_id = created(operator.create(low, "charging"))
+    technician.start(task_id)
+    set_battery(integration_settings, low, 95)
+    gateway.outcome = TelematicsUnavailableError()
+    response = technician.complete(task_id, "Charged to 95%")
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["status"] == "done"
+    rows = query(
+        integration_settings,
+        "SELECT details->>'outcome' AS outcome FROM audit_events "
+        "WHERE action = 'car.command_sent' AND target_id = :car",
+        car=uuid.UUID(low),
+    )
+    assert [row.outcome for row in rows] == ["unavailable"]
 
 
 def test_two_tasks_of_one_car_finishing_together_free_it(

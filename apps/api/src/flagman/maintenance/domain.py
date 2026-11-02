@@ -267,17 +267,18 @@ def returns_to_available(
     other_tasks_in_progress: bool,
     *,
     held_by_incident: bool = False,
-    task_type: TaskType = TaskType.OTHER,
+    repaired: bool = False,
 ) -> bool:
     """Whether a car in service goes back to clients when its task ends.
 
     A car still below the charge clients get stays in service: the worker sends it to charging.
     An unlocked one stays too, as after a cancelled task nobody may have closed it. A car an open
-    incident took off the road comes back by its repair only, not by a wash on the way.
+    incident took off the road comes back by a finished repair only, not by a wash on the way
+    or a repair cancelled halfway.
     """
     if other_tasks_in_progress or state is None or not state.doors_locked:
         return False
-    if held_by_incident and task_type is not TaskType.REPAIR:
+    if held_by_incident and not repaired:
         return False
     return state.battery_pct >= min_battery_pct
 

@@ -24,6 +24,7 @@ import {
   type FleetState,
 } from '../fleet/state';
 import type { CommandNotice } from '../fleet/stream';
+import { listPollMs, useInterval } from '../support/useInterval';
 import { openStatuses, type Task } from '../tasks/api';
 import { formatMinskTime } from '../time/minsk';
 import type { Zone } from '../zones/api';
@@ -322,6 +323,11 @@ function CarTasks({ carId, carStatus }: { carId: string; carStatus: CarStatus })
   const { t } = useTranslation();
   const { tasks: tasksApi } = useApis();
   const [tasks, setTasks] = useState<Task[] | 'failed' | null>(null);
+  const [revision, setRevision] = useState(0);
+  // An automatic task does not change the car's status, so nothing else would show it.
+  useInterval(() => {
+    setRevision((value) => value + 1);
+  }, listPollMs);
 
   useEffect(() => {
     let active = true;
@@ -337,7 +343,7 @@ function CarTasks({ carId, carStatus }: { carId: string; carStatus: CarStatus })
       active = false;
     };
     // A new status is often a task taken or finished.
-  }, [tasksApi, carId, carStatus]);
+  }, [tasksApi, carId, carStatus, revision]);
 
   if (tasks === null) return null;
   return (
@@ -348,7 +354,7 @@ function CarTasks({ carId, carStatus }: { carId: string; carStatus: CarStatus })
         <p className="muted">{t('tasks.carTasks.none')}</p>
       )}
       {tasks !== 'failed' && tasks.length > 0 && (
-        <ul className="tasks-photos">
+        <ul className="car-tasks">
           {tasks.map((task) => (
             <li key={task.id}>
               {`${t(`tasks.type.${task.type}`)} · ${t(`tasks.status.${task.status}`)}`}
