@@ -2,7 +2,7 @@ import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { ApiError } from '../api/client';
+import { ApiError, NetworkError } from '../api/client';
 import ru from '../i18n/ru.json';
 import { testStaff } from '../test/auth';
 import { renderAt } from '../test/render';
@@ -35,6 +35,48 @@ describe('rentals list', () => {
       statuses: ['reserved', 'in_trip', 'parked'],
       userId: 'abc',
     });
+  });
+
+  it('says the total of a rental still going on is not known yet', async () => {
+    const item = rentalItem({ status: 'in_trip', total: 0, charge_status: null });
+    renderAt('/rentals', operator, { rentals: fakeRentalsApi({ items: [item] }) });
+
+    const row = (await screen.findByRole('link', { name: 'Petrov Ivan' })).closest('tr');
+    expect(row?.textContent).toContain(ru.rentals.ongoing);
+    expect(row?.textContent).not.toContain('0,00');
+  });
+
+  it('tells a refused filter apart from a failure to load', async () => {
+    const rentals = fakeRentalsApi();
+    rentals.list.mockRejectedValueOnce(new ApiError(422));
+    renderAt('/rentals?from=2026-11-02&to=2026-11-01', operator, { rentals });
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ru.load.rejected);
+  });
+
+  it('loads the next page once however often it is pressed', async () => {
+    const rentals = fakeRentalsApi({ items: [rentalItem()] });
+    rentals.list.mockResolvedValueOnce({ items: [rentalItem()], next_cursor: 'c-1' });
+    let release: () => void = () => undefined;
+    rentals.list.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          release = () => {
+            resolve({ items: [rentalItem({ id: 'older' })], next_cursor: null });
+          };
+        }),
+    );
+    renderAt('/rentals', operator, { rentals });
+
+    const more = await screen.findByRole('button', { name: ru.rentals.more });
+    await userEvent.click(more);
+    await userEvent.click(more);
+    release();
+
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: ru.rentals.more })).toBeNull();
+    });
+    expect(rentals.list).toHaveBeenCalledTimes(2);
   });
 
   it('is not open to a technician', async () => {
@@ -83,6 +125,60 @@ describe('rental card', () => {
       'Late unlock',
       expect.stringMatching(/^[0-9a-f-]{36}$/),
     );
+  });
+
+  it('sends a retry with the same key and a changed form with a new one', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const rentals = fakeRentalsApi();
+    rentals.adjust.mockRejectedValueOnce(new NetworkError(new Error('offline')));
+    const card = await rentals.rental('');
+    renderAt(`/rentals/${card.rental.id}`, operator, { rentals });
+    const submit = async () => {
+      await userEvent.click(screen.getByRole('button', { name: ru.rentals.adjustSubmit }));
+    };
+    const keys = () => rentals.adjust.mock.calls.map((call) => call[3]);
+
+    await userEvent.type(await screen.findByLabelText(ru.rentals.amountRubles), '1');
+    await userEvent.type(screen.getByLabelText(ru.rentals.comment), 'Fee');
+    await submit();
+    await screen.findByRole('alert');
+    await submit();
+    await userEvent.type(screen.getByLabelText(ru.rentals.amountRubles), '2');
+    await userEvent.type(screen.getByLabelText(ru.rentals.comment), 'Fee');
+    await submit();
+
+    const [lost, retried, next] = keys();
+    expect(retried).toBe(lost);
+    expect(next).not.toBe(retried);
+  });
+
+  it('names a reason the API refused for a forced finish', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const base = staffRental();
+    const card = staffRental({ rental: { ...base.rental, status: 'in_trip', ended_at: null } });
+    const rentals = fakeRentalsApi({ card });
+    rentals.forceFinish.mockRejectedValueOnce(new ApiError(422));
+    renderAt(`/rentals/${card.rental.id}`, operator, { rentals });
+
+    await userEvent.type(await screen.findByLabelText(ru.rentals.reason), 'Lost');
+    await userEvent.click(screen.getByRole('button', { name: ru.rentals.forceFinish }));
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ru.rentals.problems.reason);
+  });
+
+  it('offers to finish a refund when money is owed back and no refund was made', async () => {
+    const card = staffRental({ owed: -100 });
+    renderAt(`/rentals/${card.rental.id}`, operator, { rentals: fakeRentalsApi({ card }) });
+
+    expect(await screen.findByRole('button', { name: ru.rentals.retryRefunds })).toBeDefined();
+  });
+
+  it('tells a rental that is not there', async () => {
+    const rentals = fakeRentalsApi();
+    rentals.rental.mockRejectedValueOnce(new ApiError(404, 'rental-not-found'));
+    renderAt('/rentals/missing', operator, { rentals });
+
+    expect((await screen.findByRole('alert')).textContent).toBe(ru.load.notFound);
   });
 
   it('does not adjust without a comment', async () => {

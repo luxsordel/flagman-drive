@@ -644,7 +644,9 @@
       "conflict": "The rental is in another status already. Reload the page.",
       "pending": "The rental's payment has not finished yet. Try again in a minute.",
       "invalid": "Check the amount and the comment: the total cannot go below zero.",
-      "failed": "Could not do it. Try again."
+      "failed": "Could not do it. Try again.",
+      "reason": "Give a reason without control characters, up to 500 characters.",
+      "reused": "This form was already sent with other data. Fill it in again."
     },
     "forceFinish": "Force finish",
     "reason": "Reason",
@@ -659,7 +661,8 @@
     "decreaseConfirm": "Lower the total by {{amount}}? What was paid goes back to the card.",
     "adjustSubmit": "Apply",
     "retryRefunds": "Retry the refund",
-    "current": "Current rental"
+    "current": "Current rental",
+    "ongoing": "Going on"
   },
   "clients": {
     "filters": "Client search",
@@ -697,5 +700,11 @@
     "wasUnblocked": "Unblocked",
     "blockConfirm": "Block the client? They will not reserve or open cars.",
     "unblockConfirm": "Unblock the client?"
+  },
+  "load": {
+    "forbidden": "This section is not available to your role.",
+    "notFound": "Not found. The link may be out of date.",
+    "rejected": "The request was not accepted. Check the filters.",
+    "failed": "Could not load. Check the connection and reload the page."
   }
 }

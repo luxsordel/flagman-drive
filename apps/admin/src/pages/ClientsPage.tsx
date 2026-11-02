@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router';
 
 import { ApiError } from '../api/client';
 import { useApis } from '../api/context';
+import { loadProblem, type LoadProblem } from '../api/loadProblem';
 import { useAuth } from '../auth/context';
 import { clientSearchMinLength, type ClientFilter, type ClientSummary } from '../clients/api';
 import { fullName } from '../kyc/format';
@@ -29,22 +30,34 @@ export function ClientsPage() {
   const [typed, setTyped] = useState(params.get('q') ?? '');
   const [items, setItems] = useState<ClientSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
+  const [status, setStatus] = useState<'loading' | 'ready' | LoadProblem>('loading');
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const refused = useCallback(
     (error: unknown) => {
       if (error instanceof ApiError && error.status === 401) void signOut();
-      else setStatus('failed');
+      else setStatus(loadProblem(error));
     },
     [signOut],
   );
 
   useEffect(() => {
-    clients.list(filter).then((page) => {
-      setItems(page.items);
-      setCursor(page.next_cursor ?? null);
-      setStatus('ready');
-    }, refused);
+    // An answer to the filter before is dropped: it would replace the list of this one.
+    let active = true;
+    clients.list(filter).then(
+      (page) => {
+        if (!active) return;
+        setItems(page.items);
+        setCursor(page.next_cursor ?? null);
+        setStatus('ready');
+      },
+      (error: unknown) => {
+        if (active) refused(error);
+      },
+    );
+    return () => {
+      active = false;
+    };
   }, [clients, filter, refused]);
 
   const setParam = (name: string, value: string) => {
@@ -99,9 +112,9 @@ export function ClientsPage() {
           {t('support.loading')}
         </p>
       )}
-      {status === 'failed' && (
+      {status !== 'loading' && status !== 'ready' && (
         <p role="alert" className="list-error">
-          {t('support.failed')}
+          {t(`load.${status}`)}
         </p>
       )}
       {status === 'ready' && items.length === 0 && <p className="muted">{t('clients.empty')}</p>}
@@ -139,11 +152,18 @@ export function ClientsPage() {
         <button
           type="button"
           className="button list-more"
+          disabled={loadingMore}
           onClick={() => {
-            clients.list(filter, cursor).then((page) => {
-              setItems((known) => [...known, ...page.items]);
-              setCursor(page.next_cursor ?? null);
-            }, refused);
+            setLoadingMore(true);
+            clients
+              .list(filter, cursor)
+              .then((page) => {
+                setItems((known) => [...known, ...page.items]);
+                setCursor(page.next_cursor ?? null);
+              }, refused)
+              .finally(() => {
+                setLoadingMore(false);
+              });
           }}
         >
           {t('clients.more')}

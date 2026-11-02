@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router';
 
 import { ApiError } from '../api/client';
 import { useApis } from '../api/context';
+import { loadProblem, type LoadProblem } from '../api/loadProblem';
 import { useAuth } from '../auth/context';
 import { blockReasonMaxLength, type StaffClient } from '../clients/api';
 import { formatCalendarDay, fullName } from '../kyc/format';
@@ -17,7 +18,7 @@ export function ClientPage() {
   const { clients } = useApis();
   const { signOut } = useAuth();
   const [client, setClient] = useState<StaffClient | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState<LoadProblem | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -25,22 +26,33 @@ export function ClientPage() {
   const refused = useCallback(
     (error: unknown) => {
       if (error instanceof ApiError && error.status === 401) void signOut();
-      else setLoadFailed(true);
+      else setLoadFailed(loadProblem(error));
     },
     [signOut],
   );
 
   useEffect(() => {
-    clients.client(clientId).then((loaded) => {
-      setClient(loaded);
-      setLoadFailed(false);
-    }, refused);
+    // The answer for the page before is dropped: it would show another one here.
+    let active = true;
+    clients.client(clientId).then(
+      (loaded) => {
+        if (!active) return;
+        setClient(loaded);
+        setLoadFailed(null);
+      },
+      (error: unknown) => {
+        if (active) refused(error);
+      },
+    );
+    return () => {
+      active = false;
+    };
   }, [clients, clientId, refused]);
 
   if (!client) {
     return loadFailed ? (
       <p role="alert" className="list-error">
-        {t('support.failed')}
+        {t(`load.${loadFailed}`)}
       </p>
     ) : (
       <p role="status" className="muted">

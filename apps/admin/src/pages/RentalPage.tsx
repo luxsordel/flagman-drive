@@ -4,6 +4,7 @@ import { Link, useParams } from 'react-router';
 
 import { ApiError } from '../api/client';
 import { useApis } from '../api/context';
+import { loadProblem, type LoadProblem } from '../api/loadProblem';
 import { useAuth } from '../auth/context';
 import { fullName } from '../kyc/format';
 import { adjustmentMaxKopecks, staffReasonMaxLength, type StaffRental } from '../rentals/api';
@@ -11,12 +12,15 @@ import { SupportPhoto } from '../support/SupportPhoto';
 import { formatKopecks, parseRubles } from '../tariffs/money';
 import { formatMinskTime } from '../time/minsk';
 
-type ActionProblem = 'conflict' | 'pending' | 'invalid' | 'failed';
+type ActionProblem = 'conflict' | 'pending' | 'invalid' | 'reason' | 'reused' | 'failed';
 
-function actionProblem(error: unknown): ActionProblem {
+/** `action` tells a refused reason of a forced finish from a refused amount of an adjustment. */
+function actionProblem(error: unknown, action: 'force' | 'adjust' | 'refund'): ActionProblem {
   if (error instanceof ApiError) {
     if (error.problem === 'rental-settlement-pending') return 'pending';
-    if (error.problem === 'rental-adjustment-invalid' || error.status === 422) return 'invalid';
+    if (error.problem === 'idempotency-key-reused') return 'reused';
+    if (error.status === 422) return action === 'force' ? 'reason' : 'invalid';
+    if (error.problem === 'rental-adjustment-invalid') return 'invalid';
     if (error.status === 409) return 'conflict';
   }
   return 'failed';
@@ -32,7 +36,7 @@ export function RentalPage() {
   const { rentals } = useApis();
   const { signOut } = useAuth();
   const [card, setCard] = useState<StaffRental | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
+  const [loadFailed, setLoadFailed] = useState<LoadProblem | null>(null);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<ActionProblem | null>(null);
   const [notLocked, setNotLocked] = useState(false);
@@ -46,19 +50,34 @@ export function RentalPage() {
   const refused = useCallback(
     (error: unknown) => {
       if (error instanceof ApiError && error.status === 401) void signOut();
-      else setLoadFailed(true);
+      else setLoadFailed(loadProblem(error));
     },
     [signOut],
   );
 
   useEffect(() => {
-    rentals.rental(rentalId).then((loaded) => {
-      setCard(loaded);
-      setLoadFailed(false);
-    }, refused);
+    // The answer for the page before is dropped: it would show another one here.
+    let active = true;
+    rentals.rental(rentalId).then(
+      (loaded) => {
+        if (!active) return;
+        setCard(loaded);
+        setLoadFailed(null);
+      },
+      (error: unknown) => {
+        if (active) refused(error);
+      },
+    );
+    return () => {
+      active = false;
+    };
   }, [rentals, rentalId, refused]);
 
-  const act = (action: () => Promise<StaffRental>, done: () => void) => {
+  const act = (
+    kind: 'force' | 'adjust' | 'refund',
+    action: () => Promise<StaffRental>,
+    done: () => void,
+  ) => {
     setBusy(true);
     setProblem(null);
     action()
@@ -69,7 +88,7 @@ export function RentalPage() {
         },
         (error: unknown) => {
           if (error instanceof ApiError && error.status === 401) void signOut();
-          else setProblem(actionProblem(error));
+          else setProblem(actionProblem(error, kind));
         },
       )
       .finally(() => {
@@ -80,7 +99,7 @@ export function RentalPage() {
   if (!card) {
     return loadFailed ? (
       <p role="alert" className="list-error">
-        {t('support.failed')}
+        {t(`load.${loadFailed}`)}
       </p>
     ) : (
       <p role="status" className="muted">
@@ -312,6 +331,7 @@ export function RentalPage() {
               if (!window.confirm(t('rentals.forceConfirm'))) return;
               let locked = true;
               act(
+                'force',
                 () =>
                   rentals.forceFinish(rental.id, reason.trim()).then((result) => {
                     locked = result.locked;
@@ -388,6 +408,7 @@ export function RentalPage() {
               );
               if (!window.confirm(question)) return;
               act(
+                'adjust',
                 () => rentals.adjust(rental.id, signed, comment.trim(), adjustKey),
                 () => {
                   setAmount('');
@@ -399,13 +420,15 @@ export function RentalPage() {
           >
             {t('rentals.adjustSubmit')}
           </button>
-          {lostRefunds && (
+          {/* Also with no refund yet: a crash may have come before the provider. */}
+          {(lostRefunds || card.owed < 0) && (
             <button
               type="button"
               className="button"
               disabled={busy}
               onClick={() => {
                 act(
+                  'refund',
                   () => rentals.retryRefunds(rental.id),
                   () => undefined,
                 );
