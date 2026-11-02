@@ -1223,6 +1223,8 @@ class RentalService:
         hold_until: datetime,
         forced: ForcedFinish | None = None,
         audit_entry: AuditEntry | None = None,
+        *,
+        to_service: bool = False,
     ) -> bool:
         """False when a parallel finish got here first."""
         done_at = self.clock()
@@ -1248,6 +1250,11 @@ class RentalService:
                 forced=forced,
             )
             await fleet.change_status(self.db, rental.car_id, CarTransition.END_RENTAL, done_at)
+            if to_service:
+                # Left unlocked: the map must not offer it until someone has closed it.
+                await fleet.change_status(
+                    self.db, rental.car_id, CarTransition.SEND_TO_SERVICE, done_at
+                )
             ended = replace(locked, status=status, ended_at=done_at)
             if audit_entry is not None:
                 await audit.record(self.db, audit_entry)
@@ -1502,7 +1509,11 @@ class StaffRentalService:
                     self.db, rental.id, hold_until, self.rentals.clock()
                 )
             raise
-        details: dict[str, DetailValue] = {"locked": locked, "status_before": rental.status.value}
+        details: dict[str, DetailValue] = {
+            "locked": locked,
+            "status_before": rental.status.value,
+            "sent_to_service": not locked,
+        }
         entry = AuditEntry(
             Actor(ActorType.STAFF, self.staff_id),
             AuditAction.RENTAL_FORCE_FINISHED,
@@ -1511,7 +1522,10 @@ class StaffRentalService:
             details=details,
         )
         forced = ForcedFinish(reason=reason, staff_id=self.staff_id)
-        if not await self.rentals._end_trip(rental, hold_until, forced, entry):
+        ended = await self.rentals._end_trip(
+            rental, hold_until, forced, entry, to_service=not locked
+        )
+        if not ended:
             # The client finished it meanwhile.
             raise RentalTransitionNotAllowedError
         await self.rentals._settle(rental.id)

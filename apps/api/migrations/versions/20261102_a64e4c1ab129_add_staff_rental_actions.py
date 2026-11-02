@@ -41,6 +41,12 @@ def upgrade() -> None:
         "(force_finish_reason IS NULL) = (force_finished_by IS NULL)",
     )
     op.create_index("ix_rentals_reserved_at_id", "rentals", ["reserved_at", "id"])
+    op.create_index(
+        "ix_payment_operations_idempotency_key_prefix",
+        "payment_operations",
+        ["idempotency_key"],
+        postgresql_ops={"idempotency_key": "text_pattern_ops"},
+    )
 
     op.create_table(
         "rental_adjustments",
@@ -151,6 +157,7 @@ def downgrade() -> None:
     # DROP TABLE is not blocked by the triggers and removes them with the table.
     op.drop_table("rental_adjustments")
     op.drop_index("ix_rentals_reserved_at_id", table_name="rentals")
+    op.drop_index("ix_payment_operations_idempotency_key_prefix", table_name="payment_operations")
     op.drop_constraint(op.f("ck_rentals_force_finish_has_author"), "rentals", type_="check")
     op.drop_constraint(
         op.f("fk_rentals_force_finished_by_staff_members"), "rentals", type_="foreignkey"

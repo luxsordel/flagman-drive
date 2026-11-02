@@ -405,7 +405,7 @@ def test_an_operator_ends_a_stuck_trip_without_the_clients_checks(  # noqa: PLR0
     [event] = [
         e for e in _audit(integration_settings, rental_id) if e.action == "rental.force_finished"
     ]
-    assert event.details == {"locked": True, "status_before": "in_trip"}
+    assert event.details == {"locked": True, "status_before": "in_trip", "sent_to_service": False}
     assert "Client" not in str(event.details)
 
 
@@ -426,7 +426,9 @@ def test_a_trip_ends_even_if_the_car_does_not_answer(  # noqa: PLR0913, PLR0917 
     assert response.json()["locked"] is False
     assert response.json()["rental"]["rental"]["ended_at"] is not None
     [event] = _audited(integration_settings, rental_id, "rental.force_finished")
-    assert event.details["locked"] is False
+    assert (event.details["locked"], event.details["sent_to_service"]) == (False, True)
+    # Left unlocked, it stays off the map until someone closes it.
+    assert car_status(integration_settings, car) == "service"
 
 
 def test_a_parked_trip_is_force_finished_too(

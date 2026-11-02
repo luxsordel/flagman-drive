@@ -117,6 +117,13 @@ class PaymentOperation(Base):
             "decline_reason IS NULL OR " + _known("decline_reason", DeclineReason),
             name="decline_reason_known",
         ),
+        # A rental's operations are found by the prefix of their keys (docs/adr/0026); the
+        # unique index does not serve LIKE under the database's collation.
+        Index(
+            "ix_payment_operations_idempotency_key_prefix",
+            "idempotency_key",
+            postgresql_ops={"idempotency_key": "text_pattern_ops"},
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
