@@ -1,11 +1,18 @@
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
 from flagman.pricing.domain import (
+    LOW_BATTERY_FINE_CODE,
+    MAX_FINE_AMOUNT,
+    MAX_FINE_NAME_LENGTH,
     MAX_FREE_WAITING_MINUTES,
     MAX_HOLD_AMOUNT,
     MAX_PRICE_PER_MINUTE,
+    FineKind,
+    FineTerms,
+    FineTermsInvalidError,
     Interval,
     IntervalKind,
     Quote,
@@ -13,7 +20,10 @@ from flagman.pricing.domain import (
     TariffPrices,
     TariffPricesInvalidError,
     calculate,
+    ensure_fine_code,
+    fine_kind,
 )
+from flagman.pricing.seed import DEMO_FINES
 
 START = datetime(2026, 10, 26, 12, 0, tzinfo=UTC)
 PRICES = TariffPrices(
@@ -168,3 +178,37 @@ def test_minutes_may_be_free_but_the_hold_may_not() -> None:
 
 def _min(minutes: int) -> timedelta:
     return timedelta(minutes=minutes)
+
+
+@pytest.mark.parametrize(
+    "terms",
+    [
+        {"amount": 0},
+        {"amount": MAX_FINE_AMOUNT + 1},
+        {"amount": True},
+        {"name_ru": ""},
+        {"name_en": "   "},
+        {"name_ru": " Курение"},
+        {"name_en": "x" * (MAX_FINE_NAME_LENGTH + 1)},
+    ],
+)
+def test_fine_terms_out_of_range_are_refused(terms: dict[str, Any]) -> None:
+    values: dict[str, Any] = {"name_ru": "Курение", "name_en": "Smoking", "amount": 10000}
+
+    with pytest.raises(FineTermsInvalidError):
+        FineTerms(**{**values, **terms})
+
+
+def test_only_known_codes_are_automatic_fines() -> None:
+    assert fine_kind(LOW_BATTERY_FINE_CODE) is FineKind.AUTOMATIC
+    assert fine_kind("smoking") is FineKind.MANUAL
+
+
+@pytest.mark.parametrize("code", ["a", "Smoking", "1dirt", "dirt-car", "x" * 41])
+def test_bad_fine_codes_are_refused(code: str) -> None:
+    with pytest.raises(FineTermsInvalidError):
+        ensure_fine_code(code)
+
+
+def test_demo_fines_name_every_fine_of_the_vision() -> None:
+    assert set(DEMO_FINES) == {"smoking", "dirt", "parking_outside_zone", LOW_BATTERY_FINE_CODE}

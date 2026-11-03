@@ -222,7 +222,9 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
   Создание и изменение пишутся в аудит (`tariff.created`, `tariff.updated`) с номером версии и ценами.
 - Для `rentals`: `pricing.service.current_version(model_id)`, `get_version(version_id)`,
   `quote(version_id, intervals)`.
-- Демо-тарифы создаёт `flagman-pricing seed` (после `flagman-fleet seed`).
+- Справочник штрафов: `pricing.service.current_fine(code)`, `get_fine_version(version_id)`; версии — как у
+  тарифов, начисленный штраф ссылается на свою.
+- Демо-тарифы и демо-штрафы создаёт `flagman-pricing seed` (после `flagman-fleet seed`).
 
 ## Платежи (`payments`)
 

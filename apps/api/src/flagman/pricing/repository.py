@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -6,9 +7,10 @@ from sqlalchemy import Select, select
 from sqlalchemy.dialects.postgresql import distinct_on, insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from flagman.pricing.domain import TariffPrices
+from flagman.pricing.domain import FineTerms, TariffPrices
+from flagman.pricing.domain import FineTypeVersion as FineVersion
 from flagman.pricing.domain import TariffVersion as Version
-from flagman.pricing.models import Tariff, TariffVersion
+from flagman.pricing.models import FineType, FineTypeVersion, Tariff, TariffVersion
 
 
 def _select_versions() -> Select[TariffVersion, UUID]:
@@ -123,6 +125,117 @@ async def insert_version(db: AsyncSession, version: NewVersion) -> UUID:
             created_by=version.created_by,
         )
         .returning(TariffVersion.id)
+    )
+    if version_id is None:
+        raise RuntimeError("INSERT ... RETURNING gave no id")
+    return version_id
+
+
+def _select_fine_versions() -> Select[FineTypeVersion, str]:
+    return select(FineTypeVersion, FineType.code).join(
+        FineType, FineTypeVersion.fine_type_id == FineType.id
+    )
+
+
+def _to_fine_version(row: FineTypeVersion, code: str) -> FineVersion:
+    return FineVersion(
+        id=row.id,
+        fine_type_id=row.fine_type_id,
+        code=code,
+        number=row.number,
+        terms=FineTerms(name_ru=row.name_ru, name_en=row.name_en, amount=row.amount),
+        valid_from=row.valid_from,
+        created_by=row.created_by,
+    )
+
+
+def _latest_fine(query: Select[FineTypeVersion, str]) -> Select[FineTypeVersion, str]:
+    return query.order_by(FineTypeVersion.fine_type_id, FineTypeVersion.number.desc()).ext(
+        distinct_on(FineTypeVersion.fine_type_id)
+    )
+
+
+async def current_fine_versions(db: AsyncSession) -> list[FineVersion]:
+    """The latest version of every fine type, by code."""
+    rows = await db.execute(_latest_fine(_select_fine_versions()))
+    return sorted((_to_fine_version(*row) for row in rows), key=lambda version: version.code)
+
+
+async def current_fine_version_of_type(
+    db: AsyncSession, fine_type_id: UUID, *, for_update: bool = False
+) -> FineVersion | None:
+    """With `for_update` the type row stays locked until commit, like a tariff's."""
+    if for_update:
+        locked = await db.scalar(
+            select(FineType.id).where(FineType.id == fine_type_id).with_for_update()
+        )
+        if locked is None:
+            return None
+    row = (
+        await db.execute(_latest_fine(_select_fine_versions().where(FineType.id == fine_type_id)))
+    ).one_or_none()
+    return _to_fine_version(*row) if row else None
+
+
+async def current_fine_version_of_code(db: AsyncSession, code: str) -> FineVersion | None:
+    row = (
+        await db.execute(_latest_fine(_select_fine_versions().where(FineType.code == code)))
+    ).one_or_none()
+    return _to_fine_version(*row) if row else None
+
+
+async def get_fine_versions(
+    db: AsyncSession, version_ids: Collection[UUID]
+) -> dict[UUID, FineVersion]:
+    if not version_ids:
+        return {}
+    rows = await db.execute(_select_fine_versions().where(FineTypeVersion.id.in_(version_ids)))
+    return {row.id: _to_fine_version(row, code) for row, code in rows}
+
+
+async def list_fine_versions(db: AsyncSession, fine_type_id: UUID) -> list[FineVersion]:
+    rows = await db.execute(
+        _select_fine_versions()
+        .where(FineTypeVersion.fine_type_id == fine_type_id)
+        .order_by(FineTypeVersion.number.desc())
+    )
+    return [_to_fine_version(row, code) for row, code in rows]
+
+
+async def insert_fine_type(db: AsyncSession, code: str, now: datetime) -> UUID | None:
+    """Returns the new type's id, or None if the code is taken."""
+    created: UUID | None = await db.scalar(
+        insert(FineType)
+        .values(code=code, created_at=now)
+        .on_conflict_do_nothing(index_elements=[FineType.code])
+        .returning(FineType.id)
+    )
+    return created
+
+
+@dataclass(frozen=True)
+class NewFineVersion:
+    fine_type_id: UUID
+    number: int
+    terms: FineTerms
+    valid_from: datetime
+    created_by: UUID | None
+
+
+async def insert_fine_version(db: AsyncSession, version: NewFineVersion) -> UUID:
+    terms = version.terms
+    version_id: UUID | None = await db.scalar(
+        insert(FineTypeVersion)
+        .values(
+            fine_type_id=version.fine_type_id,
+            number=version.number,
+            name_ru=terms.name_ru,
+            name_en=terms.name_en,
+            amount=terms.amount,
+            valid_from=version.valid_from,
+            created_by=version.created_by,
+        )
+        .returning(FineTypeVersion.id)
     )
     if version_id is None:
         raise RuntimeError("INSERT ... RETURNING gave no id")

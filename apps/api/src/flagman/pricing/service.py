@@ -1,8 +1,8 @@
-"""Public interface of the tariffs for other modules.
+"""Public interface of the tariffs and the fine catalog for other modules.
 
 Reads join the caller's transaction if one is open, so a rental (stage 3) fixes the tariff
-version in the same transaction as its booking. Tariff changes are staff commands: each runs in a
-transaction of its own, together with its audit event.
+version in the same transaction as its booking. Tariff and fine catalog changes are staff commands:
+each runs in a transaction of its own, together with its audit event.
 """
 
 from collections.abc import Awaitable, Callable, Iterable
@@ -29,6 +29,12 @@ from flagman.pricing import repository
 from flagman.pricing.domain import (
     CarModelNotFoundError,
     CarModelRef,
+    FineTerms,
+    FineTypeChangedError,
+    FineTypeExistsError,
+    FineTypeNotFoundError,
+    FineTypeVersion,
+    FineTypeVersionNotFoundError,
     Interval,
     ModelTariff,
     Quote,
@@ -39,8 +45,9 @@ from flagman.pricing.domain import (
     TariffVersion,
     TariffVersionNotFoundError,
     calculate,
+    ensure_fine_code,
 )
-from flagman.pricing.seed import DEMO_PRICES
+from flagman.pricing.seed import DEMO_FINES, DEMO_PRICES
 
 logger = structlog.get_logger(__name__)
 
@@ -214,6 +221,139 @@ async def seed_demo_tariffs(db: AsyncSession, now: datetime) -> int:
                 continue
             await repository.insert_version(
                 db, repository.NewVersion(tariff_id, 1, DEMO_PRICES, now, None)
+            )
+            created += 1
+    return created
+
+
+async def list_fine_types(db: AsyncSession) -> list[FineTypeVersion]:
+    """Every fine type with its current version, by code."""
+    return await _read(db, lambda: repository.current_fine_versions(db))
+
+
+async def get_fine_type(db: AsyncSession, fine_type_id: UUID) -> FineTypeVersion:
+    version = await _read(db, lambda: repository.current_fine_version_of_type(db, fine_type_id))
+    if version is None:
+        raise FineTypeNotFoundError
+    return version
+
+
+async def list_fine_type_versions(db: AsyncSession, fine_type_id: UUID) -> list[FineTypeVersion]:
+    """Newest first; raises FineTypeNotFoundError for an unknown type."""
+    versions = await _read(db, lambda: repository.list_fine_versions(db, fine_type_id))
+    if not versions:
+        raise FineTypeNotFoundError
+    return versions
+
+
+async def current_fine(db: AsyncSession, code: str) -> FineTypeVersion | None:
+    """The version a fine of this code is charged by now; None when the catalog has no such type,
+    and then the fine is not charged."""
+    return await _read(db, lambda: repository.current_fine_version_of_code(db, code))
+
+
+async def get_fine_version(db: AsyncSession, version_id: UUID) -> FineTypeVersion:
+    versions = await get_fine_versions(db, [version_id])
+    if version_id not in versions:
+        raise FineTypeVersionNotFoundError
+    return versions[version_id]
+
+
+async def get_fine_versions(
+    db: AsyncSession, version_ids: Iterable[UUID]
+) -> dict[UUID, FineTypeVersion]:
+    wanted = frozenset(version_ids)
+    return await _read(db, lambda: repository.get_fine_versions(db, wanted))
+
+
+@dataclass(frozen=True)
+class FineCatalogEditor:
+    """Fine catalog changes of one staff member; every change goes to the audit log with it."""
+
+    db: AsyncSession
+    staff_id: UUID
+    origin: RequestOrigin
+
+    async def create(self, code: str, terms: FineTerms, now: datetime) -> FineTypeVersion:
+        """Raises FineTypeExistsError. A new code is a manual fine: the system detects only the
+        automatic ones it knows."""
+        ensure_fine_code(code)
+        async with self.db.begin():
+            fine_type_id = await repository.insert_fine_type(self.db, code, now)
+            if fine_type_id is None:
+                raise FineTypeExistsError
+            await repository.insert_fine_version(
+                self.db, repository.NewFineVersion(fine_type_id, 1, terms, now, self.staff_id)
+            )
+            await self._record(AuditAction.FINE_TYPE_CREATED, fine_type_id, code, 1, terms)
+            version = await repository.current_fine_version_of_type(self.db, fine_type_id)
+        if version is None:
+            raise RuntimeError("the new fine type vanished")
+        logger.info("fine_type_created", fine_type_id=str(fine_type_id), code=code)
+        return version
+
+    async def update(
+        self, fine_type_id: UUID, based_on: int, terms: FineTerms, now: datetime
+    ) -> FineTypeVersion:
+        """Saves a new version that applies from now on; fines charged before keep theirs.
+
+        `based_on` guards against overwriting a newer version, as with tariffs.
+        """
+        async with self.db.begin():
+            current = await repository.current_fine_version_of_type(
+                self.db, fine_type_id, for_update=True
+            )
+            if current is None:
+                raise FineTypeNotFoundError
+            if current.number != based_on:
+                raise FineTypeChangedError
+            number = current.number + 1
+            await repository.insert_fine_version(
+                self.db, repository.NewFineVersion(fine_type_id, number, terms, now, self.staff_id)
+            )
+            await self._record(
+                AuditAction.FINE_TYPE_UPDATED, fine_type_id, current.code, number, terms
+            )
+            version = await repository.current_fine_version_of_type(self.db, fine_type_id)
+        if version is None:
+            raise RuntimeError("the changed fine type vanished")
+        logger.info("fine_type_updated", fine_type_id=str(fine_type_id), version=number)
+        return version
+
+    async def _record(
+        self, action: AuditAction, fine_type_id: UUID, code: str, number: int, terms: FineTerms
+    ) -> None:
+        await audit.record(
+            self.db,
+            AuditEntry(
+                Actor(ActorType.STAFF, self.staff_id),
+                action,
+                self.origin,
+                AuditTarget(AuditTargetType.FINE_TYPE, fine_type_id),
+                details={
+                    "code": code,
+                    "version": number,
+                    "name_ru": terms.name_ru,
+                    "name_en": terms.name_en,
+                    "amount": terms.amount,
+                },
+            ),
+        )
+
+
+async def seed_demo_fines(db: AsyncSession, now: datetime) -> int:
+    """Adds the demo fine types the catalog lacks; returns how many were added.
+
+    Types already there keep their versions, also after they were changed in the admin panel.
+    """
+    created = 0
+    async with db.begin():
+        for code, terms in DEMO_FINES.items():
+            fine_type_id = await repository.insert_fine_type(db, code, now)
+            if fine_type_id is None:
+                continue
+            await repository.insert_fine_version(
+                db, repository.NewFineVersion(fine_type_id, 1, terms, now, None)
             )
             created += 1
     return created
