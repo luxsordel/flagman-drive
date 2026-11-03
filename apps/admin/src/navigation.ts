@@ -5,6 +5,7 @@ import type ru from './i18n/ru.json';
 import { AuditLogPage } from './pages/AuditLogPage';
 import { ClientPage } from './pages/ClientPage';
 import { ClientsPage } from './pages/ClientsPage';
+import { FinesPage } from './pages/FinesPage';
 import { KycApplicationPage } from './pages/KycApplicationPage';
 import { IncidentPage } from './pages/IncidentPage';
 import { IncidentsPage } from './pages/IncidentsPage';
@@ -84,6 +85,8 @@ export const sections: readonly Section[] = [
     page: IncidentsPage,
     subpages: [{ path: ':incidentId', page: IncidentPage }],
   },
+  // Operators charge and cancel fines; only an admin changes the catalog, here and in the API.
+  { key: 'fines', path: '/fines', roles: support, page: FinesPage },
   // Everyone sees the zones; only an admin changes them, inside the page and in the API.
   { key: 'zones', path: '/zones', roles: everyone, page: ZonesPage },
   // Operators see the tariffs to answer clients; only an admin changes them, here and in the API.

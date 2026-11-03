@@ -6,6 +6,7 @@ import { ApiError } from '../api/client';
 import { useApis } from '../api/context';
 import { loadProblem, type LoadProblem } from '../api/loadProblem';
 import { useAuth } from '../auth/context';
+import { RentalFines } from '../fines/RentalFines';
 import { fullName } from '../kyc/format';
 import { adjustmentMaxKopecks, staffReasonMaxLength, type StaffRental } from '../rentals/api';
 import { SupportPhoto } from '../support/SupportPhoto';
@@ -451,6 +452,12 @@ export function RentalPage() {
           )}
         </section>
       )}
+
+      {/* A reservation cancelled before the trip has nothing to be fined for. */}
+      <RentalFines
+        rentalId={rental.id}
+        ended={rental.trip_started_at !== null && rental.ended_at !== null}
+      />
     </>
   );
 }

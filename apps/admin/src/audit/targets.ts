@@ -12,6 +12,8 @@ const labelKeys: Record<AuditTargetType, TargetLabelKey> = {
   kyc_application: 'kycApplication',
   zone: 'zone',
   tariff: 'tariff',
+  fine_type: 'fineType',
+  fine: 'fine',
   car: 'car',
   payment_operation: 'paymentOperation',
   maintenance_task: 'maintenanceTask',

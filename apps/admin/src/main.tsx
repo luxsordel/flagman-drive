@@ -25,6 +25,7 @@ import { createClientsApi } from './clients/api';
 import { createFleetApi } from './fleet/api';
 import { createFleetStream, fleetStreamUrl } from './fleet/stream';
 import { createKycReviewApi } from './kyc/api';
+import { createFinesApi } from './fines/api';
 import { createRentalsApi } from './rentals/api';
 import { routes } from './routes';
 import { createStaffListApi } from './staff/api';
@@ -46,6 +47,7 @@ const client = createAdminApiClient(session);
 const apis: AdminApis = {
   auditLog: createAuditLogApi(client),
   clients: createClientsApi(client),
+  fines: createFinesApi(client),
   fleet: createFleetApi(client),
   fleetStream: createFleetStream({
     url: fleetStreamUrl(window.location),

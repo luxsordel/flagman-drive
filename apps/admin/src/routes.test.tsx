@@ -78,6 +78,7 @@ describe('sections by role', () => {
       'clients',
       'support',
       'incidents',
+      'fines',
       'zones',
       'tariffs',
     ]);
