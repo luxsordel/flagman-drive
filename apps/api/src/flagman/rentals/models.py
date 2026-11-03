@@ -9,6 +9,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    SmallInteger,
     String,
     UniqueConstraint,
     text,
@@ -118,6 +119,8 @@ class Rental(Base):
     )
     force_finish_reason: Mapped[str | None] = mapped_column(String(STAFF_REASON_MAX_LENGTH))
     force_finished_by: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
+    # The battery by the last telemetry when the trip ended: the low battery fine is decided by it.
+    end_battery_pct: Mapped[int | None] = mapped_column(SmallInteger)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 

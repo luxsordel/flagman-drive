@@ -60,6 +60,7 @@ from flagman.rentals.service import (
     StaffRentalService,
     rental_rules,
 )
+from flagman.support import service as support
 
 router = APIRouter(
     prefix="/rentals",
@@ -88,7 +89,11 @@ def get_rental_service(
         # Reading a rental works without payments; holding and paying answer 503.
         gateway = None
     return RentalService(
-        db=db, limiter=limiter, rules=rental_rules(resources.settings), gateway=gateway
+        db=db,
+        limiter=limiter,
+        rules=rental_rules(resources.settings),
+        fines=support.TripFines(support.fine_rules(resources.settings)),
+        gateway=gateway,
     )
 
 

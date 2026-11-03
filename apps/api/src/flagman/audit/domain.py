@@ -73,6 +73,10 @@ class AuditAction(StrEnum):
     INCIDENT_REJECTED = "incident.rejected"
     INCIDENT_CAR_SENT_TO_SERVICE = "incident.car_sent_to_service"
     INCIDENT_PHOTO_VIEWED = "incident.photo_viewed"
+    FINE_CHARGED = "fine.charged"
+    FINE_CANCELLED = "fine.cancelled"
+    FINE_PHOTO_ADDED = "fine.photo_added"
+    FINE_PHOTO_VIEWED = "fine.photo_viewed"
     RENTAL_FORCE_FINISHED = "rental.force_finished"
     RENTAL_ADJUSTED = "rental.adjusted"
     RENTAL_REFUND_RETRIED = "rental.refund_retried"
@@ -97,6 +101,7 @@ class AuditTargetType(StrEnum):
     MAINTENANCE_TASK = "maintenance_task"
     SUPPORT_CONVERSATION = "support_conversation"
     INCIDENT = "incident"
+    FINE = "fine"
     RENTAL = "rental"
     CLIENT = "client"
 

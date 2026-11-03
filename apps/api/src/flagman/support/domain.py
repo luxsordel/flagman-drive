@@ -1,4 +1,7 @@
-"""Support rules: conversation and incident statuses, limits and who may do what (docs/adr/0023)."""
+"""Support rules: conversations, incidents and fines, their statuses and who may do what.
+
+See docs/adr/0023 and docs/adr/0027.
+"""
 
 import base64
 import binascii
@@ -247,3 +250,199 @@ def is_queue(statuses: frozenset[IncidentStatus] | None) -> bool:
     if not statuses:
         return False
     return statuses <= OPEN_INCIDENT_STATUSES
+
+
+# Fines (#121, docs/adr/0027).
+FINE_COMMENT_MAX_LENGTH = 1000
+FINE_CANCEL_REASON_MAX_LENGTH = 500
+MAX_FINE_PHOTOS = 8
+FINE_PAGE_SIZE_MAX = 100
+
+
+class FineStatus(StrEnum):
+    """Values are stored as is: renaming one needs a migration."""
+
+    # Saved, the charge not tried yet or its outcome unknown.
+    PENDING = "pending"
+    PAID = "paid"
+    # The card declined: a debt, a new reservation waits for it (docs/adr/0024).
+    UNPAID = "unpaid"
+    CANCELLED = "cancelled"
+
+
+class FineTransition(StrEnum):
+    CHARGE_SUCCEEDED = "charge_succeeded"
+    CHARGE_DECLINED = "charge_declined"
+    CANCEL = "cancel"
+
+
+class RefundStatus(StrEnum):
+    """What became of the money of a cancelled fine that was paid; stored as is."""
+
+    PENDING = "pending"
+    SUCCEEDED = "succeeded"
+    # Declined by the provider: an operator repeats the cancellation to try again.
+    FAILED = "failed"
+
+
+class FineEventAction(StrEnum):
+    """A line of a fine's history; the fine itself is never deleted, a cancellation is a line."""
+
+    CHARGED = "charged"
+    PAID = "paid"
+    DECLINED = "declined"
+    CANCELLED = "cancelled"
+    REFUNDED = "refunded"
+    REFUND_FAILED = "refund_failed"
+
+
+_FINE_RULES: dict[FineTransition, tuple[frozenset[FineStatus], FineStatus]] = {
+    FineTransition.CHARGE_SUCCEEDED: (
+        frozenset({FineStatus.PENDING, FineStatus.UNPAID}),
+        FineStatus.PAID,
+    ),
+    FineTransition.CHARGE_DECLINED: (
+        frozenset({FineStatus.PENDING, FineStatus.UNPAID}),
+        FineStatus.UNPAID,
+    ),
+    FineTransition.CANCEL: (
+        frozenset({FineStatus.PENDING, FineStatus.UNPAID, FineStatus.PAID}),
+        FineStatus.CANCELLED,
+    ),
+}
+OWED_FINE_STATUSES = frozenset({FineStatus.PENDING, FineStatus.UNPAID})
+
+
+class FineNotFoundError(AppError):
+    """Also for another client's fine: its existence is not told."""
+
+    status = HTTPStatus.NOT_FOUND
+    slug = "fine-not-found"
+    title = "Fine not found"
+
+
+class FineTransitionNotAllowedError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "fine-transition-not-allowed"
+    title = "The fine cannot do this in its current status"
+
+
+class FineReasonRequiredError(AppError):
+    status = HTTPStatus.UNPROCESSABLE_ENTITY
+    slug = "fine-reason-required"
+    title = "A comment is required to charge a fine, a reason to cancel one"
+
+
+class FineTypeNotManualError(AppError):
+    """Automatic fines are charged by the system; an operator does not pick them by hand."""
+
+    status = HTTPStatus.UNPROCESSABLE_ENTITY
+    slug = "fine-type-not-manual"
+    title = "This fine type is charged automatically"
+
+
+class FineRentalNotFinishedError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "fine-rental-not-finished"
+    title = "A fine is charged to a rental whose trip has ended"
+
+
+class FinePhotoLimitError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "fine-photo-limit"
+    title = "The fine already has the largest number of photos"
+
+
+class FinePhotoNotFoundError(AppError):
+    status = HTTPStatus.NOT_FOUND
+    slug = "fine-photo-not-found"
+    title = "Photo not found"
+
+
+def apply_fine_transition(current: FineStatus, transition: FineTransition) -> FineStatus:
+    """The only way a fine changes its status."""
+    sources, target = _FINE_RULES[transition]
+    if current not in sources:
+        raise FineTransitionNotAllowedError
+    return target
+
+
+def ensure_reason(text: str | None) -> str:
+    if not (text and text.strip()):
+        raise FineReasonRequiredError
+    return text.strip()
+
+
+def is_low_battery_end(battery_pct: int | None, threshold_pct: int) -> bool:
+    """A trip ended below the threshold earns the automatic fine; without telemetry at the end
+    nothing is known, and a client is not fined on a guess. A zero threshold turns it off."""
+    return battery_pct is not None and battery_pct < threshold_pct
+
+
+def fine_charge_key(fine_id: UUID, attempt: int) -> str:
+    return f"fine:{fine_id}:charge:{attempt}"
+
+
+def fine_refund_key(fine_id: UUID, attempt: int) -> str:
+    return f"fine:{fine_id}:refund:{attempt}"
+
+
+@dataclass(frozen=True)
+class Fine:
+    id: UUID
+    rental_id: UUID
+    user_id: UUID
+    # The catalog version it was charged by; the amount is copied, the version names the type.
+    fine_type_version_id: UUID
+    amount: int
+    status: FineStatus
+    # None for an automatic fine.
+    comment: str | None
+    created_by: UUID | None
+    created_at: datetime
+    charge_attempts: int = 0
+    # When the worker tries the charge or the refund next; None when nothing is left to try.
+    next_at: datetime | None = None
+    cancel_reason: str | None = None
+    cancelled_by: UUID | None = None
+    cancelled_at: datetime | None = None
+    refund_status: RefundStatus | None = None
+    refund_attempts: int = 0
+
+    @property
+    def is_automatic(self) -> bool:
+        return self.created_by is None
+
+
+@dataclass(frozen=True)
+class FineFilter:
+    statuses: frozenset[FineStatus] | None = None
+    fine_type_ids: frozenset[UUID] | None = None
+    user_id: UUID | None = None
+    rental_id: UUID | None = None
+    created_from: datetime | None = None
+    created_to: datetime | None = None
+
+
+@dataclass(frozen=True)
+class FineCursor:
+    """Position after the last fine of a page, newest first."""
+
+    created_at: datetime
+    fine_id: UUID
+
+    def encode(self) -> str:
+        raw = f"{self.created_at.isoformat()}|{self.fine_id}"
+        return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    @classmethod
+    def decode(cls, value: str) -> "FineCursor":
+        try:
+            raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+            created_at, fine_id = raw.split("|")
+            cursor = cls(datetime.fromisoformat(created_at), UUID(fine_id))
+        except (binascii.Error, UnicodeDecodeError, ValueError) as error:
+            raise ValueError("invalid cursor") from error
+        if cursor.created_at.tzinfo is None:
+            raise ValueError("invalid cursor")
+        return cursor

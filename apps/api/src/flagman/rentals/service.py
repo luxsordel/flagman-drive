@@ -144,6 +144,7 @@ from flagman.rentals.domain import (
     reservation_deadlines,
     trip_warnings,
 )
+from flagman.rentals.ports import Fines
 from flagman.rentals.repository import (
     ActiveRentalTakenError,
     ChargeState,
@@ -768,6 +769,7 @@ class RentalService:
     db: AsyncSession
     limiter: RateLimiter
     rules: RentalRules
+    fines: Fines
     # The trip starts when the car has opened, which is seconds after the request came.
     clock: Callable[[], datetime] = field(default=lambda: datetime.now(UTC))
     # None when PAYMENTS_PROVIDER is not set: a trip cannot start then, settling waits for the job.
@@ -841,7 +843,9 @@ class RentalService:
         await self.limiter.hit(RESERVE_LIMIT, str(user_id))
         async with self.db.begin():
             await self._ensure_admitted(user_id)
-            if await repository.has_debt(self.db, user_id):
+            if await repository.has_debt(self.db, user_id) or await self.fines.has_unpaid(
+                self.db, user_id
+            ):
                 raise OutstandingDebtError
             if not await payments.has_usable_card(self.db, user_id, now):
                 raise CardRequiredError
@@ -1249,6 +1253,7 @@ class RentalService:
                 status,
                 done_at,
                 location=end_state.location if end_state else None,
+                battery_pct=end_state.battery_pct if end_state else None,
                 forced=forced,
             )
             await fleet.change_status(self.db, rental.car_id, CarTransition.END_RENTAL, done_at)
@@ -1257,9 +1262,18 @@ class RentalService:
                 await fleet.change_status(
                     self.db, rental.car_id, CarTransition.SEND_TO_SERVICE, done_at
                 )
-            ended = replace(locked, status=status, ended_at=done_at)
+            ended = replace(
+                locked,
+                status=status,
+                ended_at=done_at,
+                end_battery_pct=end_state.battery_pct if end_state else None,
+            )
             if audit_entry is not None:
                 await audit.record(self.db, audit_entry)
+            if forced is None:
+                # An operator ends a trip for a reason of their own and fines by hand if the
+                # client is to blame (docs/adr/0027).
+                await self.fines.trip_finished(self.db, ended, done_at)
             receipt = await self._bill(ended, done_at, receipt_always=True)
             total = receipt.quote.total if receipt else 0
             notification = Notification(

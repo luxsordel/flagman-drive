@@ -67,6 +67,7 @@ def _notification(
         NotificationEvent.TRIP_FINISHED: {"total": 1250},
         NotificationEvent.PAYMENT_FAILED: {"amount": 990},
         NotificationEvent.SUPPORT_REPLY: {"seq": 7},
+        NotificationEvent.FINE_CHARGED: {"amount": 2000, "number": 1},
     }
     return Notification(event, uuid.uuid4(), params or defaults[event])
 

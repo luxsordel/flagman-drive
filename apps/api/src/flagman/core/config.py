@@ -137,6 +137,8 @@ class TripSettings(PaymentsSettings):
     # A declined debt is tried again this often, this many times (docs/adr/0024).
     rental_charge_retry_interval_seconds: int = Field(default=3600, ge=60)
     rental_charge_max_attempts: int = Field(default=5, ge=0, le=50)
+    # A trip the client ends with less battery than this is fined automatically (#121); 0 is off.
+    fine_low_battery_pct: int = Field(default=10, ge=0, le=100)
 
 
 def _check_charging_threshold(threshold_pct: int | None, min_battery_pct: int) -> None:

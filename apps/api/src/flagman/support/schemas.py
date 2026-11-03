@@ -2,22 +2,36 @@ from datetime import datetime
 from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+)
 
 from flagman.rentals.domain import RentalStatus
 from flagman.support.domain import (
+    FINE_CANCEL_REASON_MAX_LENGTH,
+    FINE_COMMENT_MAX_LENGTH,
+    FINE_PAGE_SIZE_MAX,
     INCIDENT_COMMENT_MAX_LENGTH,
     INCIDENT_DESCRIPTION_MAX_LENGTH,
     MESSAGE_TEXT_MAX_LENGTH,
     QUEUE_SIZE_MAX,
     SEQ_MAX,
     ConversationStatus,
+    FineCursor,
+    FineEventAction,
+    FineStatus,
     IncidentCursor,
     IncidentEventAction,
     IncidentStatus,
     IncidentType,
     MessageAuthor,
     MessageKind,
+    RefundStatus,
 )
 
 MessageText = Annotated[
@@ -249,4 +263,109 @@ class IncidentListOut(BaseModel):
 
 class StaffIncidentListOut(BaseModel):
     items: list[StaffIncidentOut]
+    next_cursor: str | None = Field(description="Absent on the last page.")
+
+
+# Fines (docs/adr/0027)
+
+FineComment = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=FINE_COMMENT_MAX_LENGTH)
+]
+FineCancelReason = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True, min_length=1, max_length=FINE_CANCEL_REASON_MAX_LENGTH
+    ),
+]
+FINE_PAGE_SIZE_DEFAULT = 50
+
+
+class FineIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    rental_id: UUID = Field(description="A rental whose trip has ended.")
+    fine_type_id: UUID = Field(description="A manual type of the catalog.")
+    comment: FineComment = Field(description="What happened; the client sees it.")
+
+
+class FineCancelIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: FineCancelReason = Field(description="Why; the client sees it.")
+
+
+class FinePhotoOut(BaseModel):
+    id: UUID
+    uploaded_at: datetime
+
+
+class FineOut(BaseModel):
+    """A fine as the client sees it."""
+
+    id: UUID
+    rental_id: UUID
+    fine_type_id: UUID
+    code: str
+    name_ru: str
+    name_en: str
+    amount: int = Field(description="Kopecks of BYN.")
+    automatic: bool = Field(description="Charged by the system, not by an operator.")
+    status: FineStatus
+    comment: str | None = Field(description="The operator's; none for an automatic fine.")
+    cancel_reason: str | None
+    refund_status: RefundStatus | None = Field(
+        description="Only for a cancelled fine that was paid: where its money stands."
+    )
+    photos: list[FinePhotoOut]
+    created_at: datetime
+    cancelled_at: datetime | None
+
+
+class FineEventOut(BaseModel):
+    action: FineEventAction
+    staff_id: UUID | None = Field(description="None for what the system did on its own.")
+    staff_name: str | None
+    comment: str | None
+    created_at: datetime
+
+
+class StaffFineOut(FineOut):
+    user_id: UUID
+    first_name: str | None
+    last_name: str | None
+    car_plate: str | None
+    created_by: UUID | None
+    created_by_name: str | None
+    cancelled_by: UUID | None
+    events: list[FineEventOut]
+
+
+class FineListOut(BaseModel):
+    items: list[FineOut]
+
+
+class StaffFineQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    cursor: str | None = Field(
+        default=None, max_length=200, description="`next_cursor` of the previous page."
+    )
+    limit: int = Field(default=FINE_PAGE_SIZE_DEFAULT, ge=1, le=FINE_PAGE_SIZE_MAX)
+    status: list[FineStatus] | None = None
+    fine_type_id: list[UUID] | None = None
+    user_id: UUID | None = None
+    rental_id: UUID | None = None
+    created_from: AwareDatetime | None = Field(default=None, description="Inclusive.")
+    created_to: AwareDatetime | None = Field(default=None, description="Exclusive.")
+
+    @field_validator("cursor")
+    @classmethod
+    def _check_cursor(cls, value: str | None) -> str | None:
+        if value is not None:
+            FineCursor.decode(value)
+        return value
+
+
+class StaffFineListOut(BaseModel):
+    items: list[StaffFineOut]
     next_cursor: str | None = Field(description="Absent on the last page.")
