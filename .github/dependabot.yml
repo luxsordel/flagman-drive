@@ -24,6 +24,15 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+  - package-ecosystem: pip
+    directory: /tests/load
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
   # One root lockfile for all npm workspaces (apps/mobile, apps/admin, packages/*).
   - package-ecosystem: npm
     directory: /
