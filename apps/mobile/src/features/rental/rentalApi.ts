@@ -14,6 +14,8 @@ export type RentalCommand = components['schemas']['RentalCommand'];
 export type InspectionStage = components['schemas']['InspectionStage'];
 export type Receipt = components['schemas']['ReceiptOut'];
 export type Debt = components['schemas']['DebtOut'];
+export type HistoryItem = components['schemas']['HistoryItemOut'];
+export type HistoryPage = components['schemas']['HistoryPageOut'];
 
 export type RentalResult<T> =
   | { ok: true; value: T }
@@ -54,6 +56,8 @@ export interface RentalApi {
   /** One more try at the debt of the rental, e.g. after another card was bound. */
   payDebt(id: string): Promise<RentalResult<Rental>>;
   debts(): Promise<RentalResult<Debt[]>>;
+  /** The client's rentals, newest first; `cursor` is `next_cursor` of the page before. */
+  history(cursor?: string): Promise<RentalResult<HistoryPage>>;
 }
 
 export interface RentalApiOptions {
@@ -108,6 +112,11 @@ export function createRentalApi({
     finish: (id) => send(api.POST('/rentals/{rental_id}/finish', rental(id)), (body) => body),
     payDebt: (id) => send(api.POST('/rentals/{rental_id}/pay', rental(id)), (body) => body),
     debts: () => send(api.GET('/rentals/debts'), (body) => body.debts),
+    history: (cursor) =>
+      send(
+        api.GET('/rentals/history', { params: { query: cursor ? { cursor } : {} } }),
+        (body) => body,
+      ),
     command: (id, command, at) =>
       send(
         api.POST('/rentals/{rental_id}/commands', {

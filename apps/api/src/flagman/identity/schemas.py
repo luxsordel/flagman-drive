@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -6,17 +6,23 @@ from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Fie
 from pydantic.json_schema import SkipJsonSchema
 
 from flagman.core.dates import require_date_string
+from flagman.core.text import normalize_note
 from flagman.identity.domain import (
+    BLOCK_REASON_MAX_LENGTH,
+    CLIENT_PAGE_DEFAULT,
+    CLIENT_PAGE_MAX,
     EMAIL_MAX_LENGTH,
     EMAIL_PATTERN,
     NAME_MAX_LENGTH,
     PASSWORD_MAX_LENGTH,
+    ClientCursor,
     Language,
     StaffNextStep,
     StaffRole,
     normalize_email,
     normalize_name,
 )
+from flagman.kyc.domain import KycStatus
 
 # The pilot runs in Belarus only: +375 and one of the mobile operator codes 25, 29, 33, 44.
 # Clients normalize the input to E.164 before sending, so the server accepts exactly one form.
@@ -267,6 +273,9 @@ class ClientProfile(BaseModel):
         description="The number the client signs in with; not changed through the profile.",
         examples=["+375291234567"],
     )
+    blocked: bool = Field(
+        description="An operator has blocked the client: no reservations, the cars stay closed."
+    )
 
 
 # Of the fields a client sets, only email may be cleared: names and the birth date are needed
@@ -306,3 +315,105 @@ class ClientProfileUpdate(BaseModel):
             name: value.value if isinstance(value, Language) else value
             for name, value in self.model_dump(include=self.model_fields_set).items()
         }
+
+
+# Clients for staff (docs/adr/0026)
+
+
+class ClientListQuery(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    search: str | None = Field(
+        default=None,
+        min_length=2,
+        max_length=50,
+        description="A part of the phone, the first or the last name.",
+    )
+    blocked: bool | None = Field(default=None, description="Only blocked or only not blocked.")
+    cursor: str | None = Field(
+        default=None, max_length=200, description="`next_cursor` of the previous page."
+    )
+    limit: int = Field(default=CLIENT_PAGE_DEFAULT, ge=1, le=CLIENT_PAGE_MAX)
+
+    @field_validator("cursor")
+    @classmethod
+    def _check_cursor(cls, value: str | None) -> str | None:
+        if value is not None:
+            ClientCursor.decode(value)
+        return value
+
+    def position(self) -> ClientCursor | None:
+        return ClientCursor.decode(self.cursor) if self.cursor else None
+
+
+class ClientSummaryOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    phone: str
+    first_name: str | None
+    last_name: str | None
+    created_at: datetime
+    blocked: bool
+
+
+class ClientPageOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[ClientSummaryOut] = Field(description="Newest sign-up first.")
+    next_cursor: str | None = Field(description="Absent on the last page.")
+
+
+class ClientBlockOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    blocked_at: datetime
+    reason: str
+    staff_id: UUID | None = Field(description="Null for a block set before the admin panel had it.")
+    staff_name: str | None
+
+
+class StaffClientOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    phone: str
+    first_name: str | None
+    last_name: str | None
+    birth_date: date | None
+    email: str | None
+    language: Language
+    created_at: datetime
+    block: ClientBlockOut | None = Field(description="Null when the client is not blocked.")
+    block_history: list["ClientBlockEventOut"] = Field(description="Newest first.")
+    kyc_status: KycStatus
+    debt: int = Field(description="Kopecks of BYN owed for earlier rentals.")
+
+
+class ClientBlockEventOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    blocked: bool = Field(description="True: blocked; false: unblocked.")
+    reason: str
+    staff_id: UUID
+    staff_name: str | None
+    created_at: datetime
+
+
+def _block_reason(value: str) -> str:
+    # The rule of every staff note (rentals' reasons and comments too): see normalize_note.
+    normalized = normalize_note(value)
+    if not normalized:
+        raise ValueError("must not be empty")
+    if len(normalized) > BLOCK_REASON_MAX_LENGTH:
+        raise ValueError(f"at most {BLOCK_REASON_MAX_LENGTH} characters")
+    return normalized
+
+
+class BlockIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The hard limit is checked after the spaces are squeezed; this one stops a huge string.
+    reason: Annotated[
+        str, Field(max_length=2 * BLOCK_REASON_MAX_LENGTH), AfterValidator(_block_reason)
+    ] = Field(examples=["Left the car outside the zone three times"])

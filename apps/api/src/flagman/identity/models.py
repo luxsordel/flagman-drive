@@ -22,13 +22,17 @@ PASSWORD_HASH_LENGTH = 255  # argon2 encoded hash with parameters, about 100 cha
 ROLE_LENGTH = 16
 NAME_LENGTH = 100  # NAME_MAX_LENGTH in domain
 LANGUAGE_LENGTH = 2
+BLOCK_REASON_LENGTH = 500  # BLOCK_REASON_MAX_LENGTH in domain
 
 
 class User(Base):
     """A client; the profile fields stay empty until the client fills them in (#33)."""
 
     __tablename__ = "users"
-    __table_args__ = (CheckConstraint("language IN ('ru', 'en')", name="language_known"),)
+    __table_args__ = (
+        CheckConstraint("language IN ('ru', 'en')", name="language_known"),
+        CheckConstraint("(blocked_at IS NULL) = (blocked_reason IS NULL)", name="block_has_reason"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     phone: Mapped[str] = mapped_column(String(PHONE_LENGTH), unique=True)
@@ -39,8 +43,11 @@ class User(Base):
     # Not unique: a contact address, not a way to sign in.
     email: Mapped[str | None] = mapped_column(String(EMAIL_LENGTH))
     language: Mapped[str] = mapped_column(String(LANGUAGE_LENGTH), server_default="ru")
-    # Set by an operator (#112); a blocked client may not reserve or open cars.
+    # Set by an operator; a blocked client may not reserve or open cars (docs/adr/0026).
     blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_reason: Mapped[str | None] = mapped_column(String(BLOCK_REASON_LENGTH))
+    # Who blocked; every block and unblock with its reason is in client_block_events.
+    blocked_by: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
 
 
 class PendingOtp(Base):
@@ -137,3 +144,17 @@ class StaffRefreshToken(Base):
     )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ClientBlockEvent(Base):
+    """Every block and unblock with its reason; append-only, like the audit log it backs."""
+
+    __tablename__ = "client_block_events"
+    __table_args__ = (Index("ix_client_block_events_user_id_created_at", "user_id", "created_at"),)
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
+    blocked: Mapped[bool]
+    reason: Mapped[str] = mapped_column(String(BLOCK_REASON_LENGTH))
+    staff_id: Mapped[UUID] = mapped_column(ForeignKey("staff_members.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

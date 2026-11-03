@@ -102,13 +102,21 @@ export function IncidentPage() {
         <dt>{t('incidents.status')}</dt>
         <dd>{t(`incidents.statuses.${incident.status}`)}</dd>
         <dt>{t('support.columns.client')}</dt>
-        <dd>{fullName(incident) ?? t('support.noName')}</dd>
+        <dd>
+          <Link to={`/clients/${incident.user_id}`}>
+            {fullName(incident) ?? t('support.noName')}
+          </Link>
+        </dd>
         <dt>{t('support.columns.car')}</dt>
         <dd>{incident.car_plate ?? t('support.noRental')}</dd>
-        {incident.rental_status && (
+        {incident.rental_id && incident.rental_status && (
           <>
             <dt>{t('support.rental')}</dt>
-            <dd>{t(`support.rentalStatus.${incident.rental_status}`)}</dd>
+            <dd>
+              <Link to={`/rentals/${incident.rental_id}`}>
+                {t(`support.rentalStatus.${incident.rental_status}`)}
+              </Link>
+            </dd>
           </>
         )}
         <dt>{t('support.columns.operator')}</dt>

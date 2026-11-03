@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useReducer, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 
 import { useApis } from '../api/context';
 import { useAuth, useStaff } from '../auth/context';
@@ -28,6 +29,7 @@ import { listPollMs, useInterval } from '../support/useInterval';
 import { openStatuses, type Task } from '../tasks/api';
 import { formatMinskTime } from '../time/minsk';
 import type { Zone } from '../zones/api';
+import { CurrentRentalLink } from '../rentals/CurrentRentalLink';
 
 /** Telemetry turns stale with time alone, so the marks are redrawn this often. */
 const clockTickMs = 5_000;
@@ -303,6 +305,14 @@ function CarCard({
         <dt>{t('fleet.card.vin')}</dt>
         <dd>{car.vin}</dd>
       </dl>
+      {role !== 'technician' && (car.status === 'reserved' || car.status === 'in_rental') && (
+        <CurrentRentalLink carId={car.id} />
+      )}
+      {role !== 'technician' && (
+        <p>
+          <Link to={`/rentals?car=${car.id}`}>{t('rentals.ofCar')}</Link>
+        </p>
+      )}
       {lastCommand && (
         <p className="muted">
           {t('fleet.card.lastCommand', {

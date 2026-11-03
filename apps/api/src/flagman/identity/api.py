@@ -1,8 +1,9 @@
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Annotated
+from uuid import UUID
 
-from fastapi import APIRouter, Cookie, Depends, Request, Response
+from fastapi import APIRouter, Cookie, Depends, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
@@ -16,15 +17,20 @@ from flagman.identity.dependencies import (
     CurrentStaff,
     get_current_client,
     get_current_staff,
+    require_live_staff_session,
     require_staff_role,
 )
 from flagman.identity.domain import (
     REFRESH_TOKEN_TTL,
+    ClientFilter,
     RefreshTokenInvalidError,
     StaffRole,
 )
 from flagman.identity.ports import SmsSender, create_sms_sender
 from flagman.identity.schemas import (
+    BlockIn,
+    ClientListQuery,
+    ClientPageOut,
     ClientProfile,
     ClientProfileUpdate,
     LogoutRequest,
@@ -35,6 +41,7 @@ from flagman.identity.schemas import (
     RefreshTokenTransport,
     StaffAccessToken,
     StaffChallengeIssued,
+    StaffClientOut,
     StaffMemberList,
     StaffPasswordRequest,
     StaffProfile,
@@ -47,12 +54,15 @@ from flagman.identity.schemas import (
 from flagman.identity.service import (
     ClientDevice,
     ClientProfileService,
+    ClientStanding,
     SignInService,
+    StaffClientService,
     StaffSignInService,
     StaffTokens,
     list_staff,
 )
 from flagman.kyc import service as kyc
+from flagman.rentals import service as rentals
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -469,3 +479,94 @@ async def update_my_profile(
     client: Client, body: ClientProfileUpdate, service: ProfileService
 ) -> ClientProfile:
     return await service.update_profile(client.user_id, body, datetime.now(UTC))
+
+
+# Clients for staff (docs/adr/0026)
+
+clients_router = APIRouter(
+    prefix="/admin/clients",
+    tags=["clients-staff"],
+    responses={
+        HTTPStatus.UNAUTHORIZED: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff.",
+        },
+        HTTPStatus.FORBIDDEN: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin`.",
+        },
+        HTTPStatus.NOT_FOUND: {
+            "model": Problem,
+            "description": "`urn:flagman:problem:client-not-found`.",
+        },
+    },
+)
+
+_CLIENT_ROLES = (StaffRole.OPERATOR, StaffRole.ADMIN)
+ClientStaff = Annotated[CurrentStaff, Depends(require_staff_role(*_CLIENT_ROLES))]
+# A block changes what a client may do at once: a revoked session must not do it.
+LiveClientStaff = Annotated[CurrentStaff, Depends(require_live_staff_session(*_CLIENT_ROLES))]
+
+
+async def _standing(db: AsyncSession, user_id: UUID) -> ClientStanding:
+    return ClientStanding(
+        kyc_status=await kyc.get_admission_status(db, user_id),
+        debt=await rentals.client_debt(db, user_id),
+    )
+
+
+def _client_service(
+    staff: CurrentStaff, db: AsyncSession, origin: RequestOrigin
+) -> StaffClientService:
+    return StaffClientService(db=db, staff_id=staff.staff_id, origin=origin, standing=_standing)
+
+
+def get_staff_client_service(
+    staff: ClientStaff,
+    db: Annotated[AsyncSession, Depends(get_session)],
+    origin: Annotated[RequestOrigin, Depends(get_request_origin)],
+) -> StaffClientService:
+    return _client_service(staff, db, origin)
+
+
+def get_live_staff_client_service(
+    staff: LiveClientStaff,
+    db: Annotated[AsyncSession, Depends(get_session)],
+    origin: Annotated[RequestOrigin, Depends(get_request_origin)],
+) -> StaffClientService:
+    return _client_service(staff, db, origin)
+
+
+ClientsService = Annotated[StaffClientService, Depends(get_staff_client_service)]
+LiveClientsService = Annotated[StaffClientService, Depends(get_live_staff_client_service)]
+
+
+@clients_router.get("", summary="Clients, newest sign-up first, with a search")
+async def list_clients(
+    staff: ClientStaff, query: Annotated[ClientListQuery, Query()], service: ClientsService
+) -> ClientPageOut:
+    filters = ClientFilter(search=query.search, blocked=query.blocked)
+    return await service.list(filters, query.position(), query.limit)
+
+
+@clients_router.get("/{user_id}", summary="A client with the block, KYC and the debt")
+async def get_client(staff: ClientStaff, user_id: UUID, service: ClientsService) -> StaffClientOut:
+    return await service.get(user_id)
+
+
+@clients_router.post(
+    "/{user_id}/block",
+    summary="Block the client: no reservations, the cars stay closed",
+    description="A trip under way goes on; end it with `POST /admin/rentals/{id}/force-finish`.",
+)
+async def block_client(
+    staff: LiveClientStaff, user_id: UUID, body: BlockIn, service: LiveClientsService
+) -> StaffClientOut:
+    return await service.block(user_id, body.reason, datetime.now(UTC))
+
+
+@clients_router.post("/{user_id}/unblock", summary="Let the client rent again")
+async def unblock_client(
+    staff: LiveClientStaff, user_id: UUID, body: BlockIn, service: LiveClientsService
+) -> StaffClientOut:
+    return await service.unblock(user_id, body.reason, datetime.now(UTC))

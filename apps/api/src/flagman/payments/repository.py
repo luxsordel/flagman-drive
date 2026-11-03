@@ -298,6 +298,15 @@ async def get_operation_by_key(
     return _to_operation(row) if row else None
 
 
+async def operations_with_key_prefix(db: AsyncSession, prefix: str) -> list[PaymentOperation]:
+    query = (
+        select(OperationRow)
+        .where(OperationRow.idempotency_key.startswith(prefix, autoescape=True))
+        .order_by(OperationRow.created_at, OperationRow.id)
+    )
+    return [_to_operation(row) for row in await db.scalars(query)]
+
+
 async def children(db: AsyncSession, parent_id: UUID) -> list[PaymentOperation]:
     rows = await db.scalars(select(OperationRow).where(OperationRow.parent_id == parent_id))
     return [_to_operation(row) for row in rows]

@@ -138,6 +138,7 @@ def test_new_client_has_an_empty_profile(person: Callable[[], Person]) -> None:
         "email": None,
         "language": "ru",
         "phone": anna.phone,
+        "blocked": False,
     }
 
 
@@ -157,6 +158,7 @@ def test_update_changes_only_the_fields_sent(person: Callable[[], Person]) -> No
         "email": None,
         "language": "en",
         "phone": anna.phone,
+        "blocked": False,
     }
     assert second.json() == expected
     assert anna.profile().json() == expected
@@ -272,6 +274,7 @@ def test_clients_see_and_change_only_their_own_profile(person: Callable[[], Pers
         "email": None,
         "language": "ru",
         "phone": boris.phone,
+        "blocked": False,
     }
 
 

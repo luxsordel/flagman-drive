@@ -4,14 +4,18 @@ The machine is drawn in docs/02-architecture.md; the reasons behind the reservat
 in docs/adr/0022.
 """
 
-import unicodedata
+import base64
+import binascii
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
 from http import HTTPStatus
 
 from flagman.core.errors import AppError
+from flagman.core.geo import GeoPoint
+from flagman.core.text import normalize_note
 from flagman.pricing.domain import Interval, IntervalKind, Quote
 
 
@@ -37,6 +41,8 @@ class RentalTransition(StrEnum):
     FORCE_FINISH = "force_finish"
     MARK_PAID = "mark_paid"
     MARK_PAYMENT_FAILED = "mark_payment_failed"
+    # A staff increase of a paid rental is charged as a debt (docs/adr/0026).
+    ADJUST_DEBT = "adjust_debt"
 
 
 class ChargeStatus(StrEnum):
@@ -81,6 +87,9 @@ _RULES: dict[RentalTransition, _Rule] = {
     ),
     RentalTransition.MARK_PAYMENT_FAILED: _Rule(
         frozenset({RentalStatus.FINISHED}), RentalStatus.PAYMENT_FAILED
+    ),
+    RentalTransition.ADJUST_DEBT: _Rule(
+        frozenset({RentalStatus.PAID}), RentalStatus.PAYMENT_FAILED
     ),
 }
 
@@ -196,6 +205,9 @@ class Rental:
     # Retries of a declined debt so far, and when the worker tries the next one.
     charge_attempts: int = 0
     charge_next_at: datetime | None = None
+    # Set when an operator ended the trip (docs/adr/0026).
+    force_finish_reason: str | None = None
+    force_finished_by: uuid.UUID | None = None
 
     @property
     def is_active(self) -> bool:
@@ -360,20 +372,10 @@ class Inspection:
             raise InspectionIncompleteError
 
 
-def _is_refused_in_comment(char: str) -> bool:
-    return char not in {"\n", "\r", "\t"} and unicodedata.category(char).startswith("C")
-
-
 def normalize_damage_comment(comment: str) -> str:
-    """Squeezes the spaces; raises ValueError for control and format characters.
-
-    Operators read the comment next to the photos: invisible characters (bidi overrides,
-    zero-width) could make it read differently there, and NUL is refused by Postgres.
-    """
-    # Line breaks and tabs from a multiline field are spaces like any other.
-    if any(_is_refused_in_comment(char) for char in comment):
-        raise ValueError("the comment must not contain control or format characters")
-    return " ".join(comment.split())
+    """Squeezes the spaces; raises ValueError for control and format characters: operators
+    read the comment next to the photos."""
+    return normalize_note(comment)
 
 
 class RentalCommand(StrEnum):
@@ -715,3 +717,155 @@ class Receipt:
     # The card the hold or the charge went to; None if the client had no card left.
     card: ReceiptCard | None
     issued_at: datetime
+
+
+# Staff actions on rentals (docs/adr/0026).
+
+STAFF_REASON_MAX_LENGTH = 500
+
+# A paid wait of a cancelled reservation is adjusted like a trip; its status stays as it is.
+# A finished one is a free trip, with nothing to settle: any other is still settling.
+_ADJUSTABLE = frozenset(
+    {
+        RentalStatus.FINISHED,
+        RentalStatus.PAID,
+        RentalStatus.PAYMENT_FAILED,
+        RentalStatus.CANCELLED,
+    }
+)
+
+
+class RentalAdjustmentInvalidError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "rental-adjustment-invalid"
+    title = "The adjustment would take the total below zero or change nothing"
+
+
+class RentalSettlementPendingError(AppError):
+    """The first settlement's outcome is unknown: adjusting now could charge or refund twice."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "rental-settlement-pending"
+    title = "The rental's payment is not settled yet; try again later"
+
+
+@dataclass(frozen=True)
+class Adjustment:
+    id: uuid.UUID
+    rental_id: uuid.UUID
+    # 1, 2, … within the rental: part of the refund keys.
+    seq: int
+    # Kopecks; negative lowers the total.
+    amount: int
+    comment: str
+    staff_id: uuid.UUID
+    # Sent by the admin panel once per filled form: a repeat after a lost answer is not a new one.
+    idempotency_key: uuid.UUID
+    created_at: datetime
+
+
+def normalize_staff_text(value: str) -> str:
+    """A reason or a comment the client or another operator reads later; a client's block
+    reason follows the same rule (identity)."""
+    return normalize_note(value)
+
+
+def adjusted_total(receipt_total: int, adjustments: Sequence[Adjustment]) -> int:
+    return receipt_total + sum(adjustment.amount for adjustment in adjustments)
+
+
+def ensure_adjustment_allowed(
+    rental: Rental, receipt_total: int | None, adjustments: Sequence[Adjustment], amount: int
+) -> None:
+    """Only a rental whose money is known, with a receipt to start from, and never below zero."""
+    if rental.charge_status is ChargeStatus.PENDING:
+        raise RentalSettlementPendingError
+    # A reservation cancelled in its free wait has no receipt: there is nothing to adjust.
+    if rental.status not in _ADJUSTABLE or receipt_total is None:
+        raise RentalTransitionNotAllowedError
+    if amount == 0:
+        raise RentalAdjustmentInvalidError
+    if adjusted_total(receipt_total, adjustments) + amount < 0:
+        raise RentalAdjustmentInvalidError
+
+
+@dataclass(frozen=True)
+class Refundable:
+    """A capture or a charge of the rental and what is left of it after earlier refunds."""
+
+    operation_id: uuid.UUID
+    left: int
+
+
+def plan_refunds(overpaid: int, sources: Sequence[Refundable]) -> tuple[tuple[uuid.UUID, int], ...]:
+    """Spreads an overpayment over the rental's payments in the given order, newest first."""
+    if overpaid < 0:
+        raise ValueError("an overpayment cannot be negative")
+    planned = []
+    for source in sources:
+        if overpaid == 0:
+            break
+        amount = min(overpaid, source.left)
+        if amount > 0:
+            planned.append((source.operation_id, amount))
+            overpaid -= amount
+    if overpaid:
+        raise ValueError("the rental's payments do not cover the refund")
+    return tuple(planned)
+
+
+def refund_key(rental_id: uuid.UUID, seq: int, operation_id: uuid.UUID) -> str:
+    return f"rental:{rental_id}:refund:{seq}:{operation_id}"
+
+
+def refund_prefix(rental_id: uuid.UUID) -> str:
+    return f"rental:{rental_id}:refund:"
+
+
+def rental_key_prefix(rental_id: uuid.UUID) -> str:
+    """Every payment of the rental has a key under it: holds, settlement, debts, refunds."""
+    return f"rental:{rental_id}:"
+
+
+@dataclass(frozen=True)
+class RentalCursor:
+    """Position after the last rental of a page; pages go from the newest reservation."""
+
+    reserved_at: datetime
+    rental_id: uuid.UUID
+
+    def encode(self) -> str:
+        raw = f"{self.reserved_at.isoformat()}|{self.rental_id}"
+        return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    @classmethod
+    def decode(cls, value: str) -> "RentalCursor":
+        try:
+            raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+            reserved_at, rental_id = raw.split("|")
+            cursor = cls(datetime.fromisoformat(reserved_at), uuid.UUID(rental_id))
+        except (binascii.Error, UnicodeDecodeError, ValueError) as error:
+            raise ValueError("invalid cursor") from error
+        if cursor.reserved_at.tzinfo is None:
+            raise ValueError("invalid cursor")
+        return cursor
+
+
+@dataclass(frozen=True)
+class RentalFilter:
+    """Staff list filters; the period is of the reservation."""
+
+    statuses: frozenset[RentalStatus] = frozenset()
+    user_id: uuid.UUID | None = None
+    car_id: uuid.UUID | None = None
+    reserved_from: datetime | None = None
+    reserved_to: datetime | None = None
+
+
+@dataclass(frozen=True)
+class TripEnds:
+    """Where the car stood at the start and at the end; unknown for a car without telemetry
+    and for the trips before #112."""
+
+    start: GeoPoint | None
+    end: GeoPoint | None

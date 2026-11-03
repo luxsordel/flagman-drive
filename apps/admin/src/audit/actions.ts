@@ -42,6 +42,12 @@ const labelKeys: Record<AuditAction, ActionLabelKey> = {
   'incident.rejected': 'incidentRejected',
   'incident.car_sent_to_service': 'incidentCarSentToService',
   'incident.photo_viewed': 'incidentPhotoViewed',
+  'rental.force_finished': 'rentalForceFinished',
+  'rental.adjusted': 'rentalAdjusted',
+  'rental.refund_retried': 'rentalRefundRetried',
+  'rental.photo_viewed': 'rentalPhotoViewed',
+  'client.blocked': 'clientBlocked',
+  'client.unblocked': 'clientUnblocked',
 };
 
 export const auditActions = Object.keys(labelKeys) as AuditAction[];

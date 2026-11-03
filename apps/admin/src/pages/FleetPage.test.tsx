@@ -127,6 +127,20 @@ describe('fleet page', () => {
     expect(within(card).getByText(ru.fleet.card.engineUnlocked)).toBeDefined();
     expect(within(card).getByText(ru.fleet.card.locked)).toBeDefined();
     expect(listed('1111 AB-7').getAttribute('aria-pressed')).toBe('true');
+    const rentals = within(card).getByRole('link', { name: ru.rentals.ofCar });
+    expect(rentals.getAttribute('href')).toMatch(/^\/rentals\?car=/);
+  });
+
+  it('leaves the rentals out of the card for a technician', async () => {
+    const user = userEvent.setup();
+    const { stream } = renderFleet('technician');
+    await opened(stream);
+    stream.send(snapshot([fleetCar({ plate: '1111 AB-7' })]));
+
+    await user.click(screen.getByRole('button', { name: 'map: 1111 AB-7' }));
+
+    const card = screen.getByRole('region', { name: '1111 AB-7' });
+    expect(within(card).queryByRole('link', { name: ru.rentals.ofCar })).toBeNull();
   });
 
   it('marks a car without fresh telemetry', async () => {

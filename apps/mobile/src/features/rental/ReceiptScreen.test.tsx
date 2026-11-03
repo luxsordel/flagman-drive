@@ -42,6 +42,25 @@ describe('ReceiptScreen', () => {
     expect(screen.getByText(/^Итого: 8,64\sBYN$/)).toBeOnTheScreen();
   });
 
+  it('shows a change by an operator below the unchanged receipt', async () => {
+    const { fake, store } = setupStore();
+    const adjustment = { id: 'a-1', amount: -164, created_at: serverNow };
+    fake.api.get.mockResolvedValue(ok(paidRental({ adjustments: [adjustment], total: 700 })));
+
+    await render(
+      <RentalProvider store={store}>
+        <ReceiptScreen />
+      </RentalProvider>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(screen.getByText(/^Итого: 8,64\sBYN$/)).toBeOnTheScreen();
+    expect(screen.getByText(/^Оператор уменьшил стоимость на 1,64\sBYN$/)).toBeOnTheScreen();
+    expect(screen.getByText(/^Итого с учётом изменений: 7,00\sBYN$/)).toBeOnTheScreen();
+  });
+
   it('explains a reservation that expired with nothing to bill', async () => {
     const { fake, store } = setupStore();
     fake.api.get.mockResolvedValue(

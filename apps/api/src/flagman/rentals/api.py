@@ -3,7 +3,7 @@ from http import HTTPStatus
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
@@ -16,7 +16,14 @@ from flagman.core.resources import Resources, get_resources
 from flagman.core.storage import ObjectStorage, object_storage_from_settings
 from flagman.fleet import service as fleet
 from flagman.fleet.ports import TelematicsGateway
-from flagman.identity.dependencies import CurrentClient, get_current_client
+from flagman.identity.dependencies import (
+    CurrentClient,
+    CurrentStaff,
+    get_current_client,
+    require_live_staff_session,
+    require_staff_role,
+)
+from flagman.identity.domain import StaffRole
 from flagman.payments import service as payments
 from flagman.payments.domain import PaymentsUnavailableError
 from flagman.rentals.domain import (
@@ -26,18 +33,33 @@ from flagman.rentals.domain import (
     PhotoStorageUnavailableError,
 )
 from flagman.rentals.schemas import (
+    AdjustmentIn,
     CommandIn,
     CurrentRentalOut,
     DamageIn,
     DebtOut,
     DebtsOut,
+    ForceFinishIn,
+    ForceFinishResultOut,
+    HistoryPageOut,
+    HistoryQuery,
     InspectionOut,
     PhotoUrlOut,
     ReceiptOut,
     RentalOut,
     ReserveIn,
+    StaffRentalOut,
+    StaffRentalPageOut,
+    StaffRentalQuery,
 )
-from flagman.rentals.service import CommandRequest, InspectionRef, RentalService, rental_rules
+from flagman.rentals.service import (
+    AdjustmentRequest,
+    CommandRequest,
+    InspectionRef,
+    RentalService,
+    StaffRentalService,
+    rental_rules,
+)
 
 router = APIRouter(
     prefix="/rentals",
@@ -162,6 +184,18 @@ async def get_current_rental(client: Client, service: Service) -> CurrentRentalO
 @router.get("/debts", summary="What the client owes for earlier rentals")
 async def get_debts(client: Client, service: Service) -> DebtsOut:
     return DebtsOut(debts=[DebtOut.of(debt) for debt in await service.debts(client.user_id)])
+
+
+@router.get(
+    "/history",
+    summary="The client's earlier and current rentals, newest first",
+    description="Without the route: a rental tells only where the trip started and ended.",
+)
+async def get_history(
+    client: Client, query: Annotated[HistoryQuery, Query()], service: Service
+) -> HistoryPageOut:
+    page = await service.history(client.user_id, query.position(), query.limit)
+    return HistoryPageOut.of(page)
 
 
 @router.get("/{rental_id}", summary="One of the client's rentals")
@@ -421,3 +455,188 @@ async def send_command(
     )
     view = await service.send_command(commander, request, datetime.now(UTC))
     return RentalOut.of(view, datetime.now(UTC))
+
+
+# Ids in the path are fine here: every operator may open every rental, and nobody else gets
+# past the role check; a technician has no business in clients' money (docs/adr/0026).
+staff_router = APIRouter(
+    prefix="/admin/rentals",
+    tags=["rentals-staff"],
+    responses={
+        HTTPStatus.UNAUTHORIZED: _problem(
+            "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+        ),
+        HTTPStatus.FORBIDDEN: _problem(
+            "`urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals."
+        ),
+        HTTPStatus.NOT_FOUND: _problem("`urn:flagman:problem:rental-not-found`."),
+    },
+)
+
+_STAFF_ROLES = (StaffRole.OPERATOR, StaffRole.ADMIN)
+Staff = Annotated[CurrentStaff, Depends(require_staff_role(*_STAFF_ROLES))]
+# Money and car commands: a revoked session must not do them for the rest of its token.
+LiveStaff = Annotated[CurrentStaff, Depends(require_live_staff_session(*_STAFF_ROLES))]
+
+
+def _staff_service(
+    staff: CurrentStaff, service: RentalService, origin: RequestOrigin
+) -> StaffRentalService:
+    return StaffRentalService(rentals=service, staff_id=staff.staff_id, origin=origin)
+
+
+def get_staff_rental_service(
+    staff: Staff,
+    service: Service,
+    origin: Annotated[RequestOrigin, Depends(get_request_origin)],
+) -> StaffRentalService:
+    return _staff_service(staff, service, origin)
+
+
+def get_live_staff_rental_service(
+    staff: LiveStaff,
+    service: Service,
+    origin: Annotated[RequestOrigin, Depends(get_request_origin)],
+) -> StaffRentalService:
+    return _staff_service(staff, service, origin)
+
+
+def get_staff_car_commander(
+    staff: LiveStaff,
+    db: Annotated[AsyncSession, Depends(get_session)],
+    origin: Annotated[RequestOrigin, Depends(get_request_origin)],
+    gateway: Annotated[TelematicsGateway, Depends(get_telematics_gateway)],
+    resources: Annotated[Resources, Depends(get_resources)],
+) -> fleet.CarCommander:
+    return fleet.CarCommander(
+        db=db,
+        gateway=gateway,
+        staff_id=staff.staff_id,
+        origin=origin,
+        max_skew=fleet.telemetry_clock_skew(resources.settings),
+    )
+
+
+StaffService = Annotated[StaffRentalService, Depends(get_staff_rental_service)]
+LiveStaffService = Annotated[StaffRentalService, Depends(get_live_staff_rental_service)]
+StaffCommander = Annotated[fleet.CarCommander, Depends(get_staff_car_commander)]
+
+_MONEY_CONFLICT = _problem(
+    "`urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended or has "
+    "no receipt; "
+    "`rental-settlement-pending`: its payment has not answered yet, try later; "
+    "`rental-adjustment-invalid`: the total would go below zero; "
+    "`idempotency-key-reused`: the key was sent with another amount or comment."
+)
+
+
+@staff_router.get("", summary="Every client's rentals, newest first, with filters")
+async def list_rentals(
+    staff: Staff, query: Annotated[StaffRentalQuery, Query()], service: StaffService
+) -> StaffRentalPageOut:
+    found = await service.list(query.filters(), query.position(), query.limit)
+    return StaffRentalPageOut.of(found)
+
+
+@staff_router.get("/{rental_id}", summary="A rental with its intervals, money and inspections")
+async def get_staff_rental(staff: Staff, rental_id: UUID, service: StaffService) -> StaffRentalOut:
+    return StaffRentalOut.of(await service.card(rental_id), datetime.now(UTC))
+
+
+@staff_router.get(
+    "/{rental_id}/inspections/{stage}/photos/{photo_id}/url",
+    summary="A short-lived link to a photo of the inspection; recorded in the audit log",
+    dependencies=[Depends(_no_store)],
+    responses={
+        HTTPStatus.NOT_FOUND: _problem(
+            "`urn:flagman:problem:rental-not-found`, `inspection-photo-not-found`."
+        ),
+        HTTPStatus.SERVICE_UNAVAILABLE: _STORAGE_UNAVAILABLE,
+    },
+)
+async def get_staff_inspection_photo_url(  # noqa: PLR0913 - the path names the photo
+    *,
+    staff: Staff,
+    rental_id: UUID,
+    stage: InspectionStage,
+    photo_id: UUID,
+    service: StaffService,
+    storage: Storage,
+) -> PhotoUrlOut:
+    url = await service.photo_url(storage, rental_id, stage, photo_id)
+    return PhotoUrlOut(url=url, expires_in=int(SIGNED_URL_TTL.total_seconds()))
+
+
+@staff_router.post(
+    "/{rental_id}/force-finish",
+    summary="End a stuck trip without the client's checks",
+    description=(
+        "The car is sent a lock; the rental ends and is billed until now even if the car does "
+        "not answer, which `locked` tells."
+    ),
+    responses={
+        HTTPStatus.CONFLICT: _problem(
+            "`urn:flagman:problem:rental-transition-not-allowed`: not a trip; "
+            "`rental-command-in-progress`: the car is answering another command."
+        ),
+    },
+)
+async def force_finish(
+    staff: LiveStaff,
+    rental_id: UUID,
+    body: ForceFinishIn,
+    service: LiveStaffService,
+    commander: StaffCommander,
+) -> ForceFinishResultOut:
+    outcome = await service.force_finish(commander, rental_id, body.reason)
+    return ForceFinishResultOut(
+        rental=StaffRentalOut.of(outcome.card, datetime.now(UTC)), locked=outcome.locked
+    )
+
+
+@staff_router.post(
+    "/{rental_id}/adjustments",
+    status_code=HTTPStatus.CREATED,
+    summary="Change the total of an ended rental, with a comment",
+    description=(
+        "The receipt keeps the original total. A decrease lowers the debt and refunds what was "
+        "paid above the new total; an increase is charged to the card at once, a debt if declined."
+    ),
+    responses={
+        HTTPStatus.CONFLICT: _MONEY_CONFLICT,
+        HTTPStatus.SERVICE_UNAVAILABLE: _problem("`urn:flagman:problem:payments-unavailable`."),
+    },
+)
+async def adjust_rental(
+    staff: LiveStaff,
+    rental_id: UUID,
+    body: AdjustmentIn,
+    idempotency_key: Annotated[
+        UUID,
+        Header(
+            alias="Idempotency-Key",
+            description="A new one per filled form; a repeat with it changes nothing again.",
+        ),
+    ],
+    service: LiveStaffService,
+) -> StaffRentalOut:
+    change = AdjustmentRequest(amount=body.amount, comment=body.comment, key=idempotency_key)
+    card = await service.adjust(rental_id, change)
+    return StaffRentalOut.of(card, datetime.now(UTC))
+
+
+@staff_router.post(
+    "/{rental_id}/refunds/retry",
+    summary="Send again the refunds the provider has not answered",
+    responses={
+        HTTPStatus.CONFLICT: _problem(
+            "`urn:flagman:problem:rental-transition-not-allowed`: nothing was lowered; "
+            "`rental-settlement-pending`."
+        ),
+        HTTPStatus.SERVICE_UNAVAILABLE: _problem("`urn:flagman:problem:payments-unavailable`."),
+    },
+)
+async def retry_refunds(
+    staff: LiveStaff, rental_id: UUID, service: LiveStaffService
+) -> StaffRentalOut:
+    return StaffRentalOut.of(await service.retry_refunds(rental_id), datetime.now(UTC))

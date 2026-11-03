@@ -6,6 +6,51 @@
         "title": "ActorType",
         "type": "string"
       },
+      "AdjustmentIn": {
+        "additionalProperties": false,
+        "properties": {
+          "amount": {
+            "description": "Kopecks of BYN; negative refunds or lowers the debt.",
+            "examples": [-500],
+            "maximum": 100000.0,
+            "minimum": -100000.0,
+            "title": "Amount",
+            "type": "integer"
+          },
+          "comment": {
+            "examples": ["The client waited for the car to unlock"],
+            "maxLength": 1000,
+            "title": "Comment",
+            "type": "string"
+          }
+        },
+        "required": ["amount", "comment"],
+        "title": "AdjustmentIn",
+        "type": "object"
+      },
+      "AdjustmentOut": {
+        "description": "A staff change of the total; the receipt keeps the original amount.",
+        "properties": {
+          "amount": {
+            "description": "Kopecks of BYN; negative lowers the total.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": ["id", "amount", "created_at"],
+        "title": "AdjustmentOut",
+        "type": "object"
+      },
       "AssignIn": {
         "additionalProperties": false,
         "properties": {
@@ -59,7 +104,13 @@
           "incident.resolved",
           "incident.rejected",
           "incident.car_sent_to_service",
-          "incident.photo_viewed"
+          "incident.photo_viewed",
+          "rental.force_finished",
+          "rental.adjusted",
+          "rental.refund_retried",
+          "rental.photo_viewed",
+          "client.blocked",
+          "client.unblocked"
         ],
         "title": "AuditAction",
         "type": "string"
@@ -230,10 +281,26 @@
           "car",
           "maintenance_task",
           "support_conversation",
-          "incident"
+          "incident",
+          "rental",
+          "client"
         ],
         "title": "AuditTargetType",
         "type": "string"
+      },
+      "BlockIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "examples": ["Left the car outside the zone three times"],
+            "maxLength": 1000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": ["reason"],
+        "title": "BlockIn",
+        "type": "object"
       },
       "CancelIn": {
         "additionalProperties": false,
@@ -438,6 +505,113 @@
         "title": "CheckStatus",
         "type": "string"
       },
+      "ClientBlockEventOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked": {
+            "description": "True: blocked; false: unblocked.",
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "staff_id": {
+            "format": "uuid",
+            "title": "Staff Id",
+            "type": "string"
+          },
+          "staff_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Name"
+          }
+        },
+        "required": ["blocked", "reason", "staff_id", "staff_name", "created_at"],
+        "title": "ClientBlockEventOut",
+        "type": "object"
+      },
+      "ClientBlockOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked_at": {
+            "format": "date-time",
+            "title": "Blocked At",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "staff_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for a block set before the admin panel had it.",
+            "title": "Staff Id"
+          },
+          "staff_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Name"
+          }
+        },
+        "required": ["blocked_at", "reason", "staff_id", "staff_name"],
+        "title": "ClientBlockOut",
+        "type": "object"
+      },
+      "ClientPageOut": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "description": "Newest sign-up first.",
+            "items": {
+              "$ref": "#/components/schemas/ClientSummaryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent on the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": ["items", "next_cursor"],
+        "title": "ClientPageOut",
+        "type": "object"
+      },
       "ClientProfile": {
         "additionalProperties": false,
         "properties": {
@@ -453,6 +627,11 @@
             ],
             "description": "Null until the client fills it in.",
             "title": "Birth Date"
+          },
+          "blocked": {
+            "description": "An operator has blocked the client: no reservations, the cars stay closed.",
+            "title": "Blocked",
+            "type": "boolean"
           },
           "email": {
             "anyOf": [
@@ -500,7 +679,15 @@
             "type": "string"
           }
         },
-        "required": ["first_name", "last_name", "birth_date", "email", "language", "phone"],
+        "required": [
+          "first_name",
+          "last_name",
+          "birth_date",
+          "email",
+          "language",
+          "phone",
+          "blocked"
+        ],
         "title": "ClientProfile",
         "type": "object"
       },
@@ -549,6 +736,88 @@
           }
         },
         "title": "ClientProfileUpdate",
+        "type": "object"
+      },
+      "ClientRefOut": {
+        "properties": {
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          }
+        },
+        "required": ["id", "first_name", "last_name"],
+        "title": "ClientRefOut",
+        "type": "object"
+      },
+      "ClientSummaryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "blocked": {
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "phone": {
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": ["id", "phone", "first_name", "last_name", "created_at", "blocked"],
+        "title": "ClientSummaryOut",
         "type": "object"
       },
       "ClientUnreadOut": {
@@ -1006,6 +1275,196 @@
         "title": "FleetRulesOut",
         "type": "object"
       },
+      "ForceFinishIn": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "examples": ["The car lost its connection, the client left it"],
+            "maxLength": 1000,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": ["reason"],
+        "title": "ForceFinishIn",
+        "type": "object"
+      },
+      "ForceFinishResultOut": {
+        "properties": {
+          "locked": {
+            "description": "False: the car did not confirm the lock; someone has to close it.",
+            "title": "Locked",
+            "type": "boolean"
+          },
+          "rental": {
+            "$ref": "#/components/schemas/StaffRentalOut"
+          }
+        },
+        "required": ["rental", "locked"],
+        "title": "ForceFinishResultOut",
+        "type": "object"
+      },
+      "ForcedFinishOut": {
+        "properties": {
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "staff_id": {
+            "format": "uuid",
+            "title": "Staff Id",
+            "type": "string"
+          },
+          "staff_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Name"
+          }
+        },
+        "required": ["reason", "staff_id", "staff_name"],
+        "title": "ForcedFinishOut",
+        "type": "object"
+      },
+      "HistoryCarOut": {
+        "properties": {
+          "brand": {
+            "title": "Brand",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "model": {
+            "title": "Model",
+            "type": "string"
+          },
+          "photo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Photo Url"
+          },
+          "plate": {
+            "title": "Plate",
+            "type": "string"
+          }
+        },
+        "required": ["id", "brand", "model", "plate", "photo_url"],
+        "title": "HistoryCarOut",
+        "type": "object"
+      },
+      "HistoryItemOut": {
+        "properties": {
+          "car": {
+            "$ref": "#/components/schemas/HistoryCarOut"
+          },
+          "charge_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChargeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`pending`: being paid; `paid`; `failed`: a debt. Null: nothing to pay."
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reserved_at": {
+            "format": "date-time",
+            "title": "Reserved At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RentalStatus"
+          },
+          "total": {
+            "description": "With the staff adjustments, in kopecks of BYN.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "trip_started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trip Started At"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "car",
+          "reserved_at",
+          "trip_started_at",
+          "ended_at",
+          "total",
+          "charge_status"
+        ],
+        "title": "HistoryItemOut",
+        "type": "object"
+      },
+      "HistoryPageOut": {
+        "properties": {
+          "items": {
+            "description": "Newest reservation first.",
+            "items": {
+              "$ref": "#/components/schemas/HistoryItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent on the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": ["items", "next_cursor"],
+        "title": "HistoryPageOut",
+        "type": "object"
+      },
       "IncidentCommentIn": {
         "additionalProperties": false,
         "properties": {
@@ -1340,6 +1799,34 @@
         "enum": ["waiting", "driving", "parked"],
         "title": "IntervalKind",
         "type": "string"
+      },
+      "IntervalOut": {
+        "properties": {
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null for the current one.",
+            "title": "Ended At"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/IntervalKind"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": ["kind", "started_at", "ended_at"],
+        "title": "IntervalOut",
+        "type": "object"
       },
       "KycApplicationOut": {
         "additionalProperties": false,
@@ -2107,6 +2594,67 @@
         "title": "NotificationPreferencesOut",
         "type": "object"
       },
+      "OperationKind": {
+        "description": "Values are stored as is: renaming one needs a migration.",
+        "enum": ["hold", "capture", "charge", "void", "refund"],
+        "title": "OperationKind",
+        "type": "string"
+      },
+      "OperationOut": {
+        "description": "A payment of the rental; the card itself is not shown.",
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decline_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeclineReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/OperationKind"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OperationStatus"
+          }
+        },
+        "required": ["id", "kind", "amount", "status", "parent_id", "decline_reason", "created_at"],
+        "title": "OperationOut",
+        "type": "object"
+      },
+      "OperationStatus": {
+        "enum": ["pending", "succeeded", "declined", "failed"],
+        "title": "OperationStatus",
+        "type": "string"
+      },
       "OtpRequest": {
         "additionalProperties": false,
         "properties": {
@@ -2250,6 +2798,21 @@
         },
         "required": ["url", "expires_in"],
         "title": "PhotoUrlOut",
+        "type": "object"
+      },
+      "PointOut": {
+        "properties": {
+          "lat": {
+            "title": "Lat",
+            "type": "number"
+          },
+          "lon": {
+            "title": "Lon",
+            "type": "number"
+          }
+        },
+        "required": ["lat", "lon"],
+        "title": "PointOut",
         "type": "object"
       },
       "PolygonGeometry": {
@@ -2593,6 +3156,14 @@
       },
       "RentalOut": {
         "properties": {
+          "adjustments": {
+            "description": "Oldest first; empty without any.",
+            "items": {
+              "$ref": "#/components/schemas/AdjustmentOut"
+            },
+            "title": "Adjustments",
+            "type": "array"
+          },
           "after_inspection_submitted": {
             "description": "The inspection after the trip is done: the rental may be finished.",
             "title": "After Inspection Submitted",
@@ -2631,6 +3202,17 @@
           "cost": {
             "$ref": "#/components/schemas/CostOut",
             "description": "So far, by the server's clock; the receipt's once ended."
+          },
+          "end": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PointOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the car stood when the trip ended."
           },
           "ended_at": {
             "anyOf": [
@@ -2681,11 +3263,27 @@
             "title": "Reserved At",
             "type": "string"
           },
+          "start": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PointOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Where the car stood when the trip started."
+          },
           "status": {
             "$ref": "#/components/schemas/RentalStatus"
           },
           "tariff": {
             "$ref": "#/components/schemas/RentalTariffOut"
+          },
+          "total": {
+            "description": "`cost.total` with the adjustments, in kopecks of BYN.",
+            "title": "Total",
+            "type": "integer"
           },
           "trip_started_at": {
             "anyOf": [
@@ -2725,6 +3323,10 @@
           "warnings",
           "charge_status",
           "receipt",
+          "adjustments",
+          "total",
+          "start",
+          "end",
           "as_of"
         ],
         "title": "RentalOut",
@@ -2801,6 +3403,48 @@
         },
         "required": ["access_token", "expires_in"],
         "title": "StaffAccessToken",
+        "type": "object"
+      },
+      "StaffAdjustmentOut": {
+        "properties": {
+          "amount": {
+            "description": "Kopecks of BYN; negative lowers the total.",
+            "title": "Amount",
+            "type": "integer"
+          },
+          "comment": {
+            "title": "Comment",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "staff_id": {
+            "format": "uuid",
+            "title": "Staff Id",
+            "type": "string"
+          },
+          "staff_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Staff Name"
+          }
+        },
+        "required": ["id", "amount", "created_at", "comment", "staff_id", "staff_name"],
+        "title": "StaffAdjustmentOut",
         "type": "object"
       },
       "StaffCarList": {
@@ -2941,6 +3585,116 @@
         },
         "required": ["challenge_token", "expires_in", "next_step"],
         "title": "StaffChallengeIssued",
+        "type": "object"
+      },
+      "StaffClientOut": {
+        "additionalProperties": false,
+        "properties": {
+          "birth_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Birth Date"
+          },
+          "block": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClientBlockOut"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Null when the client is not blocked."
+          },
+          "block_history": {
+            "description": "Newest first.",
+            "items": {
+              "$ref": "#/components/schemas/ClientBlockEventOut"
+            },
+            "title": "Block History",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "debt": {
+            "description": "Kopecks of BYN owed for earlier rentals.",
+            "title": "Debt",
+            "type": "integer"
+          },
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "first_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Name"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kyc_status": {
+            "$ref": "#/components/schemas/KycStatus"
+          },
+          "language": {
+            "$ref": "#/components/schemas/Language"
+          },
+          "last_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Name"
+          },
+          "phone": {
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "phone",
+          "first_name",
+          "last_name",
+          "birth_date",
+          "email",
+          "language",
+          "created_at",
+          "block",
+          "block_history",
+          "kyc_status",
+          "debt"
+        ],
+        "title": "StaffClientOut",
         "type": "object"
       },
       "StaffIncidentListOut": {
@@ -3348,6 +4102,175 @@
         "description": "Empty on purpose: the refresh token is in the cookie, and a JSON body is still required.",
         "properties": {},
         "title": "StaffRefreshRequest",
+        "type": "object"
+      },
+      "StaffRentalItemOut": {
+        "properties": {
+          "car": {
+            "$ref": "#/components/schemas/HistoryCarOut"
+          },
+          "charge_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChargeStatus"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`pending`: being paid; `paid`; `failed`: a debt. Null: nothing to pay."
+          },
+          "client": {
+            "$ref": "#/components/schemas/ClientRefOut"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "reserved_at": {
+            "format": "date-time",
+            "title": "Reserved At",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RentalStatus"
+          },
+          "total": {
+            "description": "With the staff adjustments, in kopecks of BYN.",
+            "title": "Total",
+            "type": "integer"
+          },
+          "trip_started_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Trip Started At"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "car",
+          "reserved_at",
+          "trip_started_at",
+          "ended_at",
+          "total",
+          "charge_status",
+          "client"
+        ],
+        "title": "StaffRentalItemOut",
+        "type": "object"
+      },
+      "StaffRentalOut": {
+        "properties": {
+          "adjustments": {
+            "items": {
+              "$ref": "#/components/schemas/StaffAdjustmentOut"
+            },
+            "title": "Adjustments",
+            "type": "array"
+          },
+          "client": {
+            "$ref": "#/components/schemas/ClientRefOut"
+          },
+          "forced_finish": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ForcedFinishOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "inspections": {
+            "items": {
+              "$ref": "#/components/schemas/InspectionOut"
+            },
+            "title": "Inspections",
+            "type": "array"
+          },
+          "intervals": {
+            "items": {
+              "$ref": "#/components/schemas/IntervalOut"
+            },
+            "title": "Intervals",
+            "type": "array"
+          },
+          "operations": {
+            "description": "Oldest first.",
+            "items": {
+              "$ref": "#/components/schemas/OperationOut"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "owed": {
+            "description": "Kopecks still owed; negative: paid above the total, a refund is due. 0 while the rental runs or its first payment is on its way.",
+            "title": "Owed",
+            "type": "integer"
+          },
+          "rental": {
+            "$ref": "#/components/schemas/RentalOut"
+          }
+        },
+        "required": [
+          "rental",
+          "client",
+          "intervals",
+          "operations",
+          "inspections",
+          "adjustments",
+          "owed",
+          "forced_finish"
+        ],
+        "title": "StaffRentalOut",
+        "type": "object"
+      },
+      "StaffRentalPageOut": {
+        "properties": {
+          "items": {
+            "description": "Newest reservation first.",
+            "items": {
+              "$ref": "#/components/schemas/StaffRentalItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent on the last page.",
+            "title": "Next Cursor"
+          }
+        },
+        "required": ["items", "next_cursor"],
+        "title": "StaffRentalPageOut",
         "type": "object"
       },
       "StaffRole": {
@@ -4413,6 +5336,430 @@
         ],
         "summary": "List audit events, newest first",
         "tags": ["audit"]
+      }
+    },
+    "/admin/clients": {
+      "get": {
+        "operationId": "list_clients_admin_clients_get",
+        "parameters": [
+          {
+            "description": "A part of the phone, the first or the last name.",
+            "in": "query",
+            "name": "search",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "minLength": 2,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A part of the phone, the first or the last name.",
+              "title": "Search"
+            }
+          },
+          {
+            "description": "Only blocked or only not blocked.",
+            "in": "query",
+            "name": "blocked",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only blocked or only not blocked.",
+              "title": "Blocked"
+            }
+          },
+          {
+            "description": "`next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` of the previous page.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin`."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:client-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Clients, newest sign-up first, with a search",
+        "tags": ["clients-staff"]
+      }
+    },
+    "/admin/clients/{user_id}": {
+      "get": {
+        "operationId": "get_client_admin_clients__user_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffClientOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin`."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:client-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "A client with the block, KYC and the debt",
+        "tags": ["clients-staff"]
+      }
+    },
+    "/admin/clients/{user_id}/block": {
+      "post": {
+        "description": "A trip under way goes on; end it with `POST /admin/rentals/{id}/force-finish`.",
+        "operationId": "block_client_admin_clients__user_id__block_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffClientOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin`."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:client-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Block the client: no reservations, the cars stay closed",
+        "tags": ["clients-staff"]
+      }
+    },
+    "/admin/clients/{user_id}/unblock": {
+      "post": {
+        "operationId": "unblock_client_admin_clients__user_id__unblock_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BlockIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffClientOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin`."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:client-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Let the client rent again",
+        "tags": ["clients-staff"]
       }
     },
     "/admin/fleet/cars": {
@@ -6500,6 +7847,743 @@
         ],
         "summary": "Active technicians to assign tasks to",
         "tags": ["admin-maintenance"]
+      }
+    },
+    "/admin/rentals": {
+      "get": {
+        "operationId": "list_rentals_admin_rentals_get",
+        "parameters": [
+          {
+            "description": "`next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` of the previous page.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Any of these.",
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "description": "Any of these.",
+              "items": {
+                "$ref": "#/components/schemas/RentalStatus"
+              },
+              "title": "Status",
+              "type": "array"
+            }
+          },
+          {
+            "description": "Only this client's rentals.",
+            "in": "query",
+            "name": "user_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only this client's rentals.",
+              "title": "User Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "car_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Car Id"
+            }
+          },
+          {
+            "description": "Inclusive.",
+            "in": "query",
+            "name": "reserved_from",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Inclusive.",
+              "title": "Reserved From"
+            }
+          },
+          {
+            "description": "Exclusive.",
+            "in": "query",
+            "name": "reserved_to",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exclusive.",
+              "title": "Reserved To"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffRentalPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Every client's rentals, newest first, with filters",
+        "tags": ["rentals-staff"]
+      }
+    },
+    "/admin/rentals/{rental_id}": {
+      "get": {
+        "operationId": "get_staff_rental_admin_rentals__rental_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffRentalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "A rental with its intervals, money and inspections",
+        "tags": ["rentals-staff"]
+      }
+    },
+    "/admin/rentals/{rental_id}/adjustments": {
+      "post": {
+        "description": "The receipt keeps the original total. A decrease lowers the debt and refunds what was paid above the new total; an increase is charged to the card at once, a debt if declined.",
+        "operationId": "adjust_rental_admin_rentals__rental_id__adjustments_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "A new one per filled form; a repeat with it changes nothing again.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "A new one per filled form; a repeat with it changes nothing again.",
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdjustmentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffRentalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended or has no receipt; `rental-settlement-pending`: its payment has not answered yet, try later; `rental-adjustment-invalid`: the total would go below zero; `idempotency-key-reused`: the key was sent with another amount or comment."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:payments-unavailable`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change the total of an ended rental, with a comment",
+        "tags": ["rentals-staff"]
+      }
+    },
+    "/admin/rentals/{rental_id}/force-finish": {
+      "post": {
+        "description": "The car is sent a lock; the rental ends and is billed until now even if the car does not answer, which `locked` tells.",
+        "operationId": "force_finish_admin_rentals__rental_id__force_finish_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ForceFinishIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForceFinishResultOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-transition-not-allowed`: not a trip; `rental-command-in-progress`: the car is answering another command."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "End a stuck trip without the client's checks",
+        "tags": ["rentals-staff"]
+      }
+    },
+    "/admin/rentals/{rental_id}/inspections/{stage}/photos/{photo_id}/url": {
+      "get": {
+        "operationId": "get_staff_inspection_photo_url_admin_rentals__rental_id__inspections__stage__photos__photo_id__url_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/InspectionStage"
+            }
+          },
+          {
+            "in": "path",
+            "name": "photo_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Photo Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PhotoUrlOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`, `inspection-photo-not-found`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:photo-storage-unavailable`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "A short-lived link to a photo of the inspection; recorded in the audit log",
+        "tags": ["rentals-staff"]
+      }
+    },
+    "/admin/rentals/{rental_id}/refunds/retry": {
+      "post": {
+        "operationId": "retry_refunds_admin_rentals__rental_id__refunds_retry_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "rental_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Rental Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffRentalOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: sign in as staff."
+          },
+          "403": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`."
+          },
+          "409": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-transition-not-allowed`: nothing was lowered; `rental-settlement-pending`."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:payments-unavailable`."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Send again the refunds the provider has not answered",
+        "tags": ["rentals-staff"]
       }
     },
     "/admin/staff": {
@@ -11098,6 +13182,104 @@
           }
         ],
         "summary": "What the client owes for earlier rentals",
+        "tags": ["rentals"]
+      }
+    },
+    "/rentals/history": {
+      "get": {
+        "description": "Without the route: a rental tells only where the trip started and ended.",
+        "operationId": "get_history_rentals_history_get",
+        "parameters": [
+          {
+            "description": "`next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` of the previous page.",
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryPageOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:access-token-invalid`: refresh or sign in."
+          },
+          "404": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "`urn:flagman:problem:rental-not-found`, also for another client's."
+          },
+          "422": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "500": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "The client's earlier and current rentals, newest first",
         "tags": ["rentals"]
       }
     },

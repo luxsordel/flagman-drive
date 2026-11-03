@@ -571,3 +571,47 @@ def check_birth_date(birth_date: date, today: date) -> None:
     earliest = date(today.year - BIRTH_DATE_MAX_AGE_YEARS, 1, 1)
     if birth_date < earliest:
         raise BirthDateInvalidError(f"The birth date must not be before {earliest.isoformat()}.")
+
+
+# Clients for staff (docs/adr/0026)
+
+BLOCK_REASON_MAX_LENGTH = 500
+CLIENT_PAGE_DEFAULT = 50
+CLIENT_PAGE_MAX = 100
+
+
+class ClientNotFoundError(AppError):
+    status = HTTPStatus.NOT_FOUND
+    slug = "client-not-found"
+    title = "Client not found"
+
+
+@dataclass(frozen=True)
+class ClientFilter:
+    # A part of the phone or of the name, as the operator types it.
+    search: str | None = None
+    blocked: bool | None = None
+
+
+@dataclass(frozen=True)
+class ClientCursor:
+    """Position after the last client of a page; pages go from the newest sign-up."""
+
+    created_at: datetime
+    user_id: UUID
+
+    def encode(self) -> str:
+        raw = f"{self.created_at.isoformat()}|{self.user_id}"
+        return base64.urlsafe_b64encode(raw.encode()).decode().rstrip("=")
+
+    @classmethod
+    def decode(cls, value: str) -> "ClientCursor":
+        try:
+            raw = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)).decode()
+            created_at, user_id = raw.split("|")
+            cursor = cls(datetime.fromisoformat(created_at), UUID(user_id))
+        except (binascii.Error, UnicodeDecodeError, ValueError) as error:
+            raise ValueError("invalid cursor") from error
+        if cursor.created_at.tzinfo is None:
+            raise ValueError("invalid cursor")
+        return cursor

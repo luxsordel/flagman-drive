@@ -27,7 +27,12 @@ from flagman.fleet.api import staff_router as fleet_staff_router
 from flagman.geo.api import map_router as map_zones_router
 from flagman.geo.api import router as geo_router
 from flagman.health.api import router as health_router
-from flagman.identity.api import profile_router, staff_admin_router, staff_router
+from flagman.identity.api import (
+    clients_router,
+    profile_router,
+    staff_admin_router,
+    staff_router,
+)
 from flagman.identity.api import router as identity_router
 from flagman.kyc.api import review_router as kyc_review_router
 from flagman.kyc.api import router as kyc_router
@@ -38,6 +43,7 @@ from flagman.payments.api import webhook_router as payments_webhook_router
 from flagman.payments.fake_pages import router as fake_provider_router
 from flagman.pricing.api import router as pricing_router
 from flagman.rentals.api import router as rentals_router
+from flagman.rentals.api import staff_router as rentals_staff_router
 from flagman.support.api import router as support_router
 from flagman.support.api import staff_router as support_staff_router
 
@@ -118,6 +124,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(identity_router)
     app.include_router(staff_router)
     app.include_router(staff_admin_router)
+    app.include_router(clients_router)
     app.include_router(profile_router)
     app.include_router(audit_router)
     app.include_router(kyc_router)
@@ -129,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(map_zones_router)
     app.include_router(maintenance_router)
     app.include_router(rentals_router)
+    app.include_router(rentals_staff_router)
     app.include_router(pricing_router)
     app.include_router(notifications_router)
     app.include_router(payments_router)

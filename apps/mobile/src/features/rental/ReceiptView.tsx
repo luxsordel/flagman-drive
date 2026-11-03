@@ -34,9 +34,22 @@ export function ReceiptView({ rental, pending }: { rental: Rental; pending: Rent
             {t('rental.receipt.free', { minutes: line.free_minutes })}
           </AppText>
         ))}
-      <AppText variant="title">
+      <AppText variant={rental.adjustments.length > 0 ? 'body' : 'title'}>
         {t('rental.receipt.total', { amount: money(receipt.cost.total) })}
       </AppText>
+      {/* The receipt never changes: a correction by an operator is a line of its own. */}
+      {rental.adjustments.map((adjustment) => (
+        <AppText key={adjustment.id}>
+          {t(adjustment.amount < 0 ? 'rental.receipt.lowered' : 'rental.receipt.raised', {
+            amount: money(Math.abs(adjustment.amount)),
+          })}
+        </AppText>
+      ))}
+      {rental.adjustments.length > 0 && (
+        <AppText variant="title">
+          {t('rental.receipt.adjustedTotal', { amount: money(rental.total) })}
+        </AppText>
+      )}
       <AppText tone="muted">
         {receipt.card_last4 !== null
           ? t('rental.receipt.card', {
@@ -65,7 +78,7 @@ function ChargeStatus({ rental, pending }: { rental: Rental; pending: RentalActi
       return <AppText tone="muted">{t('rental.receipt.pending')}</AppText>;
     case 'failed': {
       // The debt's own amount, less what was taken from the hold; the receipt's total until known.
-      const owed = debts.find((debt) => debt.rental_id === rental.id)?.amount ?? rental.cost.total;
+      const owed = debts.find((debt) => debt.rental_id === rental.id)?.amount ?? rental.total;
       return (
         <>
           <AppText tone="danger" accessibilityRole="alert">

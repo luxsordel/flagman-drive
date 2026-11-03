@@ -130,6 +130,16 @@ describe('support conversation', () => {
     expect(support.messagePhotoUrl).toHaveBeenCalledWith(card.id, photo.id);
   });
 
+  it('links the client and the rental to their pages', async () => {
+    const card = conversation({ rental_id: 'r-1', rental_status: 'in_trip' });
+    renderAt(`/support/${card.id}`, operator, { support: fakeSupportApi({ card }) });
+
+    const client = await screen.findByRole('link', { name: 'Petrov Ivan' });
+    expect(client.getAttribute('href')).toBe(`/clients/${card.user_id}`);
+    const rental = screen.getByRole('link', { name: ru.support.rentalStatus.in_trip });
+    expect(rental.getAttribute('href')).toBe('/rentals/r-1');
+  });
+
   it('offers no answer in a closed conversation', async () => {
     const card = conversation({ status: 'closed' });
     renderAt(`/support/${card.id}`, operator, { support: fakeSupportApi({ card }) });
@@ -212,6 +222,16 @@ describe('incidents', () => {
     expect(await screen.findByRole('img', { name: ru.incidents.place })).toBeDefined();
     expect(screen.getByRole('button', { name: ru.support.showPhoto })).toBeDefined();
     expect(screen.getByText(/Anna/)).toBeDefined();
+  });
+
+  it('links the client and the rental of an incident', async () => {
+    const item = incident({ rental_id: 'r-2', rental_status: 'paid' });
+    renderAt(`/incidents/${item.id}`, operator, { support: fakeSupportApi({ card2: item }) });
+
+    const client = await screen.findByRole('link', { name: 'Petrov Ivan' });
+    expect(client.getAttribute('href')).toBe(`/clients/${item.user_id}`);
+    const rental = screen.getByRole('link', { name: ru.support.rentalStatus.paid });
+    expect(rental.getAttribute('href')).toBe('/rentals/r-2');
   });
 
   it('needs a comment to resolve', async () => {

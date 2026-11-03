@@ -21,6 +21,77 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/clients': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Clients, newest sign-up first, with a search */
+    get: operations['list_clients_admin_clients_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/clients/{user_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A client with the block, KYC and the debt */
+    get: operations['get_client_admin_clients__user_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/clients/{user_id}/block': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Block the client: no reservations, the cars stay closed
+     * @description A trip under way goes on; end it with `POST /admin/rentals/{id}/force-finish`.
+     */
+    post: operations['block_client_admin_clients__user_id__block_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/clients/{user_id}/unblock': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Let the client rent again */
+    post: operations['unblock_client_admin_clients__user_id__unblock_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/admin/fleet/cars': {
     parameters: {
       query?: never;
@@ -343,6 +414,114 @@ export interface paths {
     get: operations['list_technicians_admin_maintenance_technicians_get'];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/rentals': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every client's rentals, newest first, with filters */
+    get: operations['list_rentals_admin_rentals_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/rentals/{rental_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A rental with its intervals, money and inspections */
+    get: operations['get_staff_rental_admin_rentals__rental_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/rentals/{rental_id}/adjustments': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Change the total of an ended rental, with a comment
+     * @description The receipt keeps the original total. A decrease lowers the debt and refunds what was paid above the new total; an increase is charged to the card at once, a debt if declined.
+     */
+    post: operations['adjust_rental_admin_rentals__rental_id__adjustments_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/rentals/{rental_id}/force-finish': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * End a stuck trip without the client's checks
+     * @description The car is sent a lock; the rental ends and is billed until now even if the car does not answer, which `locked` tells.
+     */
+    post: operations['force_finish_admin_rentals__rental_id__force_finish_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/rentals/{rental_id}/inspections/{stage}/photos/{photo_id}/url': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A short-lived link to a photo of the inspection; recorded in the audit log */
+    get: operations['get_staff_inspection_photo_url_admin_rentals__rental_id__inspections__stage__photos__photo_id__url_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/rentals/{rental_id}/refunds/retry': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Send again the refunds the provider has not answered */
+    post: operations['retry_refunds_admin_rentals__rental_id__refunds_retry_post'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1167,6 +1346,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/rentals/history': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The client's earlier and current rentals, newest first
+     * @description Without the route: a rental tells only where the trip started and ended.
+     */
+    get: operations['get_history_rentals_history_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/rentals/{rental_id}': {
     parameters: {
       query?: never;
@@ -1676,6 +1875,41 @@ export interface components {
      * @enum {string}
      */
     ActorType: 'staff' | 'client' | 'system';
+    /** AdjustmentIn */
+    AdjustmentIn: {
+      /**
+       * Amount
+       * @description Kopecks of BYN; negative refunds or lowers the debt.
+       * @example -500
+       */
+      amount: number;
+      /**
+       * Comment
+       * @example The client waited for the car to unlock
+       */
+      comment: string;
+    };
+    /**
+     * AdjustmentOut
+     * @description A staff change of the total; the receipt keeps the original amount.
+     */
+    AdjustmentOut: {
+      /**
+       * Amount
+       * @description Kopecks of BYN; negative lowers the total.
+       */
+      amount: number;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+    };
     /** AssignIn */
     AssignIn: {
       /**
@@ -1729,7 +1963,13 @@ export interface components {
       | 'incident.resolved'
       | 'incident.rejected'
       | 'incident.car_sent_to_service'
-      | 'incident.photo_viewed';
+      | 'incident.photo_viewed'
+      | 'rental.force_finished'
+      | 'rental.adjusted'
+      | 'rental.refund_retried'
+      | 'rental.photo_viewed'
+      | 'client.blocked'
+      | 'client.unblocked';
     /** AuditEventOut */
     AuditEventOut: {
       /**
@@ -1805,7 +2045,17 @@ export interface components {
       | 'car'
       | 'maintenance_task'
       | 'support_conversation'
-      | 'incident';
+      | 'incident'
+      | 'rental'
+      | 'client';
+    /** BlockIn */
+    BlockIn: {
+      /**
+       * Reason
+       * @example Left the car outside the zone three times
+       */
+      reason: string;
+    };
     /** CancelIn */
     CancelIn: {
       /** Comment */
@@ -1940,6 +2190,58 @@ export interface components {
      * @enum {string}
      */
     CheckStatus: 'ok' | 'fail';
+    /** ClientBlockEventOut */
+    ClientBlockEventOut: {
+      /**
+       * Blocked
+       * @description True: blocked; false: unblocked.
+       */
+      blocked: boolean;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /** Reason */
+      reason: string;
+      /**
+       * Staff Id
+       * Format: uuid
+       */
+      staff_id: string;
+      /** Staff Name */
+      staff_name: string | null;
+    };
+    /** ClientBlockOut */
+    ClientBlockOut: {
+      /**
+       * Blocked At
+       * Format: date-time
+       */
+      blocked_at: string;
+      /** Reason */
+      reason: string;
+      /**
+       * Staff Id
+       * @description Null for a block set before the admin panel had it.
+       */
+      staff_id: string | null;
+      /** Staff Name */
+      staff_name: string | null;
+    };
+    /** ClientPageOut */
+    ClientPageOut: {
+      /**
+       * Items
+       * @description Newest sign-up first.
+       */
+      items: components['schemas']['ClientSummaryOut'][];
+      /**
+       * Next Cursor
+       * @description Absent on the last page.
+       */
+      next_cursor: string | null;
+    };
     /** ClientProfile */
     ClientProfile: {
       /**
@@ -1947,6 +2249,11 @@ export interface components {
        * @description Null until the client fills it in.
        */
       birth_date: string | null;
+      /**
+       * Blocked
+       * @description An operator has blocked the client: no reservations, the cars stay closed.
+       */
+      blocked: boolean;
       /** Email */
       email: string | null;
       /**
@@ -1998,6 +2305,39 @@ export interface components {
        * @example Анна
        */
       last_name?: string;
+    };
+    /** ClientRefOut */
+    ClientRefOut: {
+      /** First Name */
+      first_name: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Last Name */
+      last_name: string | null;
+    };
+    /** ClientSummaryOut */
+    ClientSummaryOut: {
+      /** Blocked */
+      blocked: boolean;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /** First Name */
+      first_name: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Last Name */
+      last_name: string | null;
+      /** Phone */
+      phone: string;
     };
     /** ClientUnreadOut */
     ClientUnreadOut: {
@@ -2218,6 +2558,90 @@ export interface components {
        */
       telemetry_max_age_seconds: number;
     };
+    /** ForceFinishIn */
+    ForceFinishIn: {
+      /**
+       * Reason
+       * @example The car lost its connection, the client left it
+       */
+      reason: string;
+    };
+    /** ForceFinishResultOut */
+    ForceFinishResultOut: {
+      /**
+       * Locked
+       * @description False: the car did not confirm the lock; someone has to close it.
+       */
+      locked: boolean;
+      rental: components['schemas']['StaffRentalOut'];
+    };
+    /** ForcedFinishOut */
+    ForcedFinishOut: {
+      /** Reason */
+      reason: string;
+      /**
+       * Staff Id
+       * Format: uuid
+       */
+      staff_id: string;
+      /** Staff Name */
+      staff_name: string | null;
+    };
+    /** HistoryCarOut */
+    HistoryCarOut: {
+      /** Brand */
+      brand: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Model */
+      model: string;
+      /** Photo Url */
+      photo_url: string | null;
+      /** Plate */
+      plate: string;
+    };
+    /** HistoryItemOut */
+    HistoryItemOut: {
+      car: components['schemas']['HistoryCarOut'];
+      /** @description `pending`: being paid; `paid`; `failed`: a debt. Null: nothing to pay. */
+      charge_status: components['schemas']['ChargeStatus'] | null;
+      /** Ended At */
+      ended_at: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Reserved At
+       * Format: date-time
+       */
+      reserved_at: string;
+      status: components['schemas']['RentalStatus'];
+      /**
+       * Total
+       * @description With the staff adjustments, in kopecks of BYN.
+       */
+      total: number;
+      /** Trip Started At */
+      trip_started_at: string | null;
+    };
+    /** HistoryPageOut */
+    HistoryPageOut: {
+      /**
+       * Items
+       * @description Newest reservation first.
+       */
+      items: components['schemas']['HistoryItemOut'][];
+      /**
+       * Next Cursor
+       * @description Absent on the last page.
+       */
+      next_cursor: string | null;
+    };
     /** IncidentCommentIn */
     IncidentCommentIn: {
       /** Comment */
@@ -2371,6 +2795,20 @@ export interface components {
      * @enum {string}
      */
     IntervalKind: 'waiting' | 'driving' | 'parked';
+    /** IntervalOut */
+    IntervalOut: {
+      /**
+       * Ended At
+       * @description Null for the current one.
+       */
+      ended_at: string | null;
+      kind: components['schemas']['IntervalKind'];
+      /**
+       * Started At
+       * Format: date-time
+       */
+      started_at: string;
+    };
     /**
      * KycApplicationOut
      * @description No links here: the client asks for one only when it shows the photo.
@@ -2710,6 +3148,40 @@ export interface components {
       /** Categories */
       categories: components['schemas']['NotificationCategoryOut'][];
     };
+    /**
+     * OperationKind
+     * @description Values are stored as is: renaming one needs a migration.
+     * @enum {string}
+     */
+    OperationKind: 'hold' | 'capture' | 'charge' | 'void' | 'refund';
+    /**
+     * OperationOut
+     * @description A payment of the rental; the card itself is not shown.
+     */
+    OperationOut: {
+      /** Amount */
+      amount: number;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      decline_reason: components['schemas']['DeclineReason'] | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      kind: components['schemas']['OperationKind'];
+      /** Parent Id */
+      parent_id: string | null;
+      status: components['schemas']['OperationStatus'];
+    };
+    /**
+     * OperationStatus
+     * @enum {string}
+     */
+    OperationStatus: 'pending' | 'succeeded' | 'declined' | 'failed';
     /** OtpRequest */
     OtpRequest: {
       /**
@@ -2813,6 +3285,13 @@ export interface components {
        * @description Opens the photo without a token; do not store or share it.
        */
       url: string;
+    };
+    /** PointOut */
+    PointOut: {
+      /** Lat */
+      lat: number;
+      /** Lon */
+      lon: number;
     };
     /**
      * PolygonGeometry
@@ -2978,6 +3457,11 @@ export interface components {
     /** RentalOut */
     RentalOut: {
       /**
+       * Adjustments
+       * @description Oldest first; empty without any.
+       */
+      adjustments: components['schemas']['AdjustmentOut'][];
+      /**
        * After Inspection Submitted
        * @description The inspection after the trip is done: the rental may be finished.
        */
@@ -2994,6 +3478,8 @@ export interface components {
       charge_status: components['schemas']['ChargeStatus'] | null;
       /** @description So far, by the server's clock; the receipt's once ended. */
       cost: components['schemas']['CostOut'];
+      /** @description Where the car stood when the trip ended. */
+      end: components['schemas']['PointOut'] | null;
       /** Ended At */
       ended_at: string | null;
       /**
@@ -3024,8 +3510,15 @@ export interface components {
        * Format: date-time
        */
       reserved_at: string;
+      /** @description Where the car stood when the trip started. */
+      start: components['schemas']['PointOut'] | null;
       status: components['schemas']['RentalStatus'];
       tariff: components['schemas']['RentalTariffOut'];
+      /**
+       * Total
+       * @description `cost.total` with the adjustments, in kopecks of BYN.
+       */
+      total: number;
       /** Trip Started At */
       trip_started_at: string | null;
       /**
@@ -3083,6 +3576,33 @@ export interface components {
        * @constant
        */
       token_type: 'Bearer';
+    };
+    /** StaffAdjustmentOut */
+    StaffAdjustmentOut: {
+      /**
+       * Amount
+       * @description Kopecks of BYN; negative lowers the total.
+       */
+      amount: number;
+      /** Comment */
+      comment: string;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Staff Id
+       * Format: uuid
+       */
+      staff_id: string;
+      /** Staff Name */
+      staff_name: string | null;
     };
     /** StaffCarList */
     StaffCarList: {
@@ -3159,6 +3679,43 @@ export interface components {
       expires_in: number;
       /** @description `totp`: ask for the code. `totp_enrollment`: 2FA is not set up yet, call `POST /staff/auth/totp/enrollment` and show the QR code first. */
       next_step: components['schemas']['StaffNextStep'];
+    };
+    /** StaffClientOut */
+    StaffClientOut: {
+      /** Birth Date */
+      birth_date: string | null;
+      /** @description Null when the client is not blocked. */
+      block: components['schemas']['ClientBlockOut'] | null;
+      /**
+       * Block History
+       * @description Newest first.
+       */
+      block_history: components['schemas']['ClientBlockEventOut'][];
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Debt
+       * @description Kopecks of BYN owed for earlier rentals.
+       */
+      debt: number;
+      /** Email */
+      email: string | null;
+      /** First Name */
+      first_name: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      kyc_status: components['schemas']['KycStatus'];
+      language: components['schemas']['Language'];
+      /** Last Name */
+      last_name: string | null;
+      /** Phone */
+      phone: string;
     };
     /** StaffIncidentListOut */
     StaffIncidentListOut: {
@@ -3333,6 +3890,68 @@ export interface components {
      * @description Empty on purpose: the refresh token is in the cookie, and a JSON body is still required.
      */
     StaffRefreshRequest: Record<string, never>;
+    /** StaffRentalItemOut */
+    StaffRentalItemOut: {
+      car: components['schemas']['HistoryCarOut'];
+      /** @description `pending`: being paid; `paid`; `failed`: a debt. Null: nothing to pay. */
+      charge_status: components['schemas']['ChargeStatus'] | null;
+      client: components['schemas']['ClientRefOut'];
+      /** Ended At */
+      ended_at: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Reserved At
+       * Format: date-time
+       */
+      reserved_at: string;
+      status: components['schemas']['RentalStatus'];
+      /**
+       * Total
+       * @description With the staff adjustments, in kopecks of BYN.
+       */
+      total: number;
+      /** Trip Started At */
+      trip_started_at: string | null;
+    };
+    /** StaffRentalOut */
+    StaffRentalOut: {
+      /** Adjustments */
+      adjustments: components['schemas']['StaffAdjustmentOut'][];
+      client: components['schemas']['ClientRefOut'];
+      forced_finish: components['schemas']['ForcedFinishOut'] | null;
+      /** Inspections */
+      inspections: components['schemas']['InspectionOut'][];
+      /** Intervals */
+      intervals: components['schemas']['IntervalOut'][];
+      /**
+       * Operations
+       * @description Oldest first.
+       */
+      operations: components['schemas']['OperationOut'][];
+      /**
+       * Owed
+       * @description Kopecks still owed; negative: paid above the total, a refund is due. 0 while the rental runs or its first payment is on its way.
+       */
+      owed: number;
+      rental: components['schemas']['RentalOut'];
+    };
+    /** StaffRentalPageOut */
+    StaffRentalPageOut: {
+      /**
+       * Items
+       * @description Newest reservation first.
+       */
+      items: components['schemas']['StaffRentalItemOut'][];
+      /**
+       * Next Cursor
+       * @description Absent on the last page.
+       */
+      next_cursor: string | null;
+    };
     /**
      * StaffRole
      * @enum {string}
@@ -3797,6 +4416,288 @@ export interface operations {
       };
       /** @description `urn:flagman:problem:forbidden`: only `admin` reads the audit log. */
       403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_clients_admin_clients_get: {
+    parameters: {
+      query?: {
+        /** @description A part of the phone, the first or the last name. */
+        search?: string | null;
+        /** @description Only blocked or only not blocked. */
+        blocked?: boolean | null;
+        /** @description `next_cursor` of the previous page. */
+        cursor?: string | null;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ClientPageOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin`. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:client-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_client_admin_clients__user_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        user_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffClientOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin`. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:client-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  block_client_admin_clients__user_id__block_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        user_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BlockIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffClientOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin`. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:client-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  unblock_client_admin_clients__user_id__unblock_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        user_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['BlockIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffClientOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin`. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:client-not-found`. */
+      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -5327,6 +6228,486 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_rentals_admin_rentals_get: {
+    parameters: {
+      query?: {
+        /** @description `next_cursor` of the previous page. */
+        cursor?: string | null;
+        limit?: number;
+        /** @description Any of these. */
+        status?: components['schemas']['RentalStatus'][];
+        /** @description Only this client's rentals. */
+        user_id?: string | null;
+        car_id?: string | null;
+        /** @description Inclusive. */
+        reserved_from?: string | null;
+        /** @description Exclusive. */
+        reserved_to?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffRentalPageOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_staff_rental_admin_rentals__rental_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffRentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  adjust_rental_admin_rentals__rental_id__adjustments_post: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description A new one per filled form; a repeat with it changes nothing again. */
+        'Idempotency-Key': string;
+      };
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['AdjustmentIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffRentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-transition-not-allowed`: the rental has not ended or has no receipt; `rental-settlement-pending`: its payment has not answered yet, try later; `rental-adjustment-invalid`: the total would go below zero; `idempotency-key-reused`: the key was sent with another amount or comment. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:payments-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  force_finish_admin_rentals__rental_id__force_finish_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ForceFinishIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ForceFinishResultOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-transition-not-allowed`: not a trip; `rental-command-in-progress`: the car is answering another command. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_staff_inspection_photo_url_admin_rentals__rental_id__inspections__stage__photos__photo_id__url_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+        stage: components['schemas']['InspectionStage'];
+        photo_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PhotoUrlOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, `inspection-photo-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:photo-storage-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  retry_refunds_admin_rentals__rental_id__refunds_retry_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        rental_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffRentalOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle rentals. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-transition-not-allowed`: nothing was lowered; `rental-settlement-pending`. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:payments-unavailable`. */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -8753,6 +10134,66 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['DebtsOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_history_rentals_history_get: {
+    parameters: {
+      query?: {
+        /** @description `next_cursor` of the previous page. */
+        cursor?: string | null;
+        limit?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['HistoryPageOut'];
         };
       };
       /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */

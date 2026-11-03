@@ -2,6 +2,7 @@ from datetime import datetime
 from enum import StrEnum
 from uuid import UUID, uuid4
 
+from geoalchemy2 import Geography, WKBElement
 from sqlalchemy import (
     CheckConstraint,
     DateTime,
@@ -15,9 +16,11 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
+from flagman.core.geo import SRID_WGS84
 from flagman.pricing.domain import IntervalKind
 from flagman.rentals.domain import (
     DAMAGE_COMMENT_MAX_LENGTH,
+    STAFF_REASON_MAX_LENGTH,
     CancelReason,
     ChargeStatus,
     DamageSide,
@@ -80,6 +83,12 @@ class Rental(Base):
             "user_id",
             postgresql_where=text("charge_status = 'failed'"),
         ),
+        # The history pages, newest first (docs/adr/0026).
+        Index("ix_rentals_reserved_at_id", "reserved_at", "id"),
+        CheckConstraint(
+            "(force_finish_reason IS NULL) = (force_finished_by IS NULL)",
+            name="force_finish_has_author",
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -100,6 +109,15 @@ class Rental(Base):
     charge_status: Mapped[str | None] = mapped_column(String(STATUS_LENGTH))
     charge_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     charge_next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Where the car stood when the trip started and ended; no track in between (docs/adr/0026).
+    start_location: Mapped[WKBElement | None] = mapped_column(
+        Geography(geometry_type="POINT", srid=SRID_WGS84, spatial_index=False)
+    )
+    end_location: Mapped[WKBElement | None] = mapped_column(
+        Geography(geometry_type="POINT", srid=SRID_WGS84, spatial_index=False)
+    )
+    force_finish_reason: Mapped[str | None] = mapped_column(String(STAFF_REASON_MAX_LENGTH))
+    force_finished_by: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -198,3 +216,29 @@ class ReceiptLine(Base):
     free_minutes: Mapped[int] = mapped_column(Integer)
     per_minute: Mapped[int] = mapped_column(Integer)
     amount: Mapped[int] = mapped_column(Integer)
+
+
+class Adjustment(Base):
+    """A staff change of a rental's total; append-only like the receipt (docs/adr/0026)."""
+
+    __tablename__ = "rental_adjustments"
+    __table_args__ = (
+        UniqueConstraint("rental_id", "seq"),
+        # Named: the convention takes only the first column, which the seq constraint has too.
+        UniqueConstraint(
+            "rental_id",
+            "idempotency_key",
+            name="uq_rental_adjustments_rental_id_idempotency_key",
+        ),
+        CheckConstraint("amount <> 0", name="amount_not_zero"),
+        CheckConstraint("seq > 0", name="seq_positive"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    rental_id: Mapped[UUID] = mapped_column(ForeignKey("rentals.id"))
+    seq: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[str] = mapped_column(String(STAFF_REASON_MAX_LENGTH))
+    staff_id: Mapped[UUID] = mapped_column(ForeignKey("staff_members.id"))
+    idempotency_key: Mapped[UUID]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

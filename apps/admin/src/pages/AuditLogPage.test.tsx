@@ -52,13 +52,13 @@ describe('audit log page', () => {
 
   it('shows an action unknown to this build by its code', async () => {
     const auditLog = fakeAuditLogApi({
-      items: [auditEvent({ action: 'rental.force_finished' })],
+      items: [auditEvent({ action: 'fine.charged' })],
       next_cursor: null,
     });
     renderAt('/audit', testStaff(), { auditLog });
 
     const row = await findRow();
-    expect(row.textContent).toContain('rental.force_finished');
+    expect(row.textContent).toContain('fine.charged');
   });
 
   it('shows an object type unknown to this build by its code', async () => {

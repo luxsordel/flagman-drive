@@ -6,6 +6,8 @@ import { KycProvider } from '../kyc/KycProvider';
 import type { KycStatus } from '../kyc/kycApi';
 import { KycStore } from '../kyc/kycStore';
 import { fakeKycApi, kycApplication, ok as kycOk } from '../kyc/testing';
+import { ProfileProvider } from '../profile/ProfileProvider';
+import { profile, profileStoreWith } from '../profile/testing';
 import { RentalProvider } from '../rental/RentalProvider';
 import { RentalStore } from '../rental/rentalStore';
 import { fakeRentalApi, nearCar, ok as rentalOk, rental } from '../rental/testing';
@@ -71,27 +73,33 @@ function mapProps(): CarMapProps {
 
 let mockRentals = fakeRentalApi();
 
-async function renderMap({ kycStatus = 'pending' }: { kycStatus?: KycStatus } = {}) {
+async function renderMap({
+  kycStatus = 'pending',
+  blocked = false,
+}: { kycStatus?: KycStatus; blocked?: boolean } = {}) {
   const kyc = fakeKycApi();
   kyc.api.getApplication.mockResolvedValue(kycOk(kycApplication([], { status: kycStatus })));
   const api = fakeMapApi();
   api.listZones.mockResolvedValue(ok([mapZone()]));
   api.listCars.mockResolvedValue(ok([mapCar({ distance_m: 1540 })]));
   api.getCar.mockResolvedValue(ok(mapCar({ distance_m: 1540 })));
+  const { store: profileStore } = profileStoreWith(profile({ blocked }));
   await render(
-    <KycProvider store={new KycStore(kyc.api)}>
-      <MapProvider store={new MapStore(api)}>
-        <RentalProvider
-          store={
-            new RentalStore(mockRentals.api, () =>
-              Promise.resolve({ kind: 'located', location: nearCar }),
-            )
-          }
-        >
-          <MapScreen />
-        </RentalProvider>
-      </MapProvider>
-    </KycProvider>,
+    <ProfileProvider store={profileStore}>
+      <KycProvider store={new KycStore(kyc.api)}>
+        <MapProvider store={new MapStore(api)}>
+          <RentalProvider
+            store={
+              new RentalStore(mockRentals.api, () =>
+                Promise.resolve({ kind: 'located', location: nearCar }),
+              )
+            }
+          >
+            <MapScreen />
+          </RentalProvider>
+        </MapProvider>
+      </KycProvider>
+    </ProfileProvider>,
   );
   return api;
 }
@@ -260,6 +268,16 @@ describe('MapScreen', () => {
     expect(screen.queryByRole('button', { name: 'Забронировать' })).toBeNull();
     await fireEvent.press(screen.getByRole('button', { name: 'К документам' }));
     expect(mockRouter.push).toHaveBeenCalledWith('/kyc');
+  });
+
+  it('explains a block an operator set instead of the reservation', async () => {
+    await renderMap({ kycStatus: 'approved', blocked: true });
+    await pressCar();
+
+    expect(await screen.findByText(/Аккаунт заблокирован оператором/)).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Забронировать' })).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Написать в поддержку' }));
+    expect(mockRouter.push).toHaveBeenCalledWith('/support');
   });
 
   it('explains a car taken meanwhile and refreshes the map', async () => {

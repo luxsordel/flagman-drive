@@ -10,6 +10,7 @@ import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { useKycApplication, useKycState } from '../kyc/KycProvider';
+import { useProfile, useProfileStore } from '../profile/ProfileProvider';
 import { DebtBanner } from '../rental/DebtBanner';
 import { RentalBanner } from '../rental/RentalBanner';
 import { useRentalStore, useRestoredRental } from '../rental/RentalProvider';
@@ -82,6 +83,8 @@ function LiveMap() {
   const rentalStore = useRentalStore();
   const rentalState = useRestoredRental();
   const kyc = useKycState();
+  const profileStore = useProfileStore();
+  const { profile } = useProfile();
   const { status, location } = useClientLocation();
   // The camera follows the client's location once, when it first becomes known; later fixes
   // only update the distances, so the map does not jump away from where the client panned it.
@@ -110,7 +113,10 @@ function LiveMap() {
   useFocusEffect(
     useCallback(() => {
       void rentalStore.loadDebts();
-    }, [rentalStore]),
+      // The map stays mounted under the other screens: a block an operator set since shows when
+      // the client comes back to it.
+      void profileStore.load();
+    }, [rentalStore, profileStore]),
   );
 
   const notice = mapNotice(state, status === 'denied');
@@ -123,6 +129,7 @@ function LiveMap() {
         : kyc.loadError !== null
           ? true
           : null,
+    blocked: profile?.blocked === true,
     reserving: rentalState.pending === 'reserve',
     onReserve: async () => {
       if (selectedCar === null) return null;
@@ -137,6 +144,9 @@ function LiveMap() {
     },
     onOpenDocuments: () => {
       router.push('/kyc');
+    },
+    onOpenSupport: () => {
+      router.push('/support');
     },
   };
 
