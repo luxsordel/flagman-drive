@@ -16,6 +16,7 @@ export type Receipt = components['schemas']['ReceiptOut'];
 export type Debt = components['schemas']['DebtOut'];
 export type HistoryItem = components['schemas']['HistoryItemOut'];
 export type HistoryPage = components['schemas']['HistoryPageOut'];
+export type Fine = components['schemas']['FineOut'];
 
 export type RentalResult<T> =
   | { ok: true; value: T }
@@ -58,6 +59,12 @@ export interface RentalApi {
   debts(): Promise<RentalResult<Debt[]>>;
   /** The client's rentals, newest first; `cursor` is `next_cursor` of the page before. */
   history(cursor?: string): Promise<RentalResult<HistoryPage>>;
+  /** The client's fines, newest first; of one trip with `rentalId`. */
+  fines(rentalId?: string): Promise<RentalResult<Fine[]>>;
+  /** One more try of the card for an unpaid fine; a paid one is answered as it is. */
+  payFine(id: string): Promise<RentalResult<Fine>>;
+  /** A link that opens the photo for minutes: asked for on a tap, never kept. */
+  finePhotoUrl(fineId: string, photoId: string): Promise<RentalResult<string>>;
 }
 
 export interface RentalApiOptions {
@@ -116,6 +123,23 @@ export function createRentalApi({
       send(
         api.GET('/rentals/history', { params: { query: cursor ? { cursor } : {} } }),
         (body) => body,
+      ),
+    fines: (rentalId) =>
+      send(
+        api.GET('/support/fines', { params: { query: rentalId ? { rental_id: rentalId } : {} } }),
+        (body) => body.items,
+      ),
+    payFine: (id) =>
+      send(
+        api.POST('/support/fines/{fine_id}/pay', { params: { path: { fine_id: id } } }),
+        (body) => body,
+      ),
+    finePhotoUrl: (fineId, photoId) =>
+      send(
+        api.GET('/support/fines/{fine_id}/photos/{photo_id}/url', {
+          params: { path: { fine_id: fineId, photo_id: photoId } },
+        }),
+        (body) => body.url,
       ),
     command: (id, command, at) =>
       send(

@@ -2,6 +2,7 @@ import type { LocationFix } from '../map/location';
 import type {
   DamageSide,
   Debt,
+  Fine,
   HistoryPage,
   Inspection,
   InspectionStage,
@@ -243,6 +244,20 @@ export class RentalStore {
   /** A page of the client's trips; the list screen keeps the pages, the store only fetches. */
   history(cursor?: string): Promise<RentalResult<HistoryPage>> {
     return this.api.history(cursor);
+  }
+
+  /** The client's fines, of one trip with `rentalId`; the screens keep them, as with history. */
+  fines(rentalId?: string): Promise<RentalResult<Fine[]>> {
+    return this.api.fines(rentalId);
+  }
+
+  /** An unpaid fine is a debt too: once it is paid, a new reservation may start. */
+  payFine(id: string): Promise<RentalResult<Fine>> {
+    return this.api.payFine(id);
+  }
+
+  finePhotoUrl(fineId: string, photoId: string): Promise<RentalResult<string>> {
+    return this.api.finePhotoUrl(fineId, photoId);
   }
 
   /** Pays the rental on the receipt screen: the one opened by its id, or the current one. */

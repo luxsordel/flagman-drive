@@ -2,6 +2,7 @@ import type { LatLon } from '../map/mapConfig';
 import type {
   DamageSide,
   Debt,
+  Fine,
   HistoryPage,
   Inspection,
   InspectionStage,
@@ -101,6 +102,11 @@ export function fakeRentalApi() {
     debts: jest.fn<Promise<RentalResult<Debt[]>>, []>(() => Promise.resolve(ok([]))),
     history: jest.fn<Promise<RentalResult<HistoryPage>>, [string?]>(() =>
       Promise.resolve(ok({ items: [], next_cursor: null })),
+    ),
+    fines: jest.fn<Promise<RentalResult<Fine[]>>, [string?]>(() => Promise.resolve(ok([]))),
+    payFine: jest.fn<Promise<RentalResult<Fine>>, [string]>(),
+    finePhotoUrl: jest.fn<Promise<RentalResult<string>>, [string, string]>(() =>
+      Promise.resolve(ok('https://storage.test/fines/1.jpg')),
     ),
     uploadPhoto: jest.fn(
       (
