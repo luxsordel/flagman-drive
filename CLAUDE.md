@@ -30,6 +30,7 @@
 - `apps/admin` — React + Vite + TypeScript
 - `services/car-emulator` — эмулятор машин (Python)
 - `packages/api-client` — **сгенерированный** TS-клиент. Руками не править, перегенерировать.
+- `tests/load` — нагрузочный тест (Locust), см. `docs/09-load-test.md`.
 - `infra` — Docker Compose. `docs` — документация и ADR.
 
 ## Архитектурные правила (нарушение = переделка)
