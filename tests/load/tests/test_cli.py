@@ -91,3 +91,20 @@ def test_a_new_stack_first_removes_what_an_earlier_run_left(
     first = commands[0]
     assert first[first.index("down") :] == ["down", "--volumes", "--remove-orphans"]
     assert any("alembic" in command for command in commands[1:])
+
+
+def test_only_services_with_a_healthcheck_are_waited_for(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    commands: list[list[str]] = []
+
+    def record(command: list[str], **_: object) -> None:
+        commands.append(command)
+
+    monkeypatch.setattr(subprocess, "run", record)
+    stack.Stack(tmp_path / "stack.env").up()
+    started = [command for command in commands if "up" in command]
+    waited = next(command for command in started if "--wait" in command)
+    assert {"api", "car-emulator"} <= set(waited)
+    assert "worker" not in waited
+    assert any("worker" in command for command in started)

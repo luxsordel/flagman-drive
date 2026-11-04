@@ -86,9 +86,10 @@ class Stack:
             "--wait-timeout",
             str(_UP_TIMEOUT_S),
             "api",
-            "worker",
             "car-emulator",
         )
+        # Apart: the worker has no healthcheck, and CI's Compose refuses to wait for such a service.
+        self.compose("up", "-d", "worker")
 
     def ensure_operator(self, email: str, password: str, totp_secret: str) -> None:
         # Through stdin: arguments end up in the process list.
