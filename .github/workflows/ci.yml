@@ -62,9 +62,9 @@ jobs:
             api_client=true
           fi
 
-          # What the scenarios run against, and the scenarios themselves.
+          # What the scenarios run against, the scenarios themselves, their job and commands.
           load_smoke=false
-          if has '^(apps/api/|services/car-emulator/|infra/docker-compose\.yml|tests/load/)'; then
+          if has '^(apps/api/|services/car-emulator/|infra/docker-compose\.yml|tests/load/|\.github/workflows/ci\.yml|package\.json)'; then
             load_smoke=true
           fi
 
