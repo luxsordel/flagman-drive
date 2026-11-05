@@ -345,6 +345,24 @@ class FineListOut(BaseModel):
     next_cursor: str | None = Field(default=None, description="Absent on the last page.")
 
 
+class FineQuery(BaseModel):
+    """The client's own fines; the client is the signed-in one, never a parameter."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rental_id: UUID | None = Field(default=None, description="Only the fines of this trip.")
+    cursor: str | None = Field(
+        default=None, max_length=200, description="`next_cursor` of the previous page."
+    )
+
+    @field_validator("cursor")
+    @classmethod
+    def _check_cursor(cls, value: str | None) -> str | None:
+        if value is not None:
+            FineCursor.decode(value)
+        return value
+
+
 class StaffFineQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

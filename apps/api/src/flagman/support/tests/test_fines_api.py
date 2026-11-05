@@ -801,6 +801,34 @@ def test_a_charge_that_answers_after_the_cancellation_is_refunded(
     ]
 
 
+def test_a_charge_never_recorded_is_refunded_by_the_cancellation(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    [fine] = _my_fines(person, _trip(person, car, battery_pct=5))
+
+    async def crash(*args: object) -> None:
+        raise RuntimeError("the worker died after the provider answered")
+
+    # The money is taken, but the fine never learns of it: still pending, no attempt recorded.
+    with monkeypatch.context() as patched:
+        patched.setattr(service, "_record_charge", crash)
+        with pytest.raises(RuntimeError):
+            _settle(person.settings, fine["id"])
+    assert _fine_row(person.settings, fine["id"]).charge_attempts == 0
+
+    cancelled = _cancel(app_client, operator, fine["id"]).json()
+
+    assert (cancelled["status"], cancelled["refund_status"]) == ("cancelled", "succeeded")
+    assert _operations(person.settings, fine["id"]) == [
+        ("charge", "succeeded", fine["amount"]),
+        ("refund", "succeeded", fine["amount"]),
+    ]
+
+
 # Photos
 
 
@@ -866,6 +894,12 @@ def test_a_cancelled_fine_takes_no_photos(
 
 
 # Access
+
+
+def test_a_broken_cursor_of_my_fines_is_refused(person: Person) -> None:
+    response = person.client.get("/support/fines", params={"cursor": "abc"}, headers=person.headers)
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
 def test_another_clients_fine_is_not_found(

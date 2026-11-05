@@ -1452,6 +1452,9 @@ class StaffFineService:
         """The fine stays, cancelled, with the reason; paid money goes back. Cancelling again
         after a declined refund tries the refund once more."""
         reason = ensure_reason(reason)
+        # Saved before the provider is asked: a charge whose outcome was never recorded (a crash
+        # in between) is seen here. One that starts after this read is caught by _record_charge.
+        charges = await payments.operations_with_key_prefix(self.db, f"fine:{fine_id}:charge:")
         async with self.db.begin():
             fine = await repository.get_fine(self.db, fine_id, for_update=True)
             if fine is None:
@@ -1467,7 +1470,7 @@ class StaffFineService:
             else:
                 status = apply_fine_transition(fine.status, FineTransition.CANCEL)
                 # A charge that may have gone through is checked, and returned if it did.
-                refund = fine.status is FineStatus.PAID or fine.charge_attempts > 0
+                refund = fine.status is FineStatus.PAID or fine.charge_attempts > 0 or bool(charges)
                 change = replace(
                     repository.FineUpdate.of(fine),
                     status=status,

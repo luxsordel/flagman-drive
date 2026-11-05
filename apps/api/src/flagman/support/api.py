@@ -48,6 +48,7 @@ from flagman.support.schemas import (
     FineIn,
     FineListOut,
     FineOut,
+    FineQuery,
     IncidentCommentIn,
     IncidentIn,
     IncidentListOut,
@@ -586,15 +587,10 @@ _FINE_PHOTO_NOT_FOUND = _problem("`urn:flagman:problem:fine-not-found`, `fine-ph
 
 @router.get("/fines", summary="The client's fines, newest first")
 async def list_my_fines(
-    client: Client,
-    service: ClientFines,
-    rental_id: Annotated[UUID | None, Query(description="Only the fines of this trip.")] = None,
-    cursor: Annotated[
-        str | None, Query(max_length=200, description="`next_cursor` of the previous page.")
-    ] = None,
+    client: Client, query: Annotated[FineQuery, Query()], service: ClientFines
 ) -> FineListOut:
-    after = FineCursor.decode(cursor) if cursor else None
-    return await service.fines(client.user_id, rental_id, after)
+    after = FineCursor.decode(query.cursor) if query.cursor else None
+    return await service.fines(client.user_id, query.rental_id, after)
 
 
 @router.get(
