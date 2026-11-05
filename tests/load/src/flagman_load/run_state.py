@@ -32,6 +32,16 @@ class ClientSession:
 
 
 @dataclass
+class StaffSession:
+    access_token: str
+    refresh_token: str
+    issued_at: float = field(default_factory=time.time)
+
+    def needs_refresh(self, now: float) -> bool:
+        return now - self.issued_at > ACCESS_TOKEN_REFRESH_AFTER_S
+
+
+@dataclass
 class RunState:
     profile: str
     base_url: str
@@ -43,7 +53,7 @@ class RunState:
     renters: list[ClientSession]
     map_clients: list[ClientSession]
     otp_phones: list[str]
-    staff_tokens: list[str]
+    staff: list[StaffSession]
     zones: list[MapZone]
     summary_path: str
 
@@ -55,4 +65,5 @@ class RunState:
         raw = json.loads(path.read_text(encoding="utf-8"))
         raw["renters"] = [ClientSession(**s) for s in raw["renters"]]
         raw["map_clients"] = [ClientSession(**s) for s in raw["map_clients"]]
+        raw["staff"] = [StaffSession(**s) for s in raw["staff"]]
         return cls(**raw)

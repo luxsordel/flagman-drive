@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 from typing import Any
 
 import pyotp
@@ -15,19 +16,27 @@ from flagman_load.bootstrap import (
     load_applications,
     prepare_renter,
     read_zones,
+    refresh_staff,
     refuse_real_clients,
     require_approved,
     sign_in,
     staff_login,
 )
-from flagman_load.run_state import ClientSession
+from flagman_load.run_state import ClientSession, StaffSession
 
 BASE = "https://api.stand.example"
 TARGET = Target(BASE, send_client_ip=False)
 SESSION = ClientSession("10.0.0.1", "access", "refresh")
 QUEUE = f"{BASE}/admin/kyc/applications"
-OURS = {"id": "ours", "first_name": LOAD_FIRST_NAME}
-REAL = {"id": "real", "first_name": "Анна"}
+SUBMITTED_AT = "2026-11-05T12:00:00.123456Z"
+OURS = {"id": "ours", "first_name": LOAD_FIRST_NAME, "submitted_at": SUBMITTED_AT}
+REAL = {"id": "real", "first_name": "Анна", "submitted_at": SUBMITTED_AT}
+OTHER_RUN = {
+    "id": "other-run",
+    "first_name": LOAD_FIRST_NAME,
+    "submitted_at": "2026-11-05T11:00:00.654321Z",
+}
+STAFF_COOKIE = {"Set-Cookie": "flagman_staff_refresh=rotated; Path=/staff/auth; Secure; HttpOnly"}
 
 
 def _rental(status: str, *, after_submitted: bool = False) -> dict[str, Any]:
@@ -42,17 +51,21 @@ def _calls(url: str) -> int:
     return sum(call.request.url == url for call in responses.calls)
 
 
-def test_a_real_application_is_not_picked() -> None:
-    assert load_applications([OURS, REAL]) == [OURS]
+def test_neither_a_real_application_nor_another_run_is_picked() -> None:
+    picked = load_applications([OURS, REAL, OTHER_RUN], {datetime.fromisoformat(SUBMITTED_AT)})
+    assert picked == [OURS]
 
 
 @responses.activate
-def test_only_load_applications_are_approved() -> None:
-    responses.get(QUEUE, json={"items": [REAL, OURS], "total": 2})
-    responses.get(QUEUE, json={"items": [REAL], "total": 1})
+def test_only_applications_of_this_run_are_approved() -> None:
+    responses.get(
+        f"{BASE}/kyc/application", json={"status": "pending", "submitted_at": SUBMITTED_AT}
+    )
+    responses.get(QUEUE, json={"items": [REAL, OTHER_RUN, OURS], "total": 3})
+    responses.get(QUEUE, json={"items": [REAL, OTHER_RUN], "total": 2})
     approve = responses.post(f"{QUEUE}/ours/approve", json={})
-    # An unregistered URL raises, so approving the real application would fail this test.
-    approve_load_clients(TARGET, "operator")
+    # An unregistered URL raises, so approving anything else would fail this test.
+    approve_load_clients(TARGET, [SESSION], "operator")
     assert approve.call_count == 1
 
 
@@ -176,11 +189,35 @@ def test_staff_login_answers_the_challenge_with_a_current_code() -> None:
     responses.post(
         f"{BASE}/staff/auth/password", json={"challenge_token": "c", "next_step": "totp"}
     )
-    totp = responses.post(f"{BASE}/staff/auth/totp", json={"access_token": "staff"})
-    assert staff_login(TARGET, "load@flagman.example", "password", secret) == "staff"
+    totp = responses.post(
+        f"{BASE}/staff/auth/totp", json={"access_token": "staff"}, headers=STAFF_COOKIE
+    )
+    session = staff_login(TARGET, "load@flagman.example", "password", secret)
+    assert (session.access_token, session.refresh_token) == ("staff", "rotated")
     sent = json.loads(totp.calls[0].request.body)
     assert sent["challenge_token"] == "c"
     assert pyotp.TOTP(secret).verify(sent["code"], valid_window=1)
+
+
+@responses.activate
+def test_a_staff_refresh_sends_the_cookie_and_keeps_the_rotated_one() -> None:
+    refresh = responses.post(
+        f"{BASE}/staff/auth/token/refresh", json={"access_token": "new"}, headers=STAFF_COOKIE
+    )
+    session = StaffSession("old", "current", issued_at=0.0)
+    refresh_staff(TARGET, session)
+    assert refresh.calls[0].request.headers["Cookie"] == "flagman_staff_refresh=current"
+    assert (session.access_token, session.refresh_token) == ("new", "rotated")
+    assert not session.needs_refresh(session.issued_at)
+
+
+@responses.activate
+def test_a_refused_staff_refresh_keeps_the_session_and_stops_with_an_error() -> None:
+    responses.post(f"{BASE}/staff/auth/token/refresh", json={}, status=401)
+    session = StaffSession("old", "current", issued_at=0.0)
+    with pytest.raises(BootstrapError, match="401"):
+        refresh_staff(TARGET, session)
+    assert session.refresh_token == "current"
 
 
 @responses.activate

@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,23 +16,19 @@ from flagman_load.profiles import (
 from flagman_load.run_state import ClientSession
 from flagman_load.stream_clock import StreamClock
 from flagman_load.thresholds import (
-    AGGREGATED,
     Check,
     RequestStats,
+    RunResult,
     RunSummary,
     evaluate,
-    read_exceptions,
-    read_stats,
+    request_stats,
 )
 from flagman_load.zones import Zone, can_finish_at
 
 T0 = datetime(2026, 11, 2, 12, 0, tzinfo=UTC)
 SQUARE = [[0.0, 0.0], [10.0, 0.0], [10.0, 10.0], [0.0, 10.0], [0.0, 0.0]]
 HOLE = [[4.0, 4.0], [6.0, 4.0], [6.0, 6.0], [4.0, 6.0], [4.0, 4.0]]
-GOOD = {
-    MAP_CARS: RequestStats(100, 0, 250.0),
-    AGGREGATED: RequestStats(100, 0, 250.0),
-}
+GOOD = {MAP_CARS: RequestStats(100, 0, 250.0)}
 ENOUGH = RunSummary(peak_rentals=2, finished_rentals=2, unpaid_rentals=0, telemetry_messages=2)
 
 
@@ -61,7 +58,7 @@ def test_slow_requests_fail_above_the_target_not_at_it() -> None:
 
 @pytest.mark.parametrize(
     "stats",
-    [{AGGREGATED: GOOD[AGGREGATED]}, {**GOOD, MAP_CARS: RequestStats(0, 0, None)}],
+    [{}, {MAP_CARS: RequestStats(0, 0, None)}],
 )
 def test_a_scenario_that_did_not_run_fails_even_without_a_latency_target(
     stats: dict[str, RequestStats],
@@ -74,7 +71,6 @@ def test_a_dead_scenario_fails_even_if_the_total_stays_under_the_limit() -> None
         **GOOD,
         MAP_CARS: RequestStats(9000, 0, 250.0),
         "POST /auth/otp/verify": RequestStats(90, 90, 10.0),
-        AGGREGATED: RequestStats(9090, 90, 250.0),
     }
     assert _failed(evaluate(_targets(), stats, ENOUGH, 0)) == {"failures"}
 
@@ -102,12 +98,6 @@ def test_an_unpaid_rental_fails_the_run() -> None:
     assert _failed(evaluate(_targets(), GOOD, unpaid, 0)) == {"unpaid rentals"}
 
 
-def test_read_exceptions_sums_the_counts(tmp_path: Path) -> None:
-    path = tmp_path / "exceptions.csv"
-    path.write_text('Count,Message,Traceback,Nodes\n2,a,"t",n\n3,b,"t",n\n', encoding="utf-8")
-    assert read_exceptions(path) == 5
-
-
 def test_too_few_rentals_or_telemetry_fail() -> None:
     assert _failed(evaluate(_targets(), GOOD, RunSummary(1, 1, 0, 1), 0)) == {
         "peak rentals",
@@ -116,18 +106,29 @@ def test_too_few_rentals_or_telemetry_fail() -> None:
     }
 
 
-def test_read_stats_understands_locust_csv(tmp_path: Path) -> None:
-    path = tmp_path / "stats.csv"
-    path.write_text(
-        '"Type","Name","Request Count","Failure Count","95%"\n'
-        "GET,GET /map/cars,10,1,120\n"
-        "GET,GET /map/zones,0,0,N/A\n"
-        ",Aggregated,10,1,120\n",
-        encoding="utf-8",
-    )
-    stats = read_stats(path)
-    assert stats[MAP_CARS] == RequestStats(10, 1, 120.0)
-    assert stats["GET /map/zones"].p95_ms is None
+@dataclass
+class _Entry:
+    name: str
+    num_requests: int
+    num_failures: int
+
+    def get_response_time_percentile(self, percent: float) -> float | None:
+        return 120.0 * percent
+
+
+def test_request_stats_read_the_final_locust_entries() -> None:
+    assert request_stats([_Entry(MAP_CARS, 10, 1)]) == {MAP_CARS: RequestStats(10, 1, 114.0)}
+
+
+def test_a_request_type_without_requests_has_no_percentile() -> None:
+    assert request_stats([_Entry(MAP_CARS, 0, 0)])[MAP_CARS].p95_ms is None
+
+
+def test_the_run_result_survives_the_trip_between_processes(tmp_path: Path) -> None:
+    result = RunResult(ENOUGH, {MAP_CARS: RequestStats(10, 1, 120.0)}, crashes=3)
+    path = tmp_path / "summary.json"
+    result.save(path)
+    assert RunResult.load(path) == result
 
 
 @pytest.mark.parametrize(

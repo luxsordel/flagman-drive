@@ -5,8 +5,9 @@ code under test. Re-running against the stand skips what is already done and end
 stopped run left open.
 """
 
+import time
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -20,10 +21,12 @@ from flagman_load.photos import make_photo
 from flagman_load.pools import client_ip
 from flagman_load.problems import error_code
 from flagman_load.profiles import INSPECTION_PHOTOS
-from flagman_load.run_state import ClientSession, MapZone
+from flagman_load.run_state import ClientSession, MapZone, StaffSession
 
-# Only applications with this first name are approved: on the stand the queue may hold real ones.
+# Only applications of this run with this first name are approved: on the stand the queue may hold
+# real ones and those of another run.
 LOAD_FIRST_NAME = "Loadtest"
+_STAFF_REFRESH_COOKIE = "flagman_staff_refresh"
 _KYC_DOCUMENTS = ("license_front", "license_back", "passport", "selfie_with_license")
 _TEST_CARD = {"number": "4242424242424242", "expiry": "12/30", "cvc": "123", "action": "bind"}
 _RETURN_URL = "flagmandrive://load-test"
@@ -211,7 +214,14 @@ def prepare_renter(target: Target, session: ClientSession, photo: bytes) -> None
     _bind_card(target, client)
 
 
-def staff_login(target: Target, email: str, password: str, totp_secret: str) -> str:
+def _staff_refresh_cookie(response: requests.Response) -> str:
+    cookie = response.cookies.get(_STAFF_REFRESH_COOKIE)
+    if cookie is None:
+        raise BootstrapError("the staff refresh cookie is missing")
+    return str(cookie)
+
+
+def staff_login(target: Target, email: str, password: str, totp_secret: str) -> StaffSession:
     """One sign-in per account per 30 s: a code cannot be used twice."""
     challenge = _checked(
         requests.post(
@@ -223,25 +233,63 @@ def staff_login(target: Target, email: str, password: str, totp_secret: str) -> 
     )
     if challenge["next_step"] != "totp":
         raise BootstrapError(f"staff sign-in wants {challenge['next_step']}")
-    token = _checked(
-        requests.post(
-            f"{target.base_url}/staff/auth/totp",
-            json={
-                "challenge_token": challenge["challenge_token"],
-                "code": pyotp.TOTP(totp_secret).now(),
-            },
-            timeout=_TIMEOUT_S,
-        ),
-        "staff code",
+    response = requests.post(
+        f"{target.base_url}/staff/auth/totp",
+        json={
+            "challenge_token": challenge["challenge_token"],
+            "code": pyotp.TOTP(totp_secret).now(),
+        },
+        timeout=_TIMEOUT_S,
     )
-    return str(token["access_token"])
+    token = _checked(response, "staff code")
+    return StaffSession(str(token["access_token"]), _staff_refresh_cookie(response))
 
 
-def load_applications(items: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [item for item in items if item["first_name"] == LOAD_FIRST_NAME]
+def refresh_staff(target: Target, session: StaffSession) -> None:
+    """The cookie goes by hand: it is `Secure`, and a local run speaks plain HTTP."""
+    response = requests.post(
+        f"{target.base_url}/staff/auth/token/refresh",
+        json={},
+        headers={"Cookie": f"{_STAFF_REFRESH_COOKIE}={session.refresh_token}"},
+        timeout=_TIMEOUT_S,
+    )
+    token = _checked(response, "staff token refresh")
+    session.refresh_token = _staff_refresh_cookie(response)
+    session.access_token = str(token["access_token"])
+    session.issued_at = time.time()
 
 
-def approve_load_clients(target: Target, operator_token: str) -> None:
+def load_applications(
+    items: Sequence[dict[str, Any]], submitted: Collection[datetime]
+) -> list[dict[str, Any]]:
+    return [
+        item
+        for item in items
+        if item["first_name"] == LOAD_FIRST_NAME
+        and datetime.fromisoformat(item["submitted_at"]) in submitted
+    ]
+
+
+def _submitted_at(target: Target, sessions: Sequence[ClientSession]) -> set[datetime]:
+    """The queue does not name the client, and this moment is what both sides of it can see."""
+
+    def one(session: ClientSession) -> str | None:
+        application = _checked(
+            _client(target, session).get(f"{target.base_url}/kyc/application", timeout=_TIMEOUT_S),
+            "read an application",
+        )
+        moment: str | None = application["submitted_at"]
+        return moment
+
+    with ThreadPoolExecutor(_PARALLEL) as pool:
+        moments = list(pool.map(one, sessions))
+    return {datetime.fromisoformat(moment) for moment in moments if moment is not None}
+
+
+def approve_load_clients(
+    target: Target, sessions: Sequence[ClientSession], operator_token: str
+) -> None:
+    submitted = _submitted_at(target, sessions)
     client = requests.Session()
     client.headers["Authorization"] = f"Bearer {operator_token}"
     issued_on = (datetime.now(UTC) - timedelta(days=5 * 365)).date().isoformat()
@@ -254,7 +302,7 @@ def approve_load_clients(target: Target, operator_token: str) -> None:
             ),
             "read the KYC queue",
         )
-        ours = load_applications(queue["items"])
+        ours = load_applications(queue["items"], submitted)
         if not ours:
             return
         for item in ours:
@@ -295,7 +343,7 @@ def prepare_renters(target: Target, sessions: Sequence[ClientSession], operator_
     photo = make_photo()
     with ThreadPoolExecutor(_PARALLEL) as pool:
         list(pool.map(lambda session: prepare_renter(target, session, photo), sessions))
-    approve_load_clients(target, operator_token)
+    approve_load_clients(target, sessions, operator_token)
     require_approved(target, sessions)
 
 

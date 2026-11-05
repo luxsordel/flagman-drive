@@ -26,7 +26,7 @@ from flagman_load.bootstrap import (
 )
 from flagman_load.profiles import LOCAL_CAR_COUNTS, PILOT, SMOKE, STAND, Profile
 from flagman_load.run_state import STATE_ENV, RunState
-from flagman_load.thresholds import Check, RunSummary, evaluate, read_exceptions, read_stats
+from flagman_load.thresholds import Check, RunResult, evaluate
 
 PROJECT_DIR = Path(__file__).resolve().parents[2]
 REPORTS_DIR = PROJECT_DIR / "reports"
@@ -113,14 +113,12 @@ def _prepare(plan: Plan, report_dir: Path) -> RunState:
     refuse_real_clients(plan.target, sessions)
     renters, map_clients = sessions[:renter_end], sessions[renter_end:]
 
-    # Approving the renters needs a staff token, but it also has to outlast the run: it lives 15
-    # minutes, the stream closes with it and the run does not renew it. Hence after the sign-ins.
-    tokens = [
+    staff = [
         staff_login(plan.target, account.email, account.password, account.totp_secret)
         for account in plan.staff
     ]
     print(f"Preparing {len(renters)} renters: documents, approval, card...", flush=True)
-    prepare_renters(plan.target, renters, tokens[0])
+    prepare_renters(plan.target, renters, staff[0].access_token)
     return RunState(
         profile=profile.name,
         base_url=plan.target.base_url,
@@ -131,7 +129,7 @@ def _prepare(plan: Plan, report_dir: Path) -> RunState:
         renters=renters,
         map_clients=map_clients,
         otp_phones=list(plan.phones[map_end : map_end + profile.otp_phones]),
-        staff_tokens=tokens,
+        staff=staff,
         zones=read_zones(plan.target, sessions[0]),
         summary_path=str(report_dir / "summary.json"),
     )
@@ -176,10 +174,8 @@ def _run_locust(state: RunState, profile: Profile, report_dir: Path) -> None:
 
 
 def _judge(profile: Profile, report_dir: Path) -> list[Check]:
-    stats = read_stats(report_dir / "locust_stats.csv")
-    summary = RunSummary(**json.loads((report_dir / "summary.json").read_text(encoding="utf-8")))
-    exceptions = read_exceptions(report_dir / "locust_exceptions.csv")
-    return evaluate(profile.targets, stats, summary, exceptions)
+    result = RunResult.load(report_dir / "summary.json")
+    return evaluate(profile.targets, result.requests, result.summary, result.crashes)
 
 
 def _report(checks: Sequence[Check], report_dir: Path) -> bool:

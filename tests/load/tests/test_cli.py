@@ -108,3 +108,22 @@ def test_only_services_with_a_healthcheck_are_waited_for(
     assert {"api", "car-emulator"} <= set(waited)
     assert "worker" not in waited
     assert any("worker" in command for command in started)
+
+
+def test_the_shell_cannot_override_the_env_file_of_the_stack(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    envs: list[dict[str, str]] = []
+
+    def record(_: list[str], *, env: dict[str, str], **__: object) -> None:
+        envs.append(env)
+
+    monkeypatch.setenv("API_PORT", "8000")
+    monkeypatch.setenv("KEPT_BY_COMPOSE", "yes")
+    monkeypatch.setattr(subprocess, "run", record)
+    local = stack.Stack(tmp_path / "stack.env")
+    local.write_env({"API_PORT": "18000"})
+    local.compose("ps")
+    local.save_logs(tmp_path / "stack.log")
+    assert len(envs) == 2
+    assert all("API_PORT" not in env and env["KEPT_BY_COMPOSE"] == "yes" for env in envs)

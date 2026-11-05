@@ -1,6 +1,7 @@
 """The local stack of a run: its own Compose project, ports, database and secrets."""
 
 import base64
+import os
 import secrets
 import subprocess
 from collections.abc import Mapping, Sequence
@@ -63,13 +64,22 @@ def local_env(car_count: int, phones: Sequence[str], otp_code: str) -> dict[str,
 class Stack:
     def __init__(self, env_file: Path) -> None:
         self._env_file = env_file
+        self._env_keys: frozenset[str] = frozenset()
 
     def write_env(self, env: Mapping[str, str]) -> None:
+        self._env_keys = frozenset(env)
         lines = "".join(f"{key}={value}\n" for key, value in env.items())
         self._env_file.write_text(lines, encoding="utf-8")
 
     def compose(self, *args: str, stdin: str | None = None) -> None:
-        subprocess.run(self._command(*args), input=stdin, text=True, check=True, cwd=REPO_ROOT)
+        subprocess.run(
+            self._command(*args),
+            input=stdin,
+            text=True,
+            check=True,
+            cwd=REPO_ROOT,
+            env=self._process_env(),
+        )
 
     def up(self) -> None:
         # A stack left by --keep or a closed terminal has a database with another run's password.
@@ -118,10 +128,15 @@ class Stack:
                 text=True,
                 check=False,
                 cwd=REPO_ROOT,
+                env=self._process_env(),
             )
 
     def down(self) -> None:
         self.compose("down", "--volumes", "--remove-orphans")
+
+    def _process_env(self) -> dict[str, str]:
+        # Compose prefers the shell to --env-file: a developer's API_PORT would move the stack.
+        return {key: value for key, value in os.environ.items() if key not in self._env_keys}
 
     def _command(self, *args: str) -> list[str]:
         return [

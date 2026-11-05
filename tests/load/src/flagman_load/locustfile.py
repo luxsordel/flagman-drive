@@ -6,17 +6,18 @@ import random
 import time
 import uuid
 from collections import deque
-from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 import gevent
 import websocket
+from gevent.lock import Semaphore
 from locust import HttpUser, User, between, constant, events, task
 from locust.exception import StopUser
 from requests import Response
 
+from flagman_load.bootstrap import BootstrapError, Target, refresh_staff
 from flagman_load.photos import make_photo
 from flagman_load.pools import client_ip
 from flagman_load.problems import error_code
@@ -38,13 +39,14 @@ from flagman_load.rental_flow import (
     Reserve,
     reserve_outcome,
 )
-from flagman_load.run_state import STATE_ENV, ClientSession, RunState
+from flagman_load.run_state import STATE_ENV, ClientSession, RunState, StaffSession
 from flagman_load.stream_clock import StreamClock
-from flagman_load.thresholds import RunSummary
+from flagman_load.thresholds import RunResult, RunSummary, request_stats
 from flagman_load.zones import Zone
 
 STATE = RunState.load(Path(os.environ[STATE_ENV]))
 PROFILE = PROFILES[STATE.profile]
+TARGET = Target(STATE.base_url, STATE.send_client_ip)
 ZONES = [Zone(zone["kind"], zone["polygon"]["coordinates"]) for zone in STATE.zones]
 PHOTO_BYTES = make_photo()
 
@@ -58,7 +60,8 @@ _EVENTS: Any = events
 _renters = deque(STATE.renters)
 _map_clients = deque(STATE.map_clients)
 _otp_phones = deque(enumerate(STATE.otp_phones))
-_staff_tokens = deque(STATE.staff_tokens)
+_staff_sessions = deque(STATE.staff)
+_staff_refresh = Semaphore()
 
 _rentals = RentalCounters()
 _telemetry_messages = 0
@@ -94,9 +97,12 @@ def _failure_reason(response: Any) -> str:
     return f"{response.status_code} {error_code(response)}"
 
 
-def _write_summary(environment: Any, **_: Any) -> None:
-    summary = RunSummary(_rentals.peak, _rentals.finished, _rentals.unpaid, _telemetry_messages)
-    Path(STATE.summary_path).write_text(json.dumps(asdict(summary)), encoding="utf-8")
+def _write_result(environment: Any, **_: Any) -> None:
+    RunResult(
+        summary=RunSummary(_rentals.peak, _rentals.finished, _rentals.unpaid, _telemetry_messages),
+        requests=request_stats(environment.stats.entries.values()),
+        crashes=sum(row["count"] for row in environment.runner.exceptions.values()),
+    ).save(Path(STATE.summary_path))
 
 
 def _mark_stopping(environment: Any, **_: Any) -> None:
@@ -104,7 +110,7 @@ def _mark_stopping(environment: Any, **_: Any) -> None:
     _stopping = True
 
 
-_EVENTS.quitting.add_listener(_write_summary)
+_EVENTS.quitting.add_listener(_write_result)
 _EVENTS.test_stopping.add_listener(_mark_stopping)
 
 
@@ -254,33 +260,39 @@ class StaffStreamUser(User):
     wait_time = constant(1)
 
     def on_start(self) -> None:
-        # The stand has one account per role, so its sockets share a token.
-        self.token = _staff_tokens[0]
-        _staff_tokens.rotate(-1)
+        # The stand has one account per role, so its sockets share a session.
+        self.session = _staff_sessions[0]
+        _staff_sessions.rotate(-1)
 
     @task
     def stream(self) -> None:
         started = time.perf_counter()
         socket = None
         try:
+            token = _staff_token(self.session)
             socket = websocket.create_connection(
                 STATE.ws_url, origin=STATE.origin, timeout=_STREAM_TIMEOUT_S
             )
-            socket.send(json.dumps({"type": "auth", "token": self.token}))
-            self._read_stream(socket, started)
-        except (websocket.WebSocketException, OSError, ValueError) as error:
+            socket.send(_stream_auth(token))
+            self._read_stream(socket, started, token)
+        except (websocket.WebSocketException, OSError, ValueError, BootstrapError) as error:
             _failure("WS /admin/fleet/stream", f"{type(error).__name__}: {error}")
         finally:
             if socket is not None:
                 socket.close()
 
-    def _read_stream(self, socket: websocket.WebSocket, started: float) -> None:
+    def _read_stream(self, socket: websocket.WebSocket, started: float, token: str) -> None:
         global _telemetry_messages
         clock = StreamClock()
         # Without this the socket never ends its task, and every run waits out the stop timeout.
         while not _stopping:
             message = json.loads(socket.recv())
             received_at = datetime.now(UTC)
+            # The stream closes when the token it was last given expires.
+            current = _staff_token(self.session)
+            if current != token:
+                socket.send(_stream_auth(current))
+                token = current
             if message["type"] == "snapshot":
                 _measurement(STREAM_SNAPSHOT, (time.perf_counter() - started) * 1000)
                 clock.observe(received_at, datetime.fromisoformat(message["as_of"]))
@@ -294,6 +306,18 @@ class StaffStreamUser(User):
                 if lag is not None:
                     _telemetry_messages += 1
                     _measurement(TELEMETRY_LAG, lag)
+
+
+def _staff_token(session: StaffSession) -> str:
+    # One at a time: a second use of a rotated refresh token would end the session of both sockets.
+    with _staff_refresh:
+        if session.needs_refresh(time.time()):
+            refresh_staff(TARGET, session)
+    return session.access_token
+
+
+def _stream_auth(token: str) -> str:
+    return json.dumps({"type": "auth", "token": token})
 
 
 def _recorded(items: list[dict[str, Any]]) -> list[datetime]:

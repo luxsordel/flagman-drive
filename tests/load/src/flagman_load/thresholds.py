@@ -1,13 +1,13 @@
 """Judges a finished run against its targets."""
 
-import csv
-from collections.abc import Mapping
-from dataclasses import dataclass
+import json
+from collections.abc import Iterable, Mapping
+from dataclasses import asdict, dataclass
 from pathlib import Path
+from typing import Protocol
 
 from flagman_load.profiles import Targets
 
-AGGREGATED = "Aggregated"
 # One broken connection is not a verdict on the system: a smoke run has only 7 sign-ins.
 _STRAY_FAILURES = 1
 
@@ -35,24 +35,48 @@ class Check:
     ok: bool
 
 
-def read_stats(path: Path) -> dict[str, RequestStats]:
-    """Reads Locust's `*_stats.csv`; a request type that never ran has no usable percentile."""
-    stats: dict[str, RequestStats] = {}
-    with path.open(newline="", encoding="utf-8") as file:
-        for row in csv.DictReader(file):
-            raw = row["95%"]
-            stats[row["Name"]] = RequestStats(
-                requests=int(row["Request Count"]),
-                failures=int(row["Failure Count"]),
-                p95_ms=None if raw in ("", "N/A") else float(raw),
-            )
-    return stats
+class LocustEntry(Protocol):
+    """Locust's `StatsEntry`. Not imported: Locust patches the importing process with gevent."""
+
+    name: str
+    num_requests: int
+    num_failures: int
+
+    def get_response_time_percentile(self, percent: float) -> float | None: ...
 
 
-def read_exceptions(path: Path) -> int:
-    """Counts what crashed inside the scenarios, from Locust's `*_exceptions.csv`."""
-    with path.open(newline="", encoding="utf-8") as file:
-        return sum(int(row["Count"]) for row in csv.DictReader(file))
+def request_stats(entries: Iterable[LocustEntry]) -> dict[str, RequestStats]:
+    return {
+        entry.name: RequestStats(
+            requests=entry.num_requests,
+            failures=entry.num_failures,
+            p95_ms=(
+                float(entry.get_response_time_percentile(0.95) or 0) if entry.num_requests else None
+            ),
+        )
+        for entry in entries
+    }
+
+
+@dataclass(frozen=True)
+class RunResult:
+    """Taken as Locust quits: its CSV files lag by up to a second and miss the end of the run."""
+
+    summary: RunSummary
+    requests: dict[str, RequestStats]
+    crashes: int
+
+    def save(self, path: Path) -> None:
+        path.write_text(json.dumps(asdict(self)), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: Path) -> "RunResult":
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return cls(
+            summary=RunSummary(**raw["summary"]),
+            requests={name: RequestStats(**row) for name, row in raw["requests"].items()},
+            crashes=raw["crashes"],
+        )
 
 
 def evaluate(
@@ -86,7 +110,7 @@ def _latency(name: str, limit: int | None, row: RequestStats | None) -> Check:
 def _failures(limit: float, stats: Mapping[str, RequestStats]) -> Check:
     """Per request: in a total of mostly map requests a whole dead scenario stays under 1%."""
     target = f"each < {limit:.0%}"
-    rows = {name: row for name, row in stats.items() if name != AGGREGATED and row.requests}
+    rows = {name: row for name, row in stats.items() if row.requests}
     if not rows:
         return Check("failures", target, "no requests", ok=False)
     name, worst = max(rows.items(), key=lambda item: item[1].failures / item[1].requests)
