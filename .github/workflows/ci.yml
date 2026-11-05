@@ -22,6 +22,7 @@ jobs:
       python: ${{ steps.detect.outputs.python }}
       node: ${{ steps.detect.outputs.node }}
       api-client: ${{ steps.detect.outputs.api-client }}
+      load-smoke: ${{ steps.detect.outputs.load-smoke }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -43,7 +44,7 @@ jobs:
 
           # A part is checked only once it exists; missing apps are skipped, not failed.
           python='[]'
-          for dir in apps/api services/car-emulator; do
+          for dir in apps/api services/car-emulator tests/load; do
             if [ -f "$dir/pyproject.toml" ] && has "^$dir/"; then
               python=$(echo "$python" | jq -c --arg d "$dir" '. + [$d]')
             fi
@@ -61,9 +62,16 @@ jobs:
             api_client=true
           fi
 
+          # What the scenarios run against, the scenarios themselves, their job and commands.
+          load_smoke=false
+          if has '^(apps/api/|services/car-emulator/|infra/docker-compose\.yml|tests/load/|\.github/workflows/ci\.yml|package\.json)'; then
+            load_smoke=true
+          fi
+
           echo "python=$python" >> "$GITHUB_OUTPUT"
           echo "node=$node" >> "$GITHUB_OUTPUT"
           echo "api-client=$api_client" >> "$GITHUB_OUTPUT"
+          echo "load-smoke=$load_smoke" >> "$GITHUB_OUTPUT"
 
   python-quality:
     name: Python quality (${{ matrix.dir }})
@@ -172,6 +180,28 @@ jobs:
             exit 1
           fi
 
+  # Every scenario still runs on a real stack. Latency is not judged: runners are too noisy for it.
+  load-smoke:
+    name: Load test smoke run
+    needs: changes
+    if: needs.changes.outputs.load-smoke == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: tests/load/uv.lock
+      - run: uv sync --locked --project tests/load
+      - run: uv run --project tests/load flagman-load local smoke
+      - name: Show why the run failed
+        if: failure()
+        run: |
+          cat tests/load/reports/*/locust_failures.csv || true
+          cat tests/load/reports/*/locust_exceptions.csv || true
+          tail -n 100 tests/load/reports/*/stack.log || true
+
   semgrep:
     name: Semgrep (SAST)
     runs-on: ubuntu-latest
@@ -182,13 +212,21 @@ jobs:
         run: |
           uvx semgrep==1.182.1 scan --error --metrics=off \
             --config p/default --config p/python --config p/typescript --config p/security-audit
+      - name: Run Semgrep on the load test
+        # Semgrep skips every tests/ folder of a git repository, wherever inside it the scan starts,
+        # and reports success for 0 files. So these sources are scanned from outside the repository.
+        run: |
+          cp -r tests/load/src "$RUNNER_TEMP/load-test"
+          cd "$RUNNER_TEMP/load-test"
+          uvx semgrep==1.182.1 scan --error --metrics=off \
+            --config p/default --config p/python --config p/security-audit
 
   # The only check added to branch protection (besides repo-checks): it always reports,
   # and passes when every job succeeded or was skipped by change detection.
   gate:
     name: CI gate
     if: always()
-    needs: [changes, python-quality, python-audit, node-quality, api-client-fresh, semgrep]
+    needs: [changes, python-quality, python-audit, node-quality, api-client-fresh, load-smoke, semgrep]
     runs-on: ubuntu-latest
     steps:
       - name: Require no failed or cancelled jobs

@@ -41,3 +41,7 @@ Thumbs.db
 # Local data
 infra/data/
 *.log
+
+# Load test runs: results, and the logins of the stand.
+tests/load/reports/
+tests/load/stand.env

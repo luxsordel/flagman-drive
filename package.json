@@ -11,7 +11,10 @@
     "lint": "npm run lint --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm test --workspaces --if-present",
-    "audit": "npm audit --json | node scripts/npm-audit.mjs"
+    "audit": "npm audit --json | node scripts/npm-audit.mjs",
+    "load:smoke": "uv run --project tests/load flagman-load local smoke",
+    "load:local": "uv run --project tests/load flagman-load local pilot",
+    "load:stand": "uv run --project tests/load flagman-load stand"
   },
   "engines": {
     "node": ">=22"
