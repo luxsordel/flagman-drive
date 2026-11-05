@@ -109,6 +109,7 @@
           "incident.photo_viewed",
           "fine.charged",
           "fine.cancelled",
+          "fine.refund_retried",
           "fine.photo_added",
           "fine.photo_viewed",
           "rental.force_finished",
@@ -1282,7 +1283,15 @@
       },
       "FineEventAction": {
         "description": "A line of a fine's history; the fine itself is never deleted, a cancellation is a line.",
-        "enum": ["charged", "paid", "declined", "cancelled", "refunded", "refund_failed"],
+        "enum": [
+          "charged",
+          "paid",
+          "declined",
+          "cancelled",
+          "refunded",
+          "refund_failed",
+          "refund_retried"
+        ],
         "title": "FineEventAction",
         "type": "string"
       },
@@ -1364,7 +1373,7 @@
         "type": "object"
       },
       "FineKind": {
-        "description": "Values are stored as is: renaming one needs a migration.",
+        "description": "Worked out from the code, never stored: the API and the admin show it as is.",
         "enum": ["automatic", "manual"],
         "title": "FineKind",
         "type": "string"
@@ -1377,6 +1386,18 @@
             },
             "title": "Items",
             "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Absent on the last page.",
+            "title": "Next Cursor"
           }
         },
         "required": ["items"],
@@ -1539,7 +1560,7 @@
             "type": "integer"
           },
           "code": {
-            "description": "Stable code of the type; a new type is always a manual fine.",
+            "description": "Stable code of the type; a manual fine, but for `low_battery`, which the system charges itself.",
             "pattern": "^[a-z][a-z0-9_]{1,39}$",
             "title": "Code",
             "type": "string"
@@ -4057,7 +4078,7 @@
             "type": "string"
           },
           "debt": {
-            "description": "Kopecks of BYN owed for earlier rentals.",
+            "description": "Kopecks of BYN owed for earlier rentals and unpaid fines.",
             "title": "Debt",
             "type": "integer"
           },
@@ -10582,6 +10603,20 @@
       "post": {
         "description": "The card is charged right after; a declined card makes the fine a debt of the client. Photos are added with `POST /admin/support/fines/{fine_id}/photos`.",
         "operationId": "charge_fine_admin_support_fines_post",
+        "parameters": [
+          {
+            "description": "A new one per filled form; a repeat with it charges nothing again.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "A new one per filled form; a repeat with it charges nothing again.",
+              "format": "uuid",
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -10641,7 +10676,7 @@
                 }
               }
             },
-            "description": "`urn:flagman:problem:fine-rental-not-finished`."
+            "description": "`urn:flagman:problem:fine-rental-not-finished`; `idempotency-key-reused`: the key was sent with another fine."
           },
           "422": {
             "content": {
@@ -16958,6 +16993,25 @@
               ],
               "description": "Only the fines of this trip.",
               "title": "Rental Id"
+            }
+          },
+          {
+            "description": "`next_cursor` of the previous page.",
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 200,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "`next_cursor` of the previous page.",
+              "title": "Cursor"
             }
           }
         ],

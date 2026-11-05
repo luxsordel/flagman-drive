@@ -2186,6 +2186,7 @@ export interface components {
       | 'incident.photo_viewed'
       | 'fine.charged'
       | 'fine.cancelled'
+      | 'fine.refund_retried'
       | 'fine.photo_added'
       | 'fine.photo_viewed'
       | 'rental.force_finished'
@@ -2781,7 +2782,14 @@ export interface components {
      * @description A line of a fine's history; the fine itself is never deleted, a cancellation is a line.
      * @enum {string}
      */
-    FineEventAction: 'charged' | 'paid' | 'declined' | 'cancelled' | 'refunded' | 'refund_failed';
+    FineEventAction:
+      | 'charged'
+      | 'paid'
+      | 'declined'
+      | 'cancelled'
+      | 'refunded'
+      | 'refund_failed'
+      | 'refund_retried';
     /** FineEventOut */
     FineEventOut: {
       action: components['schemas']['FineEventAction'];
@@ -2822,7 +2830,7 @@ export interface components {
     };
     /**
      * FineKind
-     * @description Values are stored as is: renaming one needs a migration.
+     * @description Worked out from the code, never stored: the API and the admin show it as is.
      * @enum {string}
      */
     FineKind: 'automatic' | 'manual';
@@ -2830,6 +2838,11 @@ export interface components {
     FineListOut: {
       /** Items */
       items: components['schemas']['FineOut'][];
+      /**
+       * Next Cursor
+       * @description Absent on the last page.
+       */
+      next_cursor?: string | null;
     };
     /**
      * FineOut
@@ -2915,7 +2928,7 @@ export interface components {
       amount: number;
       /**
        * Code
-       * @description Stable code of the type; a new type is always a manual fine.
+       * @description Stable code of the type; a manual fine, but for `low_battery`, which the system charges itself.
        */
       code: string;
       /** Name En */
@@ -4147,7 +4160,7 @@ export interface components {
       created_at: string;
       /**
        * Debt
-       * @description Kopecks of BYN owed for earlier rentals.
+       * @description Kopecks of BYN owed for earlier rentals and unpaid fines.
        */
       debt: number;
       /** Email */
@@ -8174,7 +8187,10 @@ export interface operations {
   charge_fine_admin_support_fines_post: {
     parameters: {
       query?: never;
-      header?: never;
+      header: {
+        /** @description A new one per filled form; a repeat with it charges nothing again. */
+        'Idempotency-Key': string;
+      };
       path?: never;
       cookie?: never;
     };
@@ -8220,7 +8236,7 @@ export interface operations {
           'application/problem+json': components['schemas']['Problem'];
         };
       };
-      /** @description `urn:flagman:problem:fine-rental-not-finished`. */
+      /** @description `urn:flagman:problem:fine-rental-not-finished`; `idempotency-key-reused`: the key was sent with another fine. */
       409: {
         headers: {
           [name: string]: unknown;
@@ -12913,6 +12929,8 @@ export interface operations {
       query?: {
         /** @description Only the fines of this trip. */
         rental_id?: string | null;
+        /** @description `next_cursor` of the previous page. */
+        cursor?: string | null;
       };
       header?: never;
       path?: never;
