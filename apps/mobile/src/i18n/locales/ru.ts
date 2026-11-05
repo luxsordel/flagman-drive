@@ -308,6 +308,7 @@ export const ru = {
     },
     debt: {
       banner: 'Долг за аренду: {{amount}}',
+      fines: 'Неоплаченный штраф: {{amount}}',
       open: 'Оплатить',
     },
     ended: {

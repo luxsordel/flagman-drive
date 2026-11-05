@@ -1,6 +1,6 @@
 import { spacing } from '@flagman/design-tokens';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { AppState, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,7 @@ import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
 import { useKycApplication, useKycState } from '../kyc/KycProvider';
 import { useProfile, useProfileStore } from '../profile/ProfileProvider';
+import { useFines } from '../fines/FinesScreen';
 import { DebtBanner } from '../rental/DebtBanner';
 import { RentalBanner } from '../rental/RentalBanner';
 import { useRentalStore, useRestoredRental } from '../rental/RentalProvider';
@@ -82,6 +83,12 @@ function LiveMap() {
   const state = useMapState();
   const rentalStore = useRentalStore();
   const rentalState = useRestoredRental();
+  // Loaded again on every return to the map, as the rental debts are: a paid fine leaves.
+  const { fines } = useFines();
+  const unpaidFines = useMemo(
+    () => (fines ?? []).filter((fine) => fine.status === 'unpaid'),
+    [fines],
+  );
   const kyc = useKycState();
   const profileStore = useProfileStore();
   const { profile } = useProfile();
@@ -193,11 +200,15 @@ function LiveMap() {
               store.clearSelection();
             }}
           />
-        ) : rentalState.debts.length > 0 ? (
+        ) : rentalState.debts.length > 0 || unpaidFines.length > 0 ? (
           <DebtBanner
             debts={rentalState.debts}
+            unpaidFines={unpaidFines}
             onOpen={(id) => {
               router.push({ pathname: '/rental/receipt', params: { id } });
+            }}
+            onOpenFines={() => {
+              router.push('/fines');
             }}
           />
         ) : notice !== null ? (

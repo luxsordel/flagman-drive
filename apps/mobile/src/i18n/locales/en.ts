@@ -313,6 +313,7 @@ export const en: Translation = {
     },
     debt: {
       banner: 'Debt for a rental: {{amount}}',
+      fines: 'Unpaid fine: {{amount}}',
       open: 'Pay',
     },
     ended: {

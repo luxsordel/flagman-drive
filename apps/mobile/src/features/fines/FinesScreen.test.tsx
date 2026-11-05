@@ -2,9 +2,9 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 
 import { initI18n } from '../../i18n';
 import { RentalProvider } from '../rental/RentalProvider';
-import type { Fine } from '../rental/rentalApi';
+import { ru } from '../../i18n/locales/ru';
 import { RentalStore } from '../rental/rentalStore';
-import { fakeRentalApi, nearCar, ok, serverNow } from '../rental/testing';
+import { fakeRentalApi, fine, nearCar, ok, serverNow } from '../rental/testing';
 import { FinesScreen, TripFines } from './FinesScreen';
 
 initI18n('ru');
@@ -19,27 +19,6 @@ jest.mock('expo-router', () => {
     },
   };
 });
-
-function fine(overrides: Partial<Fine> = {}): Fine {
-  return {
-    id: 'fine-1',
-    rental_id: 'rental-1',
-    fine_type_id: 'type-1',
-    code: 'smoking',
-    name_ru: 'Курение в салоне',
-    name_en: 'Smoking in the car',
-    amount: 10000,
-    automatic: false,
-    status: 'paid',
-    comment: 'В салоне пахнет табаком',
-    cancel_reason: null,
-    refund_status: null,
-    photos: [],
-    created_at: '2026-11-03T10:00:00Z',
-    cancelled_at: null,
-    ...overrides,
-  };
-}
 
 async function renderWith(fake: ReturnType<typeof fakeRentalApi>, element: React.ReactElement) {
   const store = new RentalStore(
@@ -98,7 +77,8 @@ describe('FinesScreen', () => {
 
     await fireEvent.press(await screen.findByText('Оплатить'));
 
-    expect(await screen.findByText('Оплатить')).toBeOnTheScreen();
+    expect(await screen.findByText(ru.rental.errors.network)).toBeOnTheScreen();
+    expect(screen.getByText('Оплатить')).toBeOnTheScreen();
     expect(screen.getByText(/Не оплачен$/)).toBeOnTheScreen();
   });
 

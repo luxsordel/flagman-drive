@@ -17,6 +17,7 @@ export type Debt = components['schemas']['DebtOut'];
 export type HistoryItem = components['schemas']['HistoryItemOut'];
 export type HistoryPage = components['schemas']['HistoryPageOut'];
 export type Fine = components['schemas']['FineOut'];
+type FinePage = components['schemas']['FineListOut'];
 
 export type RentalResult<T> =
   | { ok: true; value: T }
@@ -124,11 +125,25 @@ export function createRentalApi({
         api.GET('/rentals/history', { params: { query: cursor ? { cursor } : {} } }),
         (body) => body,
       ),
-    fines: (rentalId) =>
-      send(
-        api.GET('/support/fines', { params: { query: rentalId ? { rental_id: rentalId } : {} } }),
-        (body) => body.items,
-      ),
+    // Every page at once: a client has a handful of fines, one page is nearly always all of them.
+    async fines(rentalId) {
+      const all: Fine[] = [];
+      let cursor: string | null = null;
+      do {
+        const query: { rental_id?: string; cursor?: string } = {
+          ...(rentalId ? { rental_id: rentalId } : {}),
+          ...(cursor ? { cursor } : {}),
+        };
+        const page: RentalResult<FinePage> = await send(
+          api.GET('/support/fines', { params: { query } }),
+          (body) => body,
+        );
+        if (!page.ok) return page;
+        all.push(...page.value.items);
+        cursor = page.value.next_cursor ?? null;
+      } while (cursor !== null);
+      return { ok: true, value: all };
+    },
     payFine: (id) =>
       send(
         api.POST('/support/fines/{fine_id}/pay', { params: { path: { fine_id: id } } }),
