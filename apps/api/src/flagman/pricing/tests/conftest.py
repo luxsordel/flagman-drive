@@ -1,15 +1,12 @@
-import asyncio
 import uuid
-from collections.abc import Awaitable, Callable, Iterator
+from collections.abc import Iterator
 from datetime import UTC, datetime
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.app import create_app
 from flagman.core.config import Settings
-from flagman.core.db import create_engine, create_session_factory
 from flagman.identity.domain import (
     AccessClaims,
     StaffAccessClaims,
@@ -47,15 +44,3 @@ def admin(integration_settings: Settings) -> Caller:
 @pytest.fixture
 def operator(integration_settings: Settings) -> Caller:
     return Caller(integration_settings, StaffRole.OPERATOR)
-
-
-def _run[T](settings: Settings, work: Callable[[AsyncSession], Awaitable[T]]) -> T:
-    async def run() -> T:
-        engine = create_engine(settings)
-        try:
-            async with create_session_factory(engine)() as db:
-                return await work(db)
-        finally:
-            await engine.dispose()
-
-    return asyncio.run(run())

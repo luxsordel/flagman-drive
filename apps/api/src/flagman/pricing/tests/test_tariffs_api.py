@@ -12,6 +12,7 @@ from flagman.audit.models import AuditEvent
 from flagman.core.config import Settings
 from flagman.fleet import repository as fleet_repository
 from flagman.fleet.domain import CarModelSpec
+from flagman.fleet.tests.conftest import run_in_db
 from flagman.identity.domain import (
     StaffRole,
 )
@@ -23,7 +24,7 @@ from flagman.pricing.domain import (
     TariffVersionNotFoundError,
 )
 from flagman.pricing.seed import DEMO_PRICES
-from flagman.pricing.tests.conftest import Caller, _run
+from flagman.pricing.tests.conftest import Caller
 
 pytestmark = pytest.mark.integration
 
@@ -47,7 +48,7 @@ def model_id(integration_settings: Settings) -> uuid.UUID:
             created, _ = await fleet_repository.ensure_model(db, spec, datetime.now(UTC))
             return created
 
-    return _run(integration_settings, add)
+    return run_in_db(integration_settings, add)
 
 
 def _create(client: TestClient, admin: Caller, model_id: uuid.UUID, **prices: int) -> Any:
@@ -72,7 +73,7 @@ def _audit_events(settings: Settings, tariff_id: str) -> list[tuple[str, uuid.UU
             )
             return [(action, actor, details) for action, actor, details in rows]
 
-    return _run(settings, read)
+    return run_in_db(settings, read)
 
 
 def test_admin_creates_a_tariff(client: TestClient, admin: Caller, model_id: uuid.UUID) -> None:
@@ -232,7 +233,7 @@ def test_rentals_quote_by_the_version_they_were_booked_with(
     async def booked(db: AsyncSession) -> uuid.UUID:
         return (await service.current_version(db, model_id)).id
 
-    version_id = _run(integration_settings, booked)
+    version_id = run_in_db(integration_settings, booked)
     items = client.get(URL, headers=admin.headers).json()["items"]
     tariff = next(item for item in items if item["model"]["id"] == str(model_id))
     _update(client, admin, tariff["tariff_id"], 1, driving_per_minute=90)
@@ -244,14 +245,14 @@ def test_rentals_quote_by_the_version_they_were_booked_with(
         current = await service.current_version(db, model_id)
         return booked_quote.total, current.prices.driving_per_minute
 
-    assert _run(integration_settings, quote) == (400, 90)
+    assert run_in_db(integration_settings, quote) == (400, 90)
 
 
 def test_public_reads_raise_for_missing_tariffs(integration_settings: Settings) -> None:
     with pytest.raises(TariffNotFoundError):
-        _run(integration_settings, lambda db: service.current_version(db, uuid.uuid4()))
+        run_in_db(integration_settings, lambda db: service.current_version(db, uuid.uuid4()))
     with pytest.raises(TariffVersionNotFoundError):
-        _run(integration_settings, lambda db: service.get_version(db, uuid.uuid4()))
+        run_in_db(integration_settings, lambda db: service.get_version(db, uuid.uuid4()))
 
 
 def test_current_versions_leave_out_models_without_a_tariff(
@@ -260,7 +261,7 @@ def test_current_versions_leave_out_models_without_a_tariff(
     _create(client, admin, model_id)
     other = uuid.uuid4()
 
-    versions = _run(
+    versions = run_in_db(
         integration_settings, lambda db: service.current_versions(db, [model_id, other])
     )
 
@@ -271,13 +272,13 @@ def test_seed_gives_models_without_a_tariff_the_demo_one(
     client: TestClient, admin: Caller, model_id: uuid.UUID, integration_settings: Settings
 ) -> None:
     def seed() -> int:
-        return _run(
+        return run_in_db(
             integration_settings, lambda db: service.seed_demo_tariffs(db, datetime.now(UTC))
         )
 
     assert seed() >= 1
     assert seed() == 0
 
-    current = _run(integration_settings, lambda db: service.current_version(db, model_id))
+    current = run_in_db(integration_settings, lambda db: service.current_version(db, model_id))
     assert current.prices == DEMO_PRICES
     assert current.created_by is None
