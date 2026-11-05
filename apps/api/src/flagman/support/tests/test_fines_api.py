@@ -31,6 +31,7 @@ from flagman.rentals.tests.conftest import (
     query,
 )
 from flagman.support import service
+from flagman.support.domain import FINE_COMMENT_MAX_LENGTH
 from flagman.support.tests.conftest import audit_actions
 
 pytestmark = pytest.mark.integration
@@ -107,13 +108,19 @@ def _my_fines(person: Person, rental_id: str | None = None) -> list[Any]:
     return items
 
 
-def _charge(
-    client: TestClient, staff: Staff, rental_id: str, fine_type_id: str, comment: str = "Smoked"
+def _charge(  # noqa: PLR0913 - every field of the operator's form
+    client: TestClient,
+    staff: Staff,
+    rental_id: str,
+    fine_type_id: str,
+    comment: str = "Smoked",
+    *,
+    key: uuid.UUID | None = None,
 ) -> Any:
     return client.post(
         STAFF_URL,
         json={"rental_id": rental_id, "fine_type_id": fine_type_id, "comment": comment},
-        headers=staff.headers,
+        headers={**staff.headers, "Idempotency-Key": str(key or uuid.uuid4())},
     )
 
 
@@ -139,6 +146,37 @@ def _operations(settings: Settings, fine_id: str) -> list[tuple[str, str, int]]:
     return [(str(row.kind), str(row.status), int(row.amount)) for row in rows]
 
 
+def _settle(settings: Settings, fine_id: str, at: datetime | None = None) -> None:
+    gateway = payments.gateway(settings)
+    rules = service.fine_rules(settings)
+    when = at or datetime.now(UTC)
+    run_in_db(
+        settings, lambda db: service.settle_fine(db, gateway, uuid.UUID(fine_id), rules, when)
+    )
+
+
+def _fine_row(settings: Settings, fine_id: str) -> Any:
+    [row] = query(
+        settings,
+        "SELECT status, charge_attempts, next_at, refund_status, refund_attempts "
+        "FROM support_fines WHERE id = :id",
+        id=uuid.UUID(fine_id),
+    )
+    return row
+
+
+def _answer(monkeypatch: pytest.MonkeyPatch, method: str, status: OperationStatus) -> None:
+    result = OperationResult(
+        status,
+        decline_reason=DeclineReason.DECLINED if status is OperationStatus.DECLINED else None,
+    )
+
+    async def answer(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        return result
+
+    monkeypatch.setattr(FakeProvider, method, answer)
+
+
 def _pushes(settings: Settings, user_id: uuid.UUID) -> list[Any]:
     rows = query(
         settings,
@@ -155,8 +193,10 @@ def test_a_trip_ended_with_a_low_battery_is_fined_and_charged(
     person: Person, car: str, integration_settings: Settings
 ) -> None:
     rental_id = _trip(person, car, battery_pct=5)
+    [due] = _my_fines(person, rental_id)
+    assert due["status"] == "pending"
 
-    assert _settle_due(integration_settings) >= 1
+    _settle(integration_settings, due["id"])
 
     [fine] = _my_fines(person, rental_id)
     amount = DEMO_FINES[LOW_BATTERY_FINE_CODE].amount
@@ -170,6 +210,33 @@ def test_a_trip_ended_with_a_low_battery_is_fined_and_charged(
     assert _operations(integration_settings, fine["id"]) == [("charge", "succeeded", amount)]
     assert _pushes(integration_settings, person.id) == [{"amount": amount, "number": 1}]
     assert audit_actions(integration_settings, fine["id"]) == ["fine.charged"]
+
+
+def test_the_job_takes_every_due_fine_in_time(
+    person: Person, car: str, integration_settings: Settings
+) -> None:
+    [fine] = _my_fines(person, _trip(person, car, battery_pct=5))
+
+    # The database is shared by the session: other tests' fines may be due before this one.
+    for _ in range(20):
+        if _fine_row(integration_settings, fine["id"]).status == "paid":
+            break
+        assert _settle_due(integration_settings) >= 1
+
+    assert _fine_row(integration_settings, fine["id"]).status == "paid"
+
+
+def test_a_trip_ends_without_a_fine_when_the_catalog_lost_the_type(
+    person: Person, car: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def missing(db: Any, code: str) -> None:
+        return None
+
+    monkeypatch.setattr(pricing, "current_fine", missing)
+
+    rental_id = _trip(person, car, battery_pct=5)
+
+    assert _my_fines(person, rental_id) == []
 
 
 def test_a_trip_ended_with_enough_battery_is_not_fined(person: Person, car: str) -> None:
@@ -194,6 +261,13 @@ def test_a_forced_finish_is_not_fined_automatically(
     )
 
     assert forced.status_code == HTTPStatus.OK, forced.text
+    # The low battery reached the rental: only the forced finish spares it the fine.
+    [rental] = query(
+        person.settings,
+        "SELECT end_battery_pct FROM rentals WHERE id = :id",
+        id=uuid.UUID(rental_id),
+    )
+    assert rental.end_battery_pct == 3
     assert _my_fines(person, rental_id) == []
 
 
@@ -279,18 +353,19 @@ def test_a_fine_keeps_the_amount_it_was_charged_with(
     integration_settings: Settings,
 ) -> None:
     rental_id = _trip(person, car)
-    fine = _charged(app_client, operator, rental_id)
     admin = Staff(integration_settings, StaffRole.ADMIN)
-    current = run_in_db(integration_settings, lambda db: pricing.current_fine(db, "smoking"))
-    assert current is not None
+    # A type of its own: the demo ones are shared by every test of the session.
+    code = f"t{uuid.uuid4().hex[:12]}"
+    created = app_client.post(
+        "/admin/fine-types",
+        json={"code": code, "name_ru": "Тест", "name_en": "Test", "amount": 4000},
+        headers=admin.headers,
+    )
+    assert created.status_code == HTTPStatus.CREATED, created.text
+    fine = _charged(app_client, operator, rental_id, code)
     changed = app_client.put(
-        f"/admin/fine-types/{current.fine_type_id}",
-        json={
-            "based_on_version": current.number,
-            "name_ru": current.terms.name_ru,
-            "name_en": current.terms.name_en,
-            "amount": current.terms.amount + 100,
-        },
+        f"/admin/fine-types/{created.json()['fine_type_id']}",
+        json={"based_on_version": 1, "name_ru": "Тест", "name_en": "Test", "amount": 4100},
         headers=admin.headers,
     )
     assert changed.status_code == HTTPStatus.OK, changed.text
@@ -298,6 +373,136 @@ def test_a_fine_keeps_the_amount_it_was_charged_with(
     again = app_client.get(f"{STAFF_URL}/{fine['id']}", headers=operator.headers).json()
 
     assert again["amount"] == fine["amount"]
+
+
+def test_a_repeated_request_charges_the_fine_once(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+) -> None:
+    rental_id = _trip(person, car)
+    type_id = _fine_type_id(integration_settings, "smoking")
+    key = uuid.uuid4()
+
+    first = _charge(app_client, operator, rental_id, type_id, key=key)
+    again = _charge(app_client, operator, rental_id, type_id, key=key)
+
+    assert (first.status_code, again.status_code) == (HTTPStatus.CREATED, HTTPStatus.CREATED)
+    assert again.json()["id"] == first.json()["id"]
+    assert len(_my_fines(person, rental_id)) == 1
+    assert len(_operations(integration_settings, first.json()["id"])) == 1
+
+
+def test_a_key_sent_with_another_fine_is_refused(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+) -> None:
+    rental_id = _trip(person, car)
+    type_id = _fine_type_id(integration_settings, "smoking")
+    key = uuid.uuid4()
+    first = _charge(app_client, operator, rental_id, type_id, key=key)
+    assert first.status_code == HTTPStatus.CREATED
+
+    other = _charge(app_client, operator, rental_id, type_id, "Another comment", key=key)
+
+    assert other.status_code == HTTPStatus.CONFLICT
+    assert problem_type(other) == "idempotency-key-reused"
+    assert len(_my_fines(person, rental_id)) == 1
+
+
+def test_a_manual_fine_needs_an_idempotency_key(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+) -> None:
+    response = app_client.post(
+        STAFF_URL,
+        json={
+            "rental_id": _trip(person, car),
+            "fine_type_id": _fine_type_id(integration_settings, "smoking"),
+            "comment": "Smoked",
+        },
+        headers=operator.headers,
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+def test_the_longest_comment_is_kept_in_the_history(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+) -> None:
+    comment = "x" * FINE_COMMENT_MAX_LENGTH
+    response = _charge(
+        app_client,
+        operator,
+        _trip(person, car),
+        _fine_type_id(integration_settings, "smoking"),
+        comment,
+    )
+
+    assert response.status_code == HTTPStatus.CREATED, response.text
+    assert response.json()["events"][0]["comment"] == comment
+
+
+def test_an_unknown_outcome_is_asked_again_with_the_same_key(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _trip(person, car)
+    original = FakeProvider.charge
+    _answer(monkeypatch, "charge", OperationStatus.FAILED)
+    fine = _charged(app_client, operator, rental_id)
+    row = _fine_row(person.settings, fine["id"])
+    assert (fine["status"], row.charge_attempts, row.next_at is not None) == ("pending", 1, True)
+    monkeypatch.setattr(FakeProvider, "charge", original)
+
+    _settle(person.settings, fine["id"], row.next_at)
+
+    assert _fine_row(person.settings, fine["id"]).status == "paid"
+    assert _operations(person.settings, fine["id"]) == [("charge", "succeeded", fine["amount"])]
+
+
+@pytest.mark.usefixtures("declined_charge")
+def test_the_worker_retries_a_debt_until_the_attempts_are_spent(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+) -> None:
+    fine = _charged(app_client, operator, _trip(person, car))
+    retry = service.fine_rules(integration_settings).settlement.retry
+
+    for attempt in range(1, retry.max_attempts):
+        row = _fine_row(integration_settings, fine["id"])
+        assert (row.status, row.charge_attempts, row.next_at is not None) == (
+            "unpaid",
+            attempt,
+            True,
+        )
+        _settle(integration_settings, fine["id"], row.next_at)
+
+    spent = _fine_row(integration_settings, fine["id"])
+    assert (spent.status, spent.charge_attempts, spent.next_at) == (
+        "unpaid",
+        retry.max_attempts,
+        None,
+    )
+    assert len(_operations(integration_settings, fine["id"])) == retry.max_attempts
 
 
 @pytest.mark.parametrize("comment", ["", "   "])
@@ -364,6 +569,18 @@ def test_a_declined_fine_is_a_debt_that_blocks_a_new_reservation(
     blocked = person.reserve(car)
     assert blocked.status_code == HTTPStatus.CONFLICT
     assert problem_type(blocked) == "outstanding-debt"
+
+
+@pytest.mark.usefixtures("declined_charge")
+def test_the_client_card_shows_an_unpaid_fine_in_the_debt(
+    person: Person, car: str, app_client: TestClient, operator: Staff
+) -> None:
+    fine = _charged(app_client, operator, _trip(person, car))
+
+    card = app_client.get(f"/admin/clients/{person.id}", headers=operator.headers)
+
+    assert card.status_code == HTTPStatus.OK, card.text
+    assert card.json()["debt"] == fine["amount"]
 
 
 def test_the_client_pays_an_unpaid_fine_and_may_reserve_again(
@@ -465,6 +682,125 @@ def test_a_cancellation_needs_a_reason(
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
+def test_a_declined_refund_is_tried_again_by_cancelling_again(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fine = _charged(app_client, operator, _trip(person, car))
+    original = FakeProvider.refund
+    _answer(monkeypatch, "refund", OperationStatus.DECLINED)
+    failed = _cancel(app_client, operator, fine["id"]).json()
+    assert failed["refund_status"] == "failed"
+    assert failed["events"][-1]["action"] == "refund_failed"
+    monkeypatch.setattr(FakeProvider, "refund", original)
+
+    again = _cancel(app_client, operator, fine["id"], "Card works again").json()
+
+    assert again["refund_status"] == "succeeded"
+    assert (again["cancel_reason"], [event["action"] for event in again["events"][-2:]]) == (
+        "Mistake",
+        ["refund_retried", "refunded"],
+    )
+    assert again["events"][-2]["comment"] == "Card works again"
+    assert audit_actions(person.settings, fine["id"]) == [
+        "fine.charged",
+        "fine.cancelled",
+        "fine.refund_retried",
+    ]
+    assert _operations(person.settings, fine["id"]) == [
+        ("charge", "succeeded", fine["amount"]),
+        ("refund", "declined", fine["amount"]),
+        ("refund", "succeeded", fine["amount"]),
+    ]
+    assert _fine_row(person.settings, fine["id"]).refund_attempts == 2
+
+
+def test_a_cancelled_fine_of_unknown_charge_is_refunded_once_the_charge_proves_taken(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    original = FakeProvider.charge
+    _answer(monkeypatch, "charge", OperationStatus.FAILED)
+    fine = _charged(app_client, operator, _trip(person, car))
+
+    cancelled = _cancel(app_client, operator, fine["id"]).json()
+
+    # Still unknown: nothing is closed until the provider tells.
+    assert (cancelled["status"], cancelled["refund_status"]) == ("cancelled", "pending")
+    row = _fine_row(person.settings, fine["id"])
+    assert row.next_at is not None
+    monkeypatch.setattr(FakeProvider, "charge", original)
+
+    _settle(person.settings, fine["id"], row.next_at)
+
+    assert _fine_row(person.settings, fine["id"]).refund_status == "succeeded"
+    assert _operations(person.settings, fine["id"]) == [
+        ("charge", "succeeded", fine["amount"]),
+        ("refund", "succeeded", fine["amount"]),
+    ]
+
+
+def test_a_cancelled_fine_of_a_declined_unknown_charge_is_closed_without_a_refund(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _answer(monkeypatch, "charge", OperationStatus.FAILED)
+    fine = _charged(app_client, operator, _trip(person, car))
+    _cancel(app_client, operator, fine["id"])
+    row = _fine_row(person.settings, fine["id"])
+    _answer(monkeypatch, "charge", OperationStatus.DECLINED)
+
+    _settle(person.settings, fine["id"], row.next_at)
+
+    closed = _fine_row(person.settings, fine["id"])
+    assert (closed.status, closed.refund_status, closed.next_at) == ("cancelled", None, None)
+    assert [op[0] for op in _operations(person.settings, fine["id"])] == ["charge"]
+
+
+def test_a_charge_that_answers_after_the_cancellation_is_refunded(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _trip(person, car, battery_pct=5)
+    [fine] = _my_fines(person, rental_id)
+    original = FakeProvider.charge
+
+    async def cancelled_meanwhile(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        # The operator cancels while the worker waits for the provider, which does not answer.
+        assert _cancel(app_client, operator, fine["id"]).status_code == HTTPStatus.OK
+        return OperationResult(OperationStatus.FAILED)
+
+    monkeypatch.setattr(FakeProvider, "charge", cancelled_meanwhile)
+    _settle(person.settings, fine["id"])
+    row = _fine_row(person.settings, fine["id"])
+    assert (row.status, row.refund_status, row.next_at is not None) == (
+        "cancelled",
+        "pending",
+        True,
+    )
+    monkeypatch.setattr(FakeProvider, "charge", original)
+
+    _settle(person.settings, fine["id"], row.next_at)
+
+    assert _fine_row(person.settings, fine["id"]).refund_status == "succeeded"
+    assert _operations(person.settings, fine["id"]) == [
+        ("charge", "succeeded", fine["amount"]),
+        ("refund", "succeeded", fine["amount"]),
+    ]
+
+
 # Photos
 
 
@@ -488,6 +824,30 @@ def test_the_client_sees_the_photos_an_operator_added(
     assert url.headers["Cache-Control"] == "no-store"
     assert any(key.startswith(f"fines/{fine['id']}/") for key in storage.objects)
     assert audit_actions(operator.settings, fine["id"]) == ["fine.charged", "fine.photo_added"]
+
+
+def test_every_photo_an_operator_opens_is_audited(
+    person: Person, car: str, app_client: TestClient, operator: Staff
+) -> None:
+    fine = _charged(app_client, operator, _trip(person, car))
+    added = app_client.post(
+        f"{STAFF_URL}/{fine['id']}/photos",
+        content=photo(1),
+        headers={**operator.headers, "Content-Type": "image/jpeg"},
+    )
+    [shown] = added.json()["photos"]
+
+    url = app_client.get(
+        f"{STAFF_URL}/{fine['id']}/photos/{shown['id']}/url", headers=operator.headers
+    )
+
+    assert url.status_code == HTTPStatus.OK, url.text
+    assert url.headers["Cache-Control"] == "no-store"
+    assert audit_actions(operator.settings, fine["id"]) == [
+        "fine.charged",
+        "fine.photo_added",
+        "fine.photo_viewed",
+    ]
 
 
 def test_a_cancelled_fine_takes_no_photos(

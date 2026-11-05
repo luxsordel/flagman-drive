@@ -44,6 +44,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(length=16), nullable=False),
         sa.Column("comment", sa.String(length=1000), nullable=True),
         sa.Column("created_by", sa.Uuid(), nullable=True),
+        sa.Column("idempotency_key", sa.Uuid(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("charge_attempts", sa.Integer(), server_default="0", nullable=False),
         sa.Column("next_at", sa.DateTime(timezone=True), nullable=True),
@@ -65,6 +66,10 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "(created_by IS NULL) = (comment IS NULL)",
             name=op.f("ck_support_fines_manual_has_comment"),
+        ),
+        sa.CheckConstraint(
+            "(created_by IS NULL) = (idempotency_key IS NULL)",
+            name=op.f("ck_support_fines_manual_has_idempotency_key"),
         ),
         sa.CheckConstraint(
             "(status = 'cancelled') = (cancel_reason IS NOT NULL AND cancelled_at IS NOT NULL)",
@@ -126,6 +131,13 @@ def upgrade() -> None:
     op.create_index(
         "ix_support_fines_created_at_id", "support_fines", ["created_at", "id"], unique=False
     )
+    op.create_index(
+        "uq_support_fines_idempotency_key",
+        "support_fines",
+        ["idempotency_key"],
+        unique=True,
+        postgresql_where=sa.text("idempotency_key IS NOT NULL"),
+    )
     op.create_table(
         "support_fine_photos",
         sa.Column("id", sa.Uuid(), nullable=False),
@@ -151,10 +163,11 @@ def upgrade() -> None:
         sa.Column("fine_id", sa.Uuid(), nullable=False),
         sa.Column("staff_id", sa.Uuid(), nullable=True),
         sa.Column("action", sa.String(length=24), nullable=False),
-        sa.Column("comment", sa.String(length=500), nullable=True),
+        sa.Column("comment", sa.String(length=1000), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint(
-            "action IN ('cancelled', 'charged', 'declined', 'paid', 'refund_failed', 'refunded')",
+            "action IN ('cancelled', 'charged', 'declined', 'paid', 'refund_failed', "
+            "'refund_retried', 'refunded')",
             name=op.f("ck_support_fine_events_action_known"),
         ),
         sa.ForeignKeyConstraint(

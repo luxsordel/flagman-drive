@@ -75,6 +75,7 @@ class AuditAction(StrEnum):
     INCIDENT_PHOTO_VIEWED = "incident.photo_viewed"
     FINE_CHARGED = "fine.charged"
     FINE_CANCELLED = "fine.cancelled"
+    FINE_REFUND_RETRIED = "fine.refund_retried"
     FINE_PHOTO_ADDED = "fine.photo_added"
     FINE_PHOTO_VIEWED = "fine.photo_viewed"
     RENTAL_FORCE_FINISHED = "rental.force_finished"

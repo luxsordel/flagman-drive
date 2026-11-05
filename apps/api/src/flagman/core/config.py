@@ -385,6 +385,9 @@ class Settings(TripSettings):
         # and comes once (docs/adr/0024).
         if self.rental_low_battery_pct >= self.fleet_min_battery_pct:
             raise ValueError("RENTAL_LOW_BATTERY_PCT must be below FLEET_MIN_BATTERY_PCT")
+        # A client would be fined for returning a car with the charge it was rented with.
+        if self.fine_low_battery_pct > self.fleet_min_battery_pct:
+            raise ValueError("FINE_LOW_BATTERY_PCT must not be above FLEET_MIN_BATTERY_PCT")
         return self
 
     @model_validator(mode="after")

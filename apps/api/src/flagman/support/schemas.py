@@ -342,6 +342,7 @@ class StaffFineOut(FineOut):
 
 class FineListOut(BaseModel):
     items: list[FineOut]
+    next_cursor: str | None = Field(default=None, description="Absent on the last page.")
 
 
 class StaffFineQuery(BaseModel):

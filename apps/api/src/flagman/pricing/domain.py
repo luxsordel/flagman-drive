@@ -214,7 +214,7 @@ _FINE_CODE = re.compile(r"[a-z][a-z0-9_]{1,39}")
 
 
 class FineKind(StrEnum):
-    """Values are stored as is: renaming one needs a migration."""
+    """Worked out from the code, never stored: the API and the admin show it as is."""
 
     AUTOMATIC = "automatic"
     MANUAL = "manual"
@@ -224,12 +224,6 @@ class FineTypeNotFoundError(AppError):
     status = HTTPStatus.NOT_FOUND
     slug = "fine-type-not-found"
     title = "Fine type not found"
-
-
-class FineTypeVersionNotFoundError(AppError):
-    status = HTTPStatus.NOT_FOUND
-    slug = "fine-type-version-not-found"
-    title = "Fine type version not found"
 
 
 class FineTypeExistsError(AppError):
@@ -244,6 +238,15 @@ class FineTypeChangedError(AppError):
     status = HTTPStatus.CONFLICT
     slug = "fine-type-changed"
     title = "The fine type was changed by someone else, reload it"
+
+
+def next_fine_version(current: int, based_on: int) -> int:
+    """The number of the version an admin saves over the one they saw. Raises
+    FineTypeChangedError when someone saved a newer one meanwhile: their amount is not overwritten
+    unseen. Versions are only added, so fines charged before keep theirs."""
+    if current != based_on:
+        raise FineTypeChangedError
+    return current + 1
 
 
 class FineTermsInvalidError(AppError):

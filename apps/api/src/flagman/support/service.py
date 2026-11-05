@@ -36,7 +36,13 @@ from flagman.identity import service as identity
 from flagman.notifications import service as notifications
 from flagman.notifications.domain import Notification, NotificationEvent
 from flagman.payments import service as payments
-from flagman.payments.domain import NoUsableCardError, OperationStatus, PaymentsUnavailableError
+from flagman.payments.domain import (
+    IdempotencyKeyReusedError,
+    NoUsableCardError,
+    OperationStatus,
+    PaymentOperation,
+    PaymentsUnavailableError,
+)
 from flagman.pricing import service as pricing
 from flagman.pricing.domain import LOW_BATTERY_FINE_CODE, FineKind
 from flagman.rentals import service as rentals
@@ -131,6 +137,8 @@ UPLOAD_LIMIT = Limit("support-photo-upload-user", 30, _HOUR)
 PHOTO_URL_LIMIT = Limit("support-photo-url-user", 120, _HOUR)
 INCIDENT_LIMIT = Limit("support-incident-user", 10, _HOUR)
 STAFF_PHOTO_URL_LIMIT = Limit("support-photo-url-staff", 600, _HOUR)
+# A shift of fines with every photo they may hold; more is a stolen session filling the storage.
+STAFF_UPLOAD_LIMIT = Limit("support-fine-photo-upload-staff", 60, _HOUR)
 
 _EVENT_ACTIONS = {
     IncidentTransition.TAKE: IncidentEventAction.TAKE,
@@ -1013,6 +1021,13 @@ async def _record_charge(
                 change = replace(change, refund_status=RefundStatus.PENDING, next_at=now)
                 await repository.update_fine(db, fine.id, change, now)
                 return replace(fine, refund_status=RefundStatus.PENDING)
+            if charged.status is None and fine.refund_status is None:
+                # The money may have been taken: the refund job asks again and returns it if so.
+                change = replace(
+                    change,
+                    refund_status=RefundStatus.PENDING,
+                    next_at=now + rules.settlement.pending_retry,
+                )
             await repository.update_fine(db, fine.id, change, now)
             return None
         if fine.status not in OWED_FINE_STATUSES:
@@ -1038,33 +1053,63 @@ async def _record_charge(
     return None
 
 
+@dataclass(frozen=True)
+class _Taken:
+    # The charge that took the money; None when none did, or none is known to have.
+    paid: PaymentOperation | None
+    # True while a charge's outcome is still unknown: nothing can be said yet.
+    unknown: bool
+
+
+async def _taken(db: AsyncSession, gw: payments.Gateway, fine: Fine, now: datetime) -> _Taken:
+    operations = await payments.operations_with_key_prefix(db, f"fine:{fine.id}:charge:")
+    paid = next((op for op in operations if op.status is OperationStatus.SUCCEEDED), None)
+    open_ = next((op for op in operations if not op.is_final), None)
+    if paid is not None or open_ is None:
+        return _Taken(paid, unknown=False)
+    # The same key asks the provider what became of the charge and never takes it twice.
+    try:
+        asked = await payments.charge(
+            db, gw, fine.user_id, payments.Payment(fine.amount, open_.idempotency_key), now
+        )
+    except NoUsableCardError:
+        return _Taken(None, unknown=True)
+    if asked.status is OperationStatus.SUCCEEDED:
+        return _Taken(asked, unknown=False)
+    return _Taken(None, unknown=not asked.is_final)
+
+
+async def _send_refund(
+    db: AsyncSession, gw: payments.Gateway, fine: Fine, paid: PaymentOperation, now: datetime
+) -> tuple[int, PaymentOperation]:
+    """The refund attempt it went under, and its operation."""
+    attempt = fine.refund_attempts
+    last = await payments.find_operation(db, fine_refund_key(fine.id, attempt)) if attempt else None
+    if last is not None and last.status is OperationStatus.SUCCEEDED:
+        return attempt, last
+    if last is None or last.is_final:
+        attempt += 1
+    payment = payments.Payment(fine.amount, fine_refund_key(fine.id, attempt))
+    return attempt, await payments.refund(db, gw, paid.id, payment, now)
+
+
 async def _refund(
     db: AsyncSession, gw: payments.Gateway, fine: Fine, rules: FineRules, now: datetime
 ) -> None:
     """Returns the money of a cancelled fine; one more try after a declined refund."""
-    operations = await payments.operations_with_key_prefix(db, f"fine:{fine.id}:charge:")
-    paid = next((op for op in operations if op.status is OperationStatus.SUCCEEDED), None)
+    taken = await _taken(db, gw, fine, now)
     attempt = fine.refund_attempts
     operation = None
-    if paid is not None:
-        last = (
-            await payments.find_operation(db, fine_refund_key(fine.id, attempt))
-            if attempt
-            else None
-        )
-        if last is not None and last.status is OperationStatus.SUCCEEDED:
-            operation = last
-        else:
-            if last is None or last.is_final:
-                attempt += 1
-            payment = payments.Payment(fine.amount, fine_refund_key(fine.id, attempt))
-            operation = await payments.refund(db, gw, paid.id, payment, now)
+    if taken.paid is not None:
+        attempt, operation = await _send_refund(db, gw, fine, taken.paid, now)
     async with db.begin():
         locked = await repository.get_fine(db, fine.id, for_update=True)
         if locked is None or locked.refund_status is not RefundStatus.PENDING:
             return
         change = replace(repository.FineUpdate.of(locked), refund_attempts=attempt)
-        if operation is None:
+        if operation is None and taken.unknown:
+            change = replace(change, next_at=now + rules.settlement.pending_retry)
+        elif operation is None:
             # Nothing was taken: nothing to return.
             change = replace(change, refund_status=None, next_at=None)
         elif operation.status is OperationStatus.SUCCEEDED:
@@ -1081,6 +1126,12 @@ async def _refund(
             change = replace(change, next_at=now + rules.settlement.pending_retry)
         await repository.update_fine(db, fine.id, change, now)
     logger.info("fine_refund_settled", fine_id=str(fine.id), refund_status=change.refund_status)
+
+
+async def unpaid_fines_total(db: AsyncSession, user_id: UUID) -> int:
+    """Kopecks of the client's unpaid fines: with the rental debts, what blocks a reservation."""
+    async with db.begin():
+        return await repository.unpaid_fines_total(db, user_id)
 
 
 async def settle_fine(  # noqa: PLR0913 - `debt` only tells the callers apart
@@ -1132,6 +1183,19 @@ async def settle_due_fines(
                     db, fine.id, now + rules.settlement.retry.interval, now
                 )
     return len(due)
+
+
+async def _fine_page(
+    db: AsyncSession, fine_filter: FineFilter, after: FineCursor | None, limit: int
+) -> tuple[list[Fine], str | None]:
+    """A page of fines and the cursor of the next one, None on the last."""
+    # One more than the page: tells whether there is a next one.
+    fines = await repository.list_fines(db, fine_filter, after, limit + 1)
+    page = fines[:limit]
+    if len(fines) <= limit:
+        return page, None
+    last = page[-1]
+    return page, FineCursor(last.created_at, last.id).encode()
 
 
 async def _fines_out(db: AsyncSession, fines: Sequence[Fine]) -> list[FineOut]:
@@ -1228,13 +1292,15 @@ class ClientFineService:
             raise FineNotFoundError
         return fine
 
-    async def fines(self, user_id: UUID, rental_id: UUID | None) -> FineListOut:
-        """Newest first: a client has a handful, so one page is all of them."""
+    async def fines(
+        self, user_id: UUID, rental_id: UUID | None, after: FineCursor | None = None
+    ) -> FineListOut:
+        """Newest first, by pages of FINE_PAGE_SIZE_MAX: a client has a handful, so the first
+        page is nearly always all of them."""
+        fine_filter = FineFilter(user_id=user_id, rental_id=rental_id)
         async with self.db.begin():
-            fines = await repository.list_fines(
-                self.db, FineFilter(user_id=user_id, rental_id=rental_id), None, FINE_PAGE_SIZE_MAX
-            )
-            return FineListOut(items=await _fines_out(self.db, fines))
+            page, next_cursor = await _fine_page(self.db, fine_filter, after, FINE_PAGE_SIZE_MAX)
+            return FineListOut(items=await _fines_out(self.db, page), next_cursor=next_cursor)
 
     async def fine(self, user_id: UUID, fine_id: UUID) -> FineOut:
         async with self.db.begin():
@@ -1262,6 +1328,15 @@ class ClientFineService:
         if photo is None:
             raise FinePhotoNotFoundError
         return await _signed(storage, photo.object_key)
+
+
+@dataclass(frozen=True)
+class ManualFineRequest:
+    rental_id: UUID
+    fine_type_id: UUID
+    comment: str
+    # The operator's form's: a repeat with it returns the fine of the first request.
+    key: UUID
 
 
 @dataclass(frozen=True)
@@ -1303,33 +1378,32 @@ class StaffFineService:
         self, fine_filter: FineFilter, after: FineCursor | None, limit: int
     ) -> StaffFineListOut:
         async with self.db.begin():
-            # One more than the page: tells whether there is a next one.
-            fines = await repository.list_fines(self.db, fine_filter, after, limit + 1)
-            page = fines[:limit]
+            page, next_cursor = await _fine_page(self.db, fine_filter, after, limit)
             items = await _staff_fines_out(self.db, page)
-        next_cursor = None
-        if len(fines) > limit:
-            last = page[-1]
-            next_cursor = FineCursor(last.created_at, last.id).encode()
         return StaffFineListOut(items=items, next_cursor=next_cursor)
 
     async def get(self, fine_id: UUID) -> StaffFineOut:
         return await self._out(fine_id)
 
     async def charge(
-        self, staff_id: UUID, rental_id: UUID, fine_type_id: UUID, comment: str, now: datetime
+        self, staff_id: UUID, request: ManualFineRequest, now: datetime
     ) -> StaffFineOut:
         """Raises SupportRentalNotFoundError, FineRentalNotFinishedError, FineTypeNotFoundError,
-        FineTypeNotManualError. The money is taken right after, or by the job."""
-        comment = ensure_reason(comment)
+        FineTypeNotManualError, IdempotencyKeyReusedError. The money is taken right after, or by
+        the job; a repeat with the same key returns the fine charged the first time."""
+        request = replace(request, comment=ensure_reason(request.comment))
+        rental_id = request.rental_id
         async with self.db.begin():
+            repeat = await repository.get_fine_by_key(self.db, request.key)
+            if repeat is not None:
+                return await self._repeated(repeat, staff_id, request)
             rental = (await rentals.get_rentals(self.db, {rental_id})).get(rental_id)
             if rental is None:
                 raise SupportRentalNotFoundError
             # A cancelled reservation had no trip to be fined for.
             if rental.trip_started_at is None or rental.ended_at is None:
                 raise FineRentalNotFinishedError
-            version = await pricing.get_fine_type(self.db, fine_type_id)
+            version = await pricing.get_fine_type(self.db, request.fine_type_id)
             if version.kind is not FineKind.MANUAL:
                 raise FineTypeNotManualError
             fine = await repository.add_fine(
@@ -1340,18 +1414,37 @@ class StaffFineService:
                     fine_type_id=version.fine_type_id,
                     fine_type_version_id=version.id,
                     amount=version.terms.amount,
-                    comment=comment,
+                    comment=request.comment,
                     created_by=staff_id,
                     at=now,
+                    idempotency_key=request.key,
                 ),
             )
             if fine is None:
-                raise RuntimeError("a manual fine was taken for an automatic one")
+                # A parallel request with the same key got here first.
+                repeat = await repository.get_fine_by_key(self.db, request.key)
+                if repeat is None:
+                    raise RuntimeError("a manual fine was taken for an automatic one")
+                return await self._repeated(repeat, staff_id, request)
             await _charged(self.db, fine, self.origin, now)
         logger.info("fine_charged", fine_id=str(fine.id), automatic=False)
         if self.gateway is not None:
-            await settle_fine(self.db, self.gateway, fine.id, self.rules, now, debt=False)
+            try:
+                await settle_fine(self.db, self.gateway, fine.id, self.rules, now, debt=False)
+            except Exception:
+                # The fine is charged already and due at once: the job takes the money instead.
+                logger.exception("fine_settlement_failed", fine_id=str(fine.id))
         return await self._out(fine.id)
+
+    async def _repeated(
+        self, repeat: Fine, staff_id: UUID, request: ManualFineRequest
+    ) -> StaffFineOut:
+        versions = await pricing.get_fine_versions(self.db, {repeat.fine_type_version_id})
+        type_id = versions[repeat.fine_type_version_id].fine_type_id
+        sent = ManualFineRequest(repeat.rental_id, type_id, repeat.comment or "", request.key)
+        if (repeat.created_by, sent) != (staff_id, request):
+            raise IdempotencyKeyReusedError
+        return (await _staff_fines_out(self.db, [repeat]))[0]
 
     async def cancel(
         self, staff_id: UUID, fine_id: UUID, reason: str, now: datetime
@@ -1369,6 +1462,8 @@ class StaffFineService:
                 change = replace(
                     repository.FineUpdate.of(fine), refund_status=RefundStatus.PENDING, next_at=now
                 )
+                # The fine stays cancelled for its first reason; this one explains the retry.
+                event, action = FineEventAction.REFUND_RETRIED, AuditAction.FINE_REFUND_RETRIED
             else:
                 status = apply_fine_transition(fine.status, FineTransition.CANCEL)
                 # A charge that may have gone through is checked, and returned if it did.
@@ -1382,16 +1477,24 @@ class StaffFineService:
                     cancelled_at=now,
                     refund_status=RefundStatus.PENDING if refund else None,
                 )
+                event, action = FineEventAction.CANCELLED, AuditAction.FINE_CANCELLED
             await repository.update_fine(self.db, fine.id, change, now)
             await repository.add_fine_event(
-                self.db,
-                fine.id,
-                repository.NewFineEvent(FineEventAction.CANCELLED, staff_id, now, reason),
+                self.db, fine.id, repository.NewFineEvent(event, staff_id, now, reason)
             )
-            await self._audit(staff_id, AuditAction.FINE_CANCELLED, fine.id)
-        logger.info("fine_cancelled", fine_id=str(fine_id))
+            details: dict[str, DetailValue] = {
+                "rental_id": fine.rental_id,
+                "amount": fine.amount,
+                "refund": change.refund_status is RefundStatus.PENDING,
+            }
+            await self._audit(staff_id, action, fine.id, details)
+        logger.info("fine_cancelled", fine_id=str(fine_id), action=str(action))
         if self.gateway is not None and change.refund_status is RefundStatus.PENDING:
-            await settle_fine(self.db, self.gateway, fine_id, self.rules, now)
+            try:
+                await settle_fine(self.db, self.gateway, fine_id, self.rules, now)
+            except Exception:
+                # The cancellation is saved and the refund due at once: the job returns the money.
+                logger.exception("fine_settlement_failed", fine_id=str(fine_id))
         return await self._out(fine_id)
 
     async def _lock_for_photo(self, fine_id: UUID) -> Fine:
@@ -1403,6 +1506,10 @@ class StaffFineService:
         if await repository.count_fine_photos(self.db, fine.id) >= MAX_FINE_PHOTOS:
             raise FinePhotoLimitError
         return fine
+
+    async def count_upload(self, staff_id: UUID) -> None:
+        """Counted before the body is read, so an exhausted limit does not cost 10 MB each time."""
+        await self.limiter.hit(STAFF_UPLOAD_LIMIT, str(staff_id))
 
     async def add_photo(
         self, storage: ObjectStorage, staff_id: UUID, fine_id: UUID, data: bytes, now: datetime
@@ -1416,8 +1523,10 @@ class StaffFineService:
         try:
             async with self.db.begin():
                 fine = await self._lock_for_photo(fine_id)
-                await repository.add_fine_photo(self.db, fine.id, key, len(photo), now)
-                await self._audit(staff_id, AuditAction.FINE_PHOTO_ADDED, fine.id)
+                photo_id = await repository.add_fine_photo(self.db, fine.id, key, len(photo), now)
+                await self._audit(
+                    staff_id, AuditAction.FINE_PHOTO_ADDED, fine.id, {"photo_id": photo_id}
+                )
         except Exception:
             await _delete_quietly(storage, key)
             raise

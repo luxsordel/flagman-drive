@@ -143,7 +143,10 @@ class FineTermsIn(BaseModel):
 class FineTypeCreate(FineTermsIn):
     code: str = Field(
         pattern=r"^[a-z][a-z0-9_]{1,39}$",
-        description="Stable code of the type; a new type is always a manual fine.",
+        description=(
+            "Stable code of the type; a manual fine, but for `low_battery`, which the system "
+            "charges itself."
+        ),
     )
 
 

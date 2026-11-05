@@ -10,11 +10,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.models import AuditEvent
 from flagman.core.config import Settings
+from flagman.fleet.tests.conftest import run_in_db
 from flagman.identity.domain import StaffRole
 from flagman.pricing import service
-from flagman.pricing.domain import LOW_BATTERY_FINE_CODE, FineKind, FineTypeVersionNotFoundError
+from flagman.pricing.domain import LOW_BATTERY_FINE_CODE, FineKind
 from flagman.pricing.seed import DEMO_FINES
-from flagman.pricing.tests.conftest import Caller, _run
+from flagman.pricing.tests.conftest import Caller
 
 pytestmark = pytest.mark.integration
 
@@ -53,7 +54,7 @@ def _audit(settings: Settings, fine_type_id: str) -> list[tuple[str, Any]]:
             )
             return [(action, details) for action, details in rows]
 
-    return _run(settings, read)
+    return run_in_db(settings, read)
 
 
 def test_admin_adds_a_manual_fine_type(client: TestClient, admin: Caller) -> None:
@@ -88,10 +89,9 @@ def test_a_change_adds_a_version_and_keeps_the_old_one(
     ).json()["items"]
     assert [(item["number"], item["amount"]) for item in versions] == [(2, 6000), (1, 4000)]
     # A fine charged by the first version keeps its amount.
-    first = _run(
-        integration_settings, lambda db: service.get_fine_version(db, uuid.UUID(created["id"]))
-    )
-    assert first.terms.amount == 4000
+    first_id = uuid.UUID(created["id"])
+    first = run_in_db(integration_settings, lambda db: service.get_fine_versions(db, [first_id]))
+    assert first[first_id].terms.amount == 4000
 
 
 def test_a_change_based_on_an_old_version_is_refused(client: TestClient, admin: Caller) -> None:
@@ -161,12 +161,14 @@ def test_technicians_and_clients_see_nothing(
 
 def test_seed_adds_the_demo_fines_once(integration_settings: Settings) -> None:
     def seed() -> int:
-        return _run(integration_settings, lambda db: service.seed_demo_fines(db, datetime.now(UTC)))
+        return run_in_db(
+            integration_settings, lambda db: service.seed_demo_fines(db, datetime.now(UTC))
+        )
 
     seed()
     assert seed() == 0
 
-    low_battery = _run(
+    low_battery = run_in_db(
         integration_settings, lambda db: service.current_fine(db, LOW_BATTERY_FINE_CODE)
     )
     assert low_battery is not None
@@ -174,6 +176,8 @@ def test_seed_adds_the_demo_fines_once(integration_settings: Settings) -> None:
     assert low_battery.terms == DEMO_FINES[LOW_BATTERY_FINE_CODE]
 
 
-def test_a_missing_version_raises(integration_settings: Settings) -> None:
-    with pytest.raises(FineTypeVersionNotFoundError):
-        _run(integration_settings, lambda db: service.get_fine_version(db, uuid.uuid4()))
+def test_a_missing_version_is_left_out(integration_settings: Settings) -> None:
+    assert (
+        run_in_db(integration_settings, lambda db: service.get_fine_versions(db, [uuid.uuid4()]))
+        == {}
+    )

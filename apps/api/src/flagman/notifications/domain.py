@@ -279,7 +279,7 @@ _TEMPLATES: dict[NotificationEvent, dict[Language, tuple[str, str]]] = {
     },
     NotificationEvent.FINE_CHARGED: {
         Language.RU: ("Начислен штраф", "Штраф {amount} за поездку. Подробности — в «Мои штрафы»."),
-        Language.EN: ("Fine charged", "A fine of {amount} for your trip. See «My fines»."),
+        Language.EN: ("Fine charged", 'A fine of {amount} for your trip. See "My fines".'),
     },
 }
 

@@ -9,7 +9,7 @@ from http import HTTPStatus
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
@@ -72,6 +72,7 @@ from flagman.support.service import (
     ClientFineService,
     ClientSupportService,
     IncidentReport,
+    ManualFineRequest,
     PhotoTarget,
     StaffFineService,
     StaffRef,
@@ -588,8 +589,12 @@ async def list_my_fines(
     client: Client,
     service: ClientFines,
     rental_id: Annotated[UUID | None, Query(description="Only the fines of this trip.")] = None,
+    cursor: Annotated[
+        str | None, Query(max_length=200, description="`next_cursor` of the previous page.")
+    ] = None,
 ) -> FineListOut:
-    return await service.fines(client.user_id, rental_id)
+    after = FineCursor.decode(cursor) if cursor else None
+    return await service.fines(client.user_id, rental_id, after)
 
 
 @router.get(
@@ -655,16 +660,29 @@ async def list_fines(
         HTTPStatus.NOT_FOUND: _problem(
             "`urn:flagman:problem:rental-not-found`; `fine-type-not-found`."
         ),
-        HTTPStatus.CONFLICT: _problem("`urn:flagman:problem:fine-rental-not-finished`."),
+        HTTPStatus.CONFLICT: _problem(
+            "`urn:flagman:problem:fine-rental-not-finished`; "
+            "`idempotency-key-reused`: the key was sent with another fine."
+        ),
         HTTPStatus.UNPROCESSABLE_ENTITY: _problem(
             "`urn:flagman:problem:fine-type-not-manual`: the system charges that one itself."
         ),
     },
 )
-async def charge_fine(staff: LiveStaff, body: FineIn, service: StaffFines) -> StaffFineOut:
-    return await service.charge(
-        staff.staff_id, body.rental_id, body.fine_type_id, body.comment, datetime.now(UTC)
-    )
+async def charge_fine(
+    staff: LiveStaff,
+    body: FineIn,
+    idempotency_key: Annotated[
+        UUID,
+        Header(
+            alias="Idempotency-Key",
+            description="A new one per filled form; a repeat with it charges nothing again.",
+        ),
+    ],
+    service: StaffFines,
+) -> StaffFineOut:
+    request = ManualFineRequest(body.rental_id, body.fine_type_id, body.comment, idempotency_key)
+    return await service.charge(staff.staff_id, request, datetime.now(UTC))
 
 
 @staff_router.get(
@@ -705,8 +723,9 @@ async def cancel_fine(
     },
 )
 async def add_fine_photo(
-    staff: Staff, fine_id: UUID, request: Request, service: StaffFines, storage: Storage
+    staff: LiveStaff, fine_id: UUID, request: Request, service: StaffFines, storage: Storage
 ) -> StaffFineOut:
+    await service.count_upload(staff.staff_id)
     photo = await _read_photo(request)
     return await service.add_photo(storage, staff.staff_id, fine_id, photo, datetime.now(UTC))
 

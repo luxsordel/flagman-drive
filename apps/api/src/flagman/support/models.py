@@ -188,6 +188,10 @@ class Fine(Base):
         CheckConstraint("amount > 0", name="amount_positive"),
         # A manual fine always says why; an automatic one is explained by its type.
         CheckConstraint("(created_by IS NULL) = (comment IS NULL)", name="manual_has_comment"),
+        # The operator's form sends one, so a repeated request charges nothing twice.
+        CheckConstraint(
+            "(created_by IS NULL) = (idempotency_key IS NULL)", name="manual_has_idempotency_key"
+        ),
         CheckConstraint(
             "(status = 'cancelled') = (cancel_reason IS NOT NULL AND cancelled_at IS NOT NULL)",
             name="cancelled_has_reason",
@@ -207,6 +211,12 @@ class Fine(Base):
             "ix_support_fines_unpaid_user", "user_id", postgresql_where=text("status = 'unpaid'")
         ),
         Index("ix_support_fines_created_at_id", "created_at", "id"),
+        Index(
+            "uq_support_fines_idempotency_key",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -220,6 +230,7 @@ class Fine(Base):
     status: Mapped[str] = mapped_column(String(ENUM_LENGTH))
     comment: Mapped[str | None] = mapped_column(String(FINE_COMMENT_MAX_LENGTH))
     created_by: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
+    idempotency_key: Mapped[UUID | None]
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     charge_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -257,5 +268,8 @@ class FineEvent(Base):
     # None for what the system did on its own.
     staff_id: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
     action: Mapped[str] = mapped_column(String(ACTION_LENGTH))
-    comment: Mapped[str | None] = mapped_column(String(FINE_CANCEL_REASON_MAX_LENGTH))
+    # Holds both an operator's comment and a cancel reason: as long as the longer of the two.
+    comment: Mapped[str | None] = mapped_column(
+        String(max(FINE_COMMENT_MAX_LENGTH, FINE_CANCEL_REASON_MAX_LENGTH))
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

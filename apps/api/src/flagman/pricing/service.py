@@ -30,11 +30,9 @@ from flagman.pricing.domain import (
     CarModelNotFoundError,
     CarModelRef,
     FineTerms,
-    FineTypeChangedError,
     FineTypeExistsError,
     FineTypeNotFoundError,
     FineTypeVersion,
-    FineTypeVersionNotFoundError,
     Interval,
     ModelTariff,
     Quote,
@@ -46,6 +44,7 @@ from flagman.pricing.domain import (
     TariffVersionNotFoundError,
     calculate,
     ensure_fine_code,
+    next_fine_version,
 )
 from flagman.pricing.seed import DEMO_FINES, DEMO_PRICES
 
@@ -252,13 +251,6 @@ async def current_fine(db: AsyncSession, code: str) -> FineTypeVersion | None:
     return await _read(db, lambda: repository.current_fine_version_of_code(db, code))
 
 
-async def get_fine_version(db: AsyncSession, version_id: UUID) -> FineTypeVersion:
-    versions = await get_fine_versions(db, [version_id])
-    if version_id not in versions:
-        raise FineTypeVersionNotFoundError
-    return versions[version_id]
-
-
 async def get_fine_versions(
     db: AsyncSession, version_ids: Iterable[UUID]
 ) -> dict[UUID, FineTypeVersion]:
@@ -275,8 +267,9 @@ class FineCatalogEditor:
     origin: RequestOrigin
 
     async def create(self, code: str, terms: FineTerms, now: datetime) -> FineTypeVersion:
-        """Raises FineTypeExistsError. A new code is a manual fine: the system detects only the
-        automatic ones it knows."""
+        """Raises FineTypeExistsError. A new code is a manual fine, but for the automatic ones the
+        system detects: production has no demo seed, so the admin adds those here with the real
+        amount."""
         ensure_fine_code(code)
         async with self.db.begin():
             fine_type_id = await repository.insert_fine_type(self.db, code, now)
@@ -305,9 +298,7 @@ class FineCatalogEditor:
             )
             if current is None:
                 raise FineTypeNotFoundError
-            if current.number != based_on:
-                raise FineTypeChangedError
-            number = current.number + 1
+            number = next_fine_version(current.number, based_on)
             await repository.insert_fine_version(
                 self.db, repository.NewFineVersion(fine_type_id, number, terms, now, self.staff_id)
             )

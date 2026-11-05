@@ -294,6 +294,8 @@ class FineEventAction(StrEnum):
     CANCELLED = "cancelled"
     REFUNDED = "refunded"
     REFUND_FAILED = "refund_failed"
+    # Cancelling again after a declined refund: the operator's reason for the new try.
+    REFUND_RETRIED = "refund_retried"
 
 
 _FINE_RULES: dict[FineTransition, tuple[frozenset[FineStatus], FineStatus]] = {

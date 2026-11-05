@@ -63,6 +63,7 @@ from flagman.identity.service import (
 )
 from flagman.kyc import service as kyc
 from flagman.rentals import service as rentals
+from flagman.support import service as support
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -511,7 +512,8 @@ LiveClientStaff = Annotated[CurrentStaff, Depends(require_live_staff_session(*_C
 async def _standing(db: AsyncSession, user_id: UUID) -> ClientStanding:
     return ClientStanding(
         kyc_status=await kyc.get_admission_status(db, user_id),
-        debt=await rentals.client_debt(db, user_id),
+        # Both block a reservation, so the operator sees both (docs/adr/0027).
+        debt=await rentals.client_debt(db, user_id) + await support.unpaid_fines_total(db, user_id),
     )
 
 

@@ -13,6 +13,7 @@ from flagman.pricing.domain import (
     FineKind,
     FineTerms,
     FineTermsInvalidError,
+    FineTypeChangedError,
     Interval,
     IntervalKind,
     Quote,
@@ -22,6 +23,7 @@ from flagman.pricing.domain import (
     calculate,
     ensure_fine_code,
     fine_kind,
+    next_fine_version,
 )
 from flagman.pricing.seed import DEMO_FINES
 
@@ -212,3 +214,13 @@ def test_bad_fine_codes_are_refused(code: str) -> None:
 
 def test_demo_fines_name_every_fine_of_the_vision() -> None:
     assert set(DEMO_FINES) == {"smoking", "dirt", "parking_outside_zone", LOW_BATTERY_FINE_CODE}
+
+
+def test_a_fine_type_change_adds_the_next_version() -> None:
+    assert next_fine_version(3, based_on=3) == 4
+
+
+@pytest.mark.parametrize("based_on", [2, 4])
+def test_a_fine_type_change_over_another_version_is_refused(based_on: int) -> None:
+    with pytest.raises(FineTypeChangedError):
+        next_fine_version(3, based_on=based_on)

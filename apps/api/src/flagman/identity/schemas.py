@@ -387,7 +387,7 @@ class StaffClientOut(BaseModel):
     block: ClientBlockOut | None = Field(description="Null when the client is not blocked.")
     block_history: list["ClientBlockEventOut"] = Field(description="Newest first.")
     kyc_status: KycStatus
-    debt: int = Field(description="Kopecks of BYN owed for earlier rentals.")
+    debt: int = Field(description="Kopecks of BYN owed for earlier rentals and unpaid fines.")
 
 
 class ClientBlockEventOut(BaseModel):

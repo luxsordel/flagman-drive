@@ -222,7 +222,7 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
   Создание и изменение пишутся в аудит (`tariff.created`, `tariff.updated`) с номером версии и ценами.
 - Для `rentals`: `pricing.service.current_version(model_id)`, `get_version(version_id)`,
   `quote(version_id, intervals)`.
-- Справочник штрафов: `pricing.service.current_fine(code)`, `get_fine_version(version_id)`; версии — как у
+- Справочник штрафов: `pricing.service.current_fine(code)`, `get_fine_versions(version_ids)`; версии — как у
   тарифов, начисленный штраф ссылается на свою.
 - Демо-тарифы и демо-штрафы создаёт `flagman-pricing seed` (после `flagman-fleet seed`).
 
@@ -351,7 +351,8 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - **Справочник** — `/admin/fine-types`. Хранит код, название ru/en и сумму в копейках. Версии
   устроены как у тарифов: начисленный штраф ссылается на свою версию, поэтому изменение суммы его
   не меняет. Читают `operator` и `admin`, меняет `admin`, все изменения пишутся в аудит.
-  Автоматический штраф только один — `low_battery`. Новый тип всегда ручной.
+  Автоматический штраф только один — `low_battery`. Тип с любым другим кодом — ручной; в проде
+  `low_battery` с реальной суммой создаёт админ (ADR-0027).
 - **Автоматический штраф** — за заряд ниже `FINE_LOW_BATTERY_PCT` (10%) при завершении поездки.
   Заряд берётся по последней телеметрии и сохраняется в `rentals.end_battery_pct`. Штраф
   начисляется в транзакции завершения через порт `rentals/ports.py: Fines`. При принудительном
