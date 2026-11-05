@@ -23,7 +23,7 @@ class SettingsFactory(Protocol):
     def __call__(self, **overrides: Any) -> Settings: ...
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def make_settings() -> SettingsFactory:
     """Settings that never read the developer's .env file."""
 
