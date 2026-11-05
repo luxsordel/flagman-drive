@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import ru from '../i18n/ru.json';
 import { testStaff } from '../test/auth';
+import { clientSummary, fakeClientsApi } from '../test/clients';
 import { fakeFinesApi, fine, fineType } from '../test/fines';
 import { renderAt } from '../test/render';
 import { fakeRentalsApi, staffRental } from '../test/rentals';
@@ -51,6 +52,41 @@ describe('fines page', () => {
 
     expect(await screen.findByText(ru.fines.empty)).toBeDefined();
     expect(fines.list).toHaveBeenCalledWith({});
+  });
+
+  it('picks the client to filter by from a search', async () => {
+    const fines = fakeFinesApi();
+    const found = clientSummary({ id: '0199c000-aaaa-7000-8000-000000000002' });
+    const clients = fakeClientsApi({ items: [found] });
+    const { router } = renderAt('/fines', operator, { fines, clients });
+    const user = userEvent.setup();
+
+    await user.type(await screen.findByLabelText(ru.fines.client), '+37529');
+    const matches = await screen.findByRole('list', { name: ru.fines.clientMatches });
+    await user.click(within(matches).getByRole('button'));
+
+    expect(clients.list).toHaveBeenLastCalledWith({ search: '+37529' });
+    await waitFor(() => {
+      expect(fines.list).toHaveBeenLastCalledWith({ userId: found.id });
+    });
+    expect(router.state.location.search).toBe(`?client=${found.id}`);
+  });
+
+  it('adds the next page once, however fast the operator clicks', async () => {
+    const fines = fakeFinesApi();
+    fines.list
+      .mockResolvedValueOnce({ items: [fine({ id: 'f-1' })], next_cursor: 'c-1' })
+      .mockResolvedValueOnce({ items: [fine({ id: 'f-2' })], next_cursor: null });
+    renderAt('/fines', operator, { fines });
+    const user = userEvent.setup();
+    const more = await screen.findByRole('button', { name: ru.fines.more });
+
+    await user.dblClick(more);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('link', { name: 'Petrov Ivan' })).toHaveLength(2);
+    });
+    expect(fines.list).toHaveBeenCalledTimes(2);
   });
 
   it('shows the catalog to an operator without a way to change it', async () => {
@@ -165,7 +201,91 @@ describe('fines of a rental', () => {
       expect(fines.addPhoto).toHaveBeenCalledWith(expect.any(String), photo);
     });
     expect(confirm).toHaveBeenCalled();
-    expect(fines.charge).toHaveBeenCalledWith(card.rental.id, smoking.fine_type_id, 'Smoked');
+    expect(fines.charge).toHaveBeenCalledWith(
+      card.rental.id,
+      smoking.fine_type_id,
+      'Smoked',
+      expect.any(String),
+    );
+  });
+
+  it('retries a charge with the same key, so a lost answer charges nothing twice', async () => {
+    const smoking = fineType();
+    const fines = fakeFinesApi({ types: [smoking] });
+    fines.charge.mockRejectedValueOnce(new ApiError(503));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderAt('/rentals/r-1', operator, { fines, rentals: fakeRentalsApi() });
+    const user = userEvent.setup();
+    const form = await screen.findByRole('form', { name: ru.fines.chargeTitle });
+    await within(form).findByRole('option', { name: /Курение/ });
+    await user.selectOptions(within(form).getByLabelText(ru.fines.type), smoking.fine_type_id);
+    await user.type(within(form).getByLabelText(ru.fines.comment), 'Smoked');
+    const submit = within(form).getByRole('button', { name: ru.fines.chargeSubmit });
+
+    await user.click(submit);
+    expect(await within(form).findByRole('alert')).toBeDefined();
+    await user.click(submit);
+
+    await waitFor(() => {
+      expect(fines.charge).toHaveBeenCalledTimes(2);
+    });
+    const [first, second] = fines.charge.mock.calls;
+    expect(second?.[3]).toBe(first?.[3]);
+  });
+
+  it('shows the fine the first try charged when the form changed before the retry', async () => {
+    const smoking = fineType();
+    const charged = fine({ comment: 'Smoked' });
+    const fines = fakeFinesApi({ types: [smoking] });
+    fines.charge.mockRejectedValueOnce(new ApiError(409, 'idempotency-key-reused'));
+    fines.list
+      .mockResolvedValueOnce({ items: [], next_cursor: null })
+      .mockResolvedValue({ items: [charged], next_cursor: null });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderAt('/rentals/r-1', operator, { fines, rentals: fakeRentalsApi() });
+    const user = userEvent.setup();
+    const form = await screen.findByRole('form', { name: ru.fines.chargeTitle });
+    await within(form).findByRole('option', { name: /Курение/ });
+    await user.selectOptions(within(form).getByLabelText(ru.fines.type), smoking.fine_type_id);
+    await user.type(within(form).getByLabelText(ru.fines.comment), 'Smoked again');
+
+    await user.click(within(form).getByRole('button', { name: ru.fines.chargeSubmit }));
+
+    expect(await within(form).findByText(ru.fines.problems.charged)).toBeDefined();
+    expect(await screen.findByText('Smoked', { selector: 'p' })).toBeDefined();
+    expect(fines.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds a photo to a fine charged already', async () => {
+    const charged = fine();
+    const fines = fakeFinesApi({ items: [charged] });
+    renderAt('/rentals/r-1', operator, { fines, rentals: fakeRentalsApi() });
+    const user = userEvent.setup();
+    const photo = new File(['jpeg'], 'smoke.jpg', { type: 'image/jpeg' });
+
+    await user.upload(await screen.findByLabelText(ru.fines.addPhoto), photo);
+
+    await waitFor(() => {
+      expect(fines.addPhoto).toHaveBeenCalledWith(charged.id, photo);
+    });
+    expect(await screen.findByRole('button', { name: ru.support.showPhoto })).toBeDefined();
+  });
+
+  it('takes no photos for a cancelled fine', async () => {
+    const fines = fakeFinesApi({ items: [fine({ status: 'cancelled', cancel_reason: 'Wrong' })] });
+    renderAt('/rentals/r-1', operator, { fines, rentals: fakeRentalsApi() });
+
+    expect(await screen.findByText('Курение в салоне')).toBeDefined();
+    expect(screen.queryByLabelText(ru.fines.addPhoto)).toBeNull();
+  });
+
+  it('does not say there are no fines while they load or when they fail to', async () => {
+    const fines = fakeFinesApi();
+    fines.list.mockRejectedValueOnce(new ApiError(503));
+    renderAt('/rentals/r-1', operator, { fines, rentals: fakeRentalsApi() });
+
+    expect(await screen.findByText(ru.fines.problems.failed)).toBeDefined();
+    expect(screen.queryByText(ru.fines.noneForRental)).toBeNull();
   });
 
   it('charges nothing when the operator says no', async () => {

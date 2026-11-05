@@ -61,8 +61,10 @@ describe('fines API', () => {
     const charged = fine();
     const { api, fetch } = finesApi(json(201, charged));
 
-    expect(await api.charge('r-1', 't-1', 'Smoked')).toEqual(charged);
-    expect(await sentRequest(fetch).json()).toEqual({
+    expect(await api.charge('r-1', 't-1', 'Smoked', 'k-1')).toEqual(charged);
+    const request = sentRequest(fetch);
+    expect(request.headers.get('Idempotency-Key')).toBe('k-1');
+    expect(await request.json()).toEqual({
       rental_id: 'r-1',
       fine_type_id: 't-1',
       comment: 'Smoked',

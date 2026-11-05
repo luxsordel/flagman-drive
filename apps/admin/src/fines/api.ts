@@ -19,6 +19,8 @@ export interface FineTerms {
 export const fineStatuses: readonly FineStatus[] = ['pending', 'paid', 'unpaid', 'cancelled'];
 // The same limits as the API's: the form says so before the request does.
 export const fineCommentMaxLength = 1000;
+// As MAX_FINE_PHOTOS on the server: past it the upload is refused.
+export const fineMaxPhotos = 8;
 export const fineReasonMaxLength = 500;
 export const fineNameMaxLength = 100;
 export const fineAmountMaxKopecks = 1_000_000;
@@ -47,7 +49,7 @@ export interface FinesApi {
   /** A new version from now on; `basedOn` guards against overwriting a newer one. */
   updateType(fineTypeId: string, basedOn: number, terms: FineTerms): Promise<FineType>;
   list(filter: FineFilter, cursor?: string): Promise<FinePage>;
-  charge(rentalId: string, fineTypeId: string, comment: string): Promise<Fine>;
+  charge(rentalId: string, fineTypeId: string, comment: string, key: string): Promise<Fine>;
   cancel(fineId: string, reason: string): Promise<Fine>;
   addPhoto(fineId: string, photo: Blob): Promise<Fine>;
   photoUrl(fineId: string, photoId: string): Promise<PhotoUrl>;
@@ -86,9 +88,10 @@ export function createFinesApi(client: AdminApiClient): FinesApi {
         }),
       );
     },
-    async charge(rentalId, fineTypeId, comment) {
+    async charge(rentalId, fineTypeId, comment, key) {
       return unwrap(
         await client.POST('/admin/support/fines', {
+          params: { header: { 'Idempotency-Key': key } },
           body: { rental_id: rentalId, fine_type_id: fineTypeId, comment },
         }),
       );

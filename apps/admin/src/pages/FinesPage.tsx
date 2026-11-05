@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useSearchParams } from 'react-router';
 
 import { ApiError } from '../api/client';
+import { ClientPicker } from '../clients/ClientPicker';
 import { useApis } from '../api/context';
 import { loadProblem, type LoadProblem } from '../api/loadProblem';
 import { isCalendarDay } from '../audit/minskTime';
@@ -50,6 +51,9 @@ export function FinesPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [problem, setProblem] = useState<LoadProblem | null>(null);
   const [status, setStatus] = useState<'loading' | 'ready'>('loading');
+  const [loadingMore, setLoadingMore] = useState(false);
+  // The filter the shown list belongs to: a next page of an older one is not added to it.
+  const shownFilter = useRef(filter);
 
   const refused = useCallback(
     (error: unknown) => {
@@ -70,6 +74,7 @@ export function FinesPage() {
   useEffect(() => {
     // An answer to the filter before is dropped: it would replace the list of this one.
     let active = true;
+    shownFilter.current = filter;
     fines.list(filter).then(
       (page) => {
         if (!active) return;
@@ -162,6 +167,13 @@ export function FinesPage() {
             }}
           />
         </label>
+        {!filter.userId && (
+          <ClientPicker
+            onPick={(client) => {
+              setParam('client', client.id);
+            }}
+          />
+        )}
         {filter.userId && (
           <p>
             {t('fines.oneClient')}{' '}
@@ -238,11 +250,20 @@ export function FinesPage() {
         <button
           type="button"
           className="button list-more"
+          disabled={loadingMore}
           onClick={() => {
-            fines.list(filter, cursor).then((page) => {
-              setItems((known) => [...known, ...page.items]);
-              setCursor(page.next_cursor ?? null);
-            }, refused);
+            const asked = filter;
+            setLoadingMore(true);
+            fines
+              .list(asked, cursor)
+              .then((page) => {
+                if (shownFilter.current !== asked) return;
+                setItems((known) => [...known, ...page.items]);
+                setCursor(page.next_cursor ?? null);
+              }, refused)
+              .finally(() => {
+                setLoadingMore(false);
+              });
           }}
         >
           {t('fines.more')}

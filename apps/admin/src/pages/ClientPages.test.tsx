@@ -51,6 +51,9 @@ describe('client card', () => {
     expect(screen.getByRole('link', { name: ru.clients.allRentals }).getAttribute('href')).toBe(
       `/rentals?client=${card.id}`,
     );
+    expect(screen.getByRole('link', { name: ru.clients.fines }).getAttribute('href')).toBe(
+      `/fines?client=${card.id}`,
+    );
   });
 
   it('blocks with a reason after a confirmation', async () => {

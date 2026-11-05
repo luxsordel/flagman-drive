@@ -7,14 +7,22 @@ import { useAuth } from '../auth/context';
 import { SupportPhoto } from '../support/SupportPhoto';
 import { formatKopecks } from '../tariffs/money';
 import { formatMinskTime } from '../time/minsk';
-import { fineCommentMaxLength, fineReasonMaxLength, type Fine, type FineType } from './api';
+import {
+  fineCommentMaxLength,
+  fineMaxPhotos,
+  fineReasonMaxLength,
+  type Fine,
+  type FineType,
+} from './api';
 import { fineName } from './format';
 
-type FineProblem = 'notFinished' | 'invalid' | 'photo' | 'failed';
+type FineProblem = 'notFinished' | 'invalid' | 'photo' | 'charged' | 'failed';
 
 function fineProblem(error: unknown): FineProblem {
   if (error instanceof ApiError) {
     if (error.problem === 'fine-rental-not-finished') return 'notFinished';
+    // The first try went through though its answer was lost, and the form was changed since.
+    if (error.problem === 'idempotency-key-reused') return 'charged';
     if (error.status === 422) return 'invalid';
   }
   return 'failed';
@@ -93,6 +101,52 @@ function CancelForm({ fine, onCancelled }: { fine: Fine; onCancelled: (fine: Fin
   );
 }
 
+function AddPhotos({ fine, onAdded }: { fine: Fine; onAdded: (fine: Fine) => void }) {
+  const { t } = useTranslation();
+  const { fines } = useApis();
+  const { signOut } = useAuth();
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  const upload = async (files: File[]) => {
+    for (const file of files) onAdded(await fines.addPhoto(fine.id, file));
+  };
+
+  return (
+    <label className="stacked-label">
+      {t('fines.addPhoto')}
+      <input
+        className="field"
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        disabled={busy}
+        onChange={(event) => {
+          const input = event.target;
+          const files = Array.from(input.files ?? []);
+          if (files.length === 0) return;
+          setBusy(true);
+          setFailed(false);
+          upload(files)
+            .catch((error: unknown) => {
+              if (error instanceof ApiError && error.status === 401) void signOut();
+              else setFailed(true);
+            })
+            .finally(() => {
+              input.value = '';
+              setBusy(false);
+            });
+        }}
+      />
+      {failed && (
+        <span role="alert" className="list-error">
+          {t('fines.problems.failed')}
+        </span>
+      )}
+    </label>
+  );
+}
+
 /**
  * The fines of one rental in its card: what was charged, its evidence and history, a form to
  * charge a manual fine once the trip has ended, and the cancellation with a reason.
@@ -102,6 +156,11 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
   const { fines } = useApis();
   const { signOut } = useAuth();
   const [items, setItems] = useState<Fine[]>([]);
+  // Bumped to load the list again, after a charge whose answer was lost.
+  const [reload, setReload] = useState(0);
+  const [loaded, setLoaded] = useState<'loading' | 'ready' | 'failed'>('loading');
+  // One per filled form: a retry after a lost answer charges nothing twice.
+  const [chargeKey, setChargeKey] = useState(() => crypto.randomUUID());
   const [types, setTypes] = useState<FineType[]>([]);
   const [typeId, setTypeId] = useState('');
   const [comment, setComment] = useState('');
@@ -119,12 +178,17 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
 
   useEffect(() => {
     let active = true;
+    setLoaded('loading');
     fines.list({ rentalId }).then(
       (page) => {
-        if (active) setItems(page.items);
+        if (!active) return;
+        setItems(page.items);
+        setLoaded('ready');
       },
       (error: unknown) => {
-        if (active) refused(error);
+        if (!active) return;
+        setLoaded('failed');
+        refused(error);
       },
     );
     if (ended) {
@@ -140,14 +204,14 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
     return () => {
       active = false;
     };
-  }, [fines, rentalId, ended, refused]);
+  }, [fines, rentalId, ended, refused, reload]);
 
   const replaceFine = (updated: Fine) => {
     setItems((known) => known.map((item) => (item.id === updated.id ? updated : item)));
   };
 
   const charge = async (type: FineType) => {
-    let fine = await fines.charge(rentalId, type.fine_type_id, comment.trim());
+    let fine = await fines.charge(rentalId, type.fine_type_id, comment.trim(), chargeKey);
     setItems((known) => [fine, ...known]);
     for (const file of photos) {
       try {
@@ -168,9 +232,11 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
   return (
     <section>
       <h2>{t('fines.ofRental')}</h2>
-      {items.length === 0 ? (
+      {loaded === 'loading' && <p className="muted">{t('fines.loading')}</p>}
+      {loaded === 'ready' && items.length === 0 && (
         <p className="muted">{t('fines.noneForRental')}</p>
-      ) : (
+      )}
+      {items.length > 0 && (
         <ul className="fine-list">
           {items.map((fine) => (
             <li key={fine.id} className="fine-item">
@@ -203,6 +269,9 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
                   </li>
                 ))}
               </ol>
+              {fine.status !== 'cancelled' && fine.photos.length < fineMaxPhotos && (
+                <AddPhotos fine={fine} onAdded={replaceFine} />
+              )}
               {(fine.status !== 'cancelled' || fine.refund_status === 'failed') && (
                 <CancelForm fine={fine} onCancelled={replaceFine} />
               )}
@@ -230,10 +299,19 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
                   setTypeId('');
                   setComment('');
                   setPhotos([]);
+                  setChargeKey(crypto.randomUUID());
                 },
                 (error: unknown) => {
-                  if (error instanceof ApiError && error.status === 401) void signOut();
-                  else setProblem(fineProblem(error));
+                  if (error instanceof ApiError && error.status === 401) {
+                    void signOut();
+                    return;
+                  }
+                  const found = fineProblem(error);
+                  setProblem(found);
+                  if (found === 'charged') {
+                    setReload((count) => count + 1);
+                    setChargeKey(crypto.randomUUID());
+                  }
                 },
               )
               .finally(() => {
@@ -263,6 +341,8 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
             <label className="stacked-label">
               {t('fines.photos')}
               <input
+                // A new form after a charge: the files of the last one are not shown as chosen.
+                key={chargeKey}
                 className="field"
                 type="file"
                 accept="image/jpeg,image/png,image/webp"

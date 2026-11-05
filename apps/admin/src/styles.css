@@ -426,6 +426,10 @@ a {
   padding-left: var(--space-lg);
 }
 
+.client-matches {
+  padding-left: var(--space-lg);
+}
+
 .incident-map {
   height: 18rem;
   overflow: hidden;

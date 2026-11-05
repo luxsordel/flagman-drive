@@ -156,6 +156,7 @@
       "fineTypeUpdated": "Fine type changed",
       "fineCharged": "Fine charged",
       "fineCancelled": "Fine cancelled",
+      "fineRefundRetried": "Fine refund sent again",
       "finePhotoAdded": "Fine photo added",
       "finePhotoViewed": "Fine photo viewed"
     },
@@ -826,6 +827,7 @@
       "rejected": "Rejected"
     },
     "debt": "Debt",
+    "fines": "Client's fines",
     "rentals": "Latest rentals",
     "blockedBy": "Blocked by {{name}}. Reason: {{reason}}",
     "block": "Block",
@@ -857,6 +859,8 @@
     "moreFailed": "Could not load the next page. Try again."
   },
   "fines": {
+    "client": "Client",
+    "clientMatches": "Clients found",
     "filters": "Fine filters",
     "status": "Status",
     "type": "Type",
@@ -894,10 +898,13 @@
       "declined": "the card declined the charge",
       "cancelled": "cancelled",
       "refunded": "refunded",
-      "refund_failed": "refund failed"
+      "refund_failed": "refund failed",
+      "refund_retried": "refund sent again"
     },
     "ofRental": "Fines",
     "noneForRental": "No fines for this rental.",
+    "loading": "Loading the fines…",
+    "addPhoto": "Add photos",
     "cancelledBecause": "Cancelled: {{reason}}",
     "cancel": "Cancel the fine",
     "retryRefund": "Retry the refund",
@@ -912,9 +919,10 @@
     "chargeSubmit": "Charge",
     "chargeConfirm": "Charge the fine «{{name}}» of {{amount}}? It is taken from the client's card at once.",
     "problems": {
+      "charged": "The fine was charged by the first try, with other details. Check the fines above.",
       "notFinished": "Fines are charged to ended trips only.",
       "invalid": "Check the type and the comment.",
-      "photo": "The fine is charged, but not every photo was uploaded. Add them again.",
+      "photo": "The fine is charged, but not every photo was uploaded. Add them with \"Add photos\" on the fine.",
       "failed": "That did not work. Check the connection and try again."
     },
     "catalog": {
@@ -932,7 +940,7 @@
       "save": "Save",
       "cancel": "Cancel",
       "addTitle": "New fine type",
-      "addHint": "Operators charge a new type by hand. The code is Latin letters, digits and «_», e.g. pets.",
+      "addHint": "Operators charge a new type by hand. The code is Latin letters, digits and \"_\", e.g. pets. The system charges the low_battery code itself, for a trip ended with a low battery.",
       "add": "Add",
       "problems": {
         "exists": "A type with this code exists already.",

@@ -46,6 +46,7 @@ const labelKeys: Record<AuditAction, ActionLabelKey> = {
   'incident.photo_viewed': 'incidentPhotoViewed',
   'fine.charged': 'fineCharged',
   'fine.cancelled': 'fineCancelled',
+  'fine.refund_retried': 'fineRefundRetried',
   'fine.photo_added': 'finePhotoAdded',
   'fine.photo_viewed': 'finePhotoViewed',
   'rental.force_finished': 'rentalForceFinished',
