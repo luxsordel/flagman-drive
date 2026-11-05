@@ -49,6 +49,7 @@ class NotificationEvent(StrEnum):
     TRIP_FINISHED = "trip_finished"
     PAYMENT_FAILED = "payment_failed"
     SUPPORT_REPLY = "support_reply"
+    FINE_CHARGED = "fine_charged"
 
 
 CATEGORY_OF = {
@@ -58,6 +59,7 @@ CATEGORY_OF = {
     NotificationEvent.TRIP_FINISHED: NotificationCategory.TRIP,
     NotificationEvent.PAYMENT_FAILED: NotificationCategory.PAYMENT,
     NotificationEvent.SUPPORT_REPLY: NotificationCategory.SUPPORT,
+    NotificationEvent.FINE_CHARGED: NotificationCategory.PAYMENT,
 }
 
 
@@ -128,6 +130,9 @@ class Notification:
         """
         if self.event is NotificationEvent.SUPPORT_REPLY:
             return f"{self.event}:{self.params['seq']}"
+        # A trip may earn several fines; `number` tells them apart (docs/adr/0028).
+        if self.event is NotificationEvent.FINE_CHARGED:
+            return f"{self.event}:{self.rental_id}:{self.params['number']}"
         return f"{self.event}:{self.rental_id}"
 
 
@@ -145,6 +150,7 @@ _LIFETIMES = {
     NotificationEvent.TRIP_FINISHED: _MONEY_NEWS_LIFETIME,
     NotificationEvent.PAYMENT_FAILED: _MONEY_NEWS_LIFETIME,
     NotificationEvent.SUPPORT_REPLY: timedelta(days=1),
+    NotificationEvent.FINE_CHARGED: _MONEY_NEWS_LIFETIME,
 }
 
 _PARAMS: dict[NotificationEvent, frozenset[str]] = {
@@ -155,6 +161,8 @@ _PARAMS: dict[NotificationEvent, frozenset[str]] = {
     NotificationEvent.TRIP_FINISHED: frozenset({"total"}),
     NotificationEvent.SUPPORT_REPLY: frozenset({"seq"}),
     NotificationEvent.PAYMENT_FAILED: frozenset({"amount"}),
+    # `number` is the fine's place among the fines of its rental, from 1.
+    NotificationEvent.FINE_CHARGED: frozenset({"amount", "number"}),
 }
 
 
@@ -268,6 +276,10 @@ _TEMPLATES: dict[NotificationEvent, dict[Language, tuple[str, str]]] = {
     NotificationEvent.PAYMENT_FAILED: {
         Language.RU: ("Оплата не прошла", "Списать {amount} не удалось. Проверьте карту."),
         Language.EN: ("Payment failed", "We could not charge {amount}. Please check your card."),
+    },
+    NotificationEvent.FINE_CHARGED: {
+        Language.RU: ("Начислен штраф", "Штраф {amount} за поездку. Подробности — в «Мои штрафы»."),
+        Language.EN: ("Fine charged", 'A fine of {amount} for your trip. See "My fines".'),
     },
 }
 

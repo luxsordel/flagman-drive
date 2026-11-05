@@ -1,5 +1,6 @@
-"""Tariffs, their versions and the price of a rental. No I/O here, see docs/adr/0018."""
+"""Tariffs, fines, their versions and the price of a rental. No I/O here, see docs/adr/0018."""
 
+import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -200,3 +201,103 @@ def calculate(intervals: Iterable[Interval], prices: TariffPrices) -> Quote:
 def _minutes_up(length: timedelta) -> int:
     # Integer arithmetic on timedelta: no float rounding at the minute boundary.
     return -(-length // _MINUTE)
+
+
+# Fines (docs/01, «Тарифы»). A typo guard like the prices above: a 10 000 BYN fine is a lost digit.
+MAX_FINE_AMOUNT = 1_000_000
+MAX_FINE_NAME_LENGTH = 100
+# The fine the system charges on its own when a trip ends with a nearly empty battery; every other
+# type is assigned by an operator.
+LOW_BATTERY_FINE_CODE = "low_battery"
+_AUTOMATIC_FINE_CODES = frozenset({LOW_BATTERY_FINE_CODE})
+_FINE_CODE = re.compile(r"[a-z][a-z0-9_]{1,39}")
+
+
+class FineKind(StrEnum):
+    """Worked out from the code, never stored: the API and the admin show it as is."""
+
+    AUTOMATIC = "automatic"
+    MANUAL = "manual"
+
+
+class FineTypeNotFoundError(AppError):
+    status = HTTPStatus.NOT_FOUND
+    slug = "fine-type-not-found"
+    title = "Fine type not found"
+
+
+class FineTypeExistsError(AppError):
+    status = HTTPStatus.CONFLICT
+    slug = "fine-type-exists"
+    title = "A fine type with this code exists already"
+
+
+class FineTypeChangedError(AppError):
+    """Another admin saved a version after the one the form was filled from."""
+
+    status = HTTPStatus.CONFLICT
+    slug = "fine-type-changed"
+    title = "The fine type was changed by someone else, reload it"
+
+
+def next_fine_version(current: int, based_on: int) -> int:
+    """The number of the version an admin saves over the one they saw. Raises
+    FineTypeChangedError when someone saved a newer one meanwhile: their amount is not overwritten
+    unseen. Versions are only added, so fines charged before keep theirs."""
+    if current != based_on:
+        raise FineTypeChangedError
+    return current + 1
+
+
+class FineTermsInvalidError(AppError):
+    status = HTTPStatus.UNPROCESSABLE_ENTITY
+    slug = "fine-terms-invalid"
+    title = "A fine name or amount is out of range"
+
+
+def fine_kind(code: str) -> FineKind:
+    """Only the codes the system knows how to detect are automatic; an admin adds manual ones."""
+    return FineKind.AUTOMATIC if code in _AUTOMATIC_FINE_CODES else FineKind.MANUAL
+
+
+def ensure_fine_code(code: str) -> str:
+    if not _FINE_CODE.fullmatch(code):
+        raise FineTermsInvalidError("code must be 2..40 of a-z, 0-9 and _, starting with a letter")
+    return code
+
+
+@dataclass(frozen=True)
+class FineTerms:
+    """What a version of a fine type says: its names and its amount in kopecks of BYN."""
+
+    name_ru: str
+    name_en: str
+    amount: int
+
+    def __post_init__(self) -> None:
+        for name in (self.name_ru, self.name_en):
+            if not name.strip() or len(name) > MAX_FINE_NAME_LENGTH or name != name.strip():
+                raise FineTermsInvalidError(
+                    f"names must be 1..{MAX_FINE_NAME_LENGTH} characters without outer spaces"
+                )
+        # bool is an int too, and True would pass as one kopeck.
+        if type(self.amount) is not int or not 1 <= self.amount <= MAX_FINE_AMOUNT:
+            raise FineTermsInvalidError(f"amount must be within 1..{MAX_FINE_AMOUNT}")
+
+
+@dataclass(frozen=True)
+class FineTypeVersion:
+    """Never changes once saved: a charged fine keeps pointing at the version it was charged by."""
+
+    id: UUID
+    fine_type_id: UUID
+    code: str
+    number: int
+    terms: FineTerms
+    valid_from: datetime
+    # None for the demo seed.
+    created_by: UUID | None
+
+    @property
+    def kind(self) -> FineKind:
+        return fine_kind(self.code)

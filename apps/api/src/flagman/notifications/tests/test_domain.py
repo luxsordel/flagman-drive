@@ -27,6 +27,7 @@ EXAMPLES = [
     Notification(NotificationEvent.TRIP_FINISHED, RENTAL, {"total": 1250}),
     Notification(NotificationEvent.PAYMENT_FAILED, RENTAL, {"amount": 990}),
     Notification(NotificationEvent.SUPPORT_REPLY, None, {"seq": 7}),
+    Notification(NotificationEvent.FINE_CHARGED, RENTAL, {"amount": 2000, "number": 1}),
 ]
 
 
@@ -37,6 +38,14 @@ def test_every_event_has_a_template_in_both_languages() -> None:
             content = render(notification, language)
             assert content.title
             assert "{" not in content.body
+
+
+def test_every_fine_of_a_trip_is_its_own_notification() -> None:
+    first = Notification(NotificationEvent.FINE_CHARGED, RENTAL, {"amount": 2000, "number": 1})
+    second = Notification(NotificationEvent.FINE_CHARGED, RENTAL, {"amount": 2000, "number": 2})
+
+    assert first.dedup_key != second.dedup_key
+    assert first.category is NotificationCategory.PAYMENT
 
 
 def test_every_support_answer_is_its_own_notification() -> None:

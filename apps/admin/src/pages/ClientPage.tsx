@@ -124,6 +124,9 @@ export function ClientPage() {
         <dd>{formatKopecks(client.debt, i18n.language)}</dd>
       </dl>
       <ClientRentals clientId={client.id} />
+      <p>
+        <Link to={`/fines?client=${client.id}`}>{t('clients.fines')}</Link>
+      </p>
       {client.block && (
         <p role="status" className="list-error">
           {t('clients.blockedBy', {

@@ -25,6 +25,7 @@ import { useKycApplication, useKycStore } from '../kyc/KycProvider';
 import { NotificationsCard } from '../notifications/NotificationsCard';
 import { SupportCard } from '../support/SupportCard';
 import { PaymentMethodsCard } from '../payments/PaymentMethodsCard';
+import { FinesCard } from '../fines/FinesCard';
 import { TripsCard } from '../trips/TripsCard';
 import type { Profile } from './profileApi';
 import type { ProfileError } from './profileErrors';
@@ -75,6 +76,7 @@ export function ProfileScreen() {
       )}
       <DocumentsCard />
       <TripsCard />
+      <FinesCard />
       <PaymentMethodsCard />
       <NotificationsCard />
       <SupportCard />

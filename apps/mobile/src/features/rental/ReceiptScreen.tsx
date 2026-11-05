@@ -7,6 +7,7 @@ import { useTheme } from '../../theme/theme';
 import { AppText } from '../../ui/AppText';
 import { Button } from '../../ui/Button';
 import { Screen } from '../../ui/Screen';
+import { TripFines } from '../fines/FinesScreen';
 import { ReceiptView } from './ReceiptView';
 import { RentalErrorMessage } from './RentalErrorMessage';
 import { useRentalState, useRentalStore } from './RentalProvider';
@@ -50,6 +51,7 @@ export function ReceiptScreen() {
           {/* A cancelled reservation may have a receipt for its paid wait or none at all. */}
           {shown.status === 'cancelled' && <AppText>{t(endedText(shown))}</AppText>}
           <ReceiptView rental={shown} pending={pending} />
+          <TripFines rentalId={shown.id} />
           <RentalErrorMessage error={error} />
           <Button
             variant="secondary"

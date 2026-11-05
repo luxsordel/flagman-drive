@@ -8,6 +8,7 @@ import type { Staff } from '../auth/staff';
 import { routes } from '../routes';
 import { fakeAuditLogApi } from './audit';
 import { fakeClientsApi } from './clients';
+import { fakeFinesApi } from './fines';
 import { fakeFleetApi, fakeFleetStream } from './fleet';
 import { fakeStaffAuthApi, fakeStaffSignInApi, testStaff } from './auth';
 import { fakeKycReviewApi } from './kyc';
@@ -40,6 +41,7 @@ export function renderAt(
         value={{
           auditLog: fakeAuditLogApi(),
           clients: fakeClientsApi(),
+          fines: fakeFinesApi(),
           fleet: fakeFleetApi(),
           fleetStream: fakeFleetStream().open,
           kycReview: fakeKycReviewApi(),

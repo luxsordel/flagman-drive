@@ -19,15 +19,20 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
 from flagman.support.domain import (
+    FINE_CANCEL_REASON_MAX_LENGTH,
+    FINE_COMMENT_MAX_LENGTH,
     INCIDENT_COMMENT_MAX_LENGTH,
     INCIDENT_DESCRIPTION_MAX_LENGTH,
     MESSAGE_TEXT_MAX_LENGTH,
     ConversationStatus,
+    FineEventAction,
+    FineStatus,
     IncidentEventAction,
     IncidentStatus,
     IncidentType,
     MessageAuthor,
     MessageKind,
+    RefundStatus,
 )
 
 ENUM_LENGTH = 16
@@ -167,4 +172,104 @@ class IncidentEvent(Base):
     staff_id: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
     action: Mapped[str] = mapped_column(String(ACTION_LENGTH))
     comment: Mapped[str | None] = mapped_column(String(INCIDENT_COMMENT_MAX_LENGTH))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class Fine(Base):
+    """Never deleted: a cancellation is a status and a line of the history (docs/adr/0028)."""
+
+    __tablename__ = "support_fines"
+    __table_args__ = (
+        CheckConstraint(f"status IN ({_listed(FineStatus)})", name="status_known"),
+        CheckConstraint(
+            f"refund_status IS NULL OR refund_status IN ({_listed(RefundStatus)})",
+            name="refund_status_known",
+        ),
+        CheckConstraint("amount > 0", name="amount_positive"),
+        # A manual fine always says why; an automatic one is explained by its type.
+        CheckConstraint("(created_by IS NULL) = (comment IS NULL)", name="manual_has_comment"),
+        # The operator's form sends one, so a repeated request charges nothing twice.
+        CheckConstraint(
+            "(created_by IS NULL) = (idempotency_key IS NULL)", name="manual_has_idempotency_key"
+        ),
+        CheckConstraint(
+            "(status = 'cancelled') = (cancel_reason IS NOT NULL AND cancelled_at IS NOT NULL)",
+            name="cancelled_has_reason",
+        ),
+        # A trip earns each automatic fine once, whatever the retries of its end.
+        Index(
+            "uq_support_fines_automatic",
+            "rental_id",
+            "fine_type_id",
+            unique=True,
+            postgresql_where=text("created_by IS NULL"),
+        ),
+        # The worker's charges and refunds.
+        Index("ix_support_fines_due", "next_at", postgresql_where=text("next_at IS NOT NULL")),
+        # The debt check of every reservation.
+        Index(
+            "ix_support_fines_unpaid_user", "user_id", postgresql_where=text("status = 'unpaid'")
+        ),
+        Index("ix_support_fines_created_at_id", "created_at", "id"),
+        Index(
+            "uq_support_fines_idempotency_key",
+            "idempotency_key",
+            unique=True,
+            postgresql_where=text("idempotency_key IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    rental_id: Mapped[UUID] = mapped_column(ForeignKey("rentals.id"), index=True)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), index=True)
+    # The type for the filters and the uniqueness; the version for the names and the amount.
+    fine_type_id: Mapped[UUID] = mapped_column(ForeignKey("fine_types.id"))
+    fine_type_version_id: Mapped[UUID] = mapped_column(ForeignKey("fine_type_versions.id"))
+    # Kopecks of BYN, copied from the version when charged.
+    amount: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(String(ENUM_LENGTH))
+    comment: Mapped[str | None] = mapped_column(String(FINE_COMMENT_MAX_LENGTH))
+    created_by: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
+    idempotency_key: Mapped[UUID | None]
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    charge_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    next_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    cancel_reason: Mapped[str | None] = mapped_column(String(FINE_CANCEL_REASON_MAX_LENGTH))
+    cancelled_by: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    refund_status: Mapped[str | None] = mapped_column(String(ENUM_LENGTH))
+    refund_attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class FinePhoto(Base):
+    __tablename__ = "support_fine_photos"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    # No ON DELETE CASCADE, as with incident photos: the storage is not the database's to clean.
+    fine_id: Mapped[UUID] = mapped_column(ForeignKey("support_fines.id"), index=True)
+    object_key: Mapped[str] = mapped_column(String(OBJECT_KEY_LENGTH), unique=True)
+    size_bytes: Mapped[int] = mapped_column(Integer)
+    uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class FineEvent(Base):
+    """The history a fine card shows; the audit log keeps the staff actions for security."""
+
+    __tablename__ = "support_fine_events"
+    __table_args__ = (
+        CheckConstraint(f"action IN ({_listed(FineEventAction)})", name="action_known"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    # The order of the history: a charge and its payment may share a timestamp.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(), unique=True)
+    fine_id: Mapped[UUID] = mapped_column(ForeignKey("support_fines.id"), index=True)
+    # None for what the system did on its own.
+    staff_id: Mapped[UUID | None] = mapped_column(ForeignKey("staff_members.id"))
+    action: Mapped[str] = mapped_column(String(ACTION_LENGTH))
+    # Holds both an operator's comment and a cancel reason: as long as the longer of the two.
+    comment: Mapped[str | None] = mapped_column(
+        String(max(FINE_COMMENT_MAX_LENGTH, FINE_CANCEL_REASON_MAX_LENGTH))
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))

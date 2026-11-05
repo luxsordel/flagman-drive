@@ -26,7 +26,7 @@ def _run(*argv: str) -> tuple[int, str]:
 def test_seed_runs_again_without_changes(command_env: pytest.MonkeyPatch) -> None:
     assert _run("seed")[0] == cli.EXIT_OK
 
-    assert _run("seed") == (cli.EXIT_OK, "Tariffs created: 0.\n")
+    assert _run("seed") == (cli.EXIT_OK, "Tariffs created: 0.\nFine types created: 0.\n")
 
 
 def test_seed_is_refused_in_production(

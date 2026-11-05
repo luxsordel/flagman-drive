@@ -13,17 +13,33 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flagman.support.domain import (
     OPEN_INCIDENT_STATUSES,
     ConversationStatus,
+    Fine,
+    FineCursor,
+    FineEventAction,
+    FineFilter,
+    FineStatus,
     IncidentCursor,
     IncidentEventAction,
     IncidentStatus,
     IncidentType,
     MessageAuthor,
     MessageKind,
+    RefundStatus,
 )
-from flagman.support.models import Conversation, Incident, IncidentEvent, IncidentPhoto, Message
+from flagman.support.models import (
+    Conversation,
+    FineEvent,
+    FinePhoto,
+    Incident,
+    IncidentEvent,
+    IncidentPhoto,
+    Message,
+)
+from flagman.support.models import Fine as FineRow
 
 # Any fixed number unique among the two-key advisory locks of the database.
 _INCIDENTS_LOCK_CLASS = 4_600_201
+_RENTAL_FINES_LOCK_CLASS = 4_600_202
 
 
 @dataclass(frozen=True)
@@ -444,3 +460,279 @@ async def events_by_incident(
     for row in rows:
         grouped[row.incident_id].append(row)
     return grouped
+
+
+# Fines (docs/adr/0028)
+
+
+def _to_fine(row: FineRow) -> Fine:
+    return Fine(
+        id=row.id,
+        rental_id=row.rental_id,
+        user_id=row.user_id,
+        fine_type_version_id=row.fine_type_version_id,
+        amount=row.amount,
+        status=FineStatus(row.status),
+        comment=row.comment,
+        created_by=row.created_by,
+        created_at=row.created_at,
+        charge_attempts=row.charge_attempts,
+        next_at=row.next_at,
+        cancel_reason=row.cancel_reason,
+        cancelled_by=row.cancelled_by,
+        cancelled_at=row.cancelled_at,
+        refund_status=RefundStatus(row.refund_status) if row.refund_status else None,
+        refund_attempts=row.refund_attempts,
+    )
+
+
+@dataclass(frozen=True)
+class NewFine:
+    rental_id: UUID
+    user_id: UUID
+    fine_type_id: UUID
+    fine_type_version_id: UUID
+    amount: int
+    comment: str | None
+    created_by: UUID | None
+    at: datetime
+    # The operator's form's; None for an automatic fine.
+    idempotency_key: UUID | None = None
+
+
+async def add_fine(db: AsyncSession, new: NewFine) -> Fine | None:
+    """Returns None when the trip has this automatic fine already, or a manual fine with this
+    key was added first by a parallel request."""
+    values = {
+        "rental_id": new.rental_id,
+        "user_id": new.user_id,
+        "fine_type_id": new.fine_type_id,
+        "fine_type_version_id": new.fine_type_version_id,
+        "amount": new.amount,
+        "status": FineStatus.PENDING,
+        "comment": new.comment,
+        "created_by": new.created_by,
+        "idempotency_key": new.idempotency_key,
+        "created_at": new.at,
+        # Due at once: the request or the worker charges it right after the commit.
+        "next_at": new.at,
+        "updated_at": new.at,
+    }
+    query = insert(FineRow).values(**values)
+    if new.created_by is None:
+        query = query.on_conflict_do_nothing(
+            index_elements=[FineRow.rental_id, FineRow.fine_type_id],
+            index_where=text("created_by IS NULL"),
+        )
+    else:
+        query = query.on_conflict_do_nothing(
+            index_elements=[FineRow.idempotency_key],
+            index_where=text("idempotency_key IS NOT NULL"),
+        )
+    row = await db.scalar(query.returning(FineRow))
+    return _to_fine(row) if row else None
+
+
+async def get_fine_by_key(db: AsyncSession, idempotency_key: UUID) -> Fine | None:
+    row = await db.scalar(select(FineRow).where(FineRow.idempotency_key == idempotency_key))
+    return _to_fine(row) if row else None
+
+
+async def get_fine(
+    db: AsyncSession, fine_id: UUID, user_id: UUID | None = None, *, for_update: bool = False
+) -> Fine | None:
+    """With `user_id` only that client's fine is found."""
+    query = select(FineRow).where(FineRow.id == fine_id)
+    if user_id is not None:
+        query = query.where(FineRow.user_id == user_id)
+    if for_update:
+        query = query.with_for_update()
+    row = await db.scalar(query)
+    return _to_fine(row) if row else None
+
+
+@dataclass(frozen=True)
+class FineUpdate:
+    status: FineStatus
+    charge_attempts: int
+    next_at: datetime | None
+    cancel_reason: str | None = None
+    cancelled_by: UUID | None = None
+    cancelled_at: datetime | None = None
+    refund_status: RefundStatus | None = None
+    refund_attempts: int = 0
+
+    @classmethod
+    def of(cls, fine: Fine) -> "FineUpdate":
+        return cls(
+            status=fine.status,
+            charge_attempts=fine.charge_attempts,
+            next_at=fine.next_at,
+            cancel_reason=fine.cancel_reason,
+            cancelled_by=fine.cancelled_by,
+            cancelled_at=fine.cancelled_at,
+            refund_status=fine.refund_status,
+            refund_attempts=fine.refund_attempts,
+        )
+
+
+async def update_fine(db: AsyncSession, fine_id: UUID, change: FineUpdate, now: datetime) -> None:
+    await db.execute(
+        update(FineRow)
+        .where(FineRow.id == fine_id)
+        .values(
+            status=change.status,
+            charge_attempts=change.charge_attempts,
+            next_at=change.next_at,
+            cancel_reason=change.cancel_reason,
+            cancelled_by=change.cancelled_by,
+            cancelled_at=change.cancelled_at,
+            refund_status=change.refund_status,
+            refund_attempts=change.refund_attempts,
+            updated_at=now,
+        )
+    )
+
+
+async def has_unpaid_fine(db: AsyncSession, user_id: UUID) -> bool:
+    query = select(FineRow.id).where(
+        FineRow.user_id == user_id, FineRow.status == FineStatus.UNPAID
+    )
+    return await db.scalar(query.limit(1)) is not None
+
+
+async def unpaid_fines_total(db: AsyncSession, user_id: UUID) -> int:
+    query = select(func.coalesce(func.sum(FineRow.amount), 0)).where(
+        FineRow.user_id == user_id, FineRow.status == FineStatus.UNPAID
+    )
+    return int(await db.scalar(query) or 0)
+
+
+async def lock_due_fines(db: AsyncSession, now: datetime, limit: int) -> list[Fine]:
+    """Fines whose charge or refund is due, locked and skipped by a parallel run."""
+    rows = await db.scalars(
+        select(FineRow)
+        .where(FineRow.next_at <= now)
+        .order_by(FineRow.next_at, FineRow.id)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    )
+    return [_to_fine(row) for row in rows]
+
+
+async def set_fine_next_at(
+    db: AsyncSession, fine_id: UUID, next_at: datetime | None, now: datetime
+) -> None:
+    await db.execute(
+        update(FineRow).where(FineRow.id == fine_id).values(next_at=next_at, updated_at=now)
+    )
+
+
+async def list_fines(
+    db: AsyncSession, fine_filter: FineFilter, after: FineCursor | None, limit: int
+) -> list[Fine]:
+    """Newest first; keyset pages, as with incidents."""
+    query = select(FineRow).order_by(FineRow.created_at.desc(), FineRow.id.desc())
+    if after is not None:
+        query = query.where(
+            tuple_(FineRow.created_at, FineRow.id) < tuple_(after.created_at, after.fine_id)
+        )
+    if fine_filter.statuses:
+        query = query.where(FineRow.status.in_(fine_filter.statuses))
+    if fine_filter.fine_type_ids:
+        query = query.where(FineRow.fine_type_id.in_(fine_filter.fine_type_ids))
+    if fine_filter.user_id is not None:
+        query = query.where(FineRow.user_id == fine_filter.user_id)
+    if fine_filter.rental_id is not None:
+        query = query.where(FineRow.rental_id == fine_filter.rental_id)
+    if fine_filter.created_from is not None:
+        query = query.where(FineRow.created_at >= fine_filter.created_from)
+    if fine_filter.created_to is not None:
+        query = query.where(FineRow.created_at < fine_filter.created_to)
+    return [_to_fine(row) for row in await db.scalars(query.limit(limit))]
+
+
+async def count_fine_photos(db: AsyncSession, fine_id: UUID) -> int:
+    return (
+        await db.scalar(
+            select(func.count()).select_from(FinePhoto).where(FinePhoto.fine_id == fine_id)
+        )
+        or 0
+    )
+
+
+async def photos_by_fine(
+    db: AsyncSession, fine_ids: Collection[UUID]
+) -> dict[UUID, list[FinePhoto]]:
+    rows = await db.scalars(
+        select(FinePhoto)
+        .where(FinePhoto.fine_id.in_(fine_ids))
+        .order_by(FinePhoto.uploaded_at, FinePhoto.id)
+    )
+    grouped: defaultdict[UUID, list[FinePhoto]] = defaultdict(list)
+    for row in rows:
+        grouped[row.fine_id].append(row)
+    return grouped
+
+
+async def add_fine_photo(
+    db: AsyncSession, fine_id: UUID, object_key: str, size_bytes: int, now: datetime
+) -> UUID:
+    row = FinePhoto(fine_id=fine_id, object_key=object_key, size_bytes=size_bytes, uploaded_at=now)
+    db.add(row)
+    await db.flush()
+    return row.id
+
+
+async def get_fine_photo(db: AsyncSession, fine_id: UUID, photo_id: UUID) -> FinePhoto | None:
+    return await db.scalar(
+        select(FinePhoto).where(FinePhoto.id == photo_id, FinePhoto.fine_id == fine_id)
+    )
+
+
+@dataclass(frozen=True)
+class NewFineEvent:
+    action: FineEventAction
+    # None for what the system did on its own.
+    staff_id: UUID | None
+    at: datetime
+    comment: str | None = None
+
+
+async def add_fine_event(db: AsyncSession, fine_id: UUID, new: NewFineEvent) -> None:
+    db.add(
+        FineEvent(
+            fine_id=fine_id,
+            staff_id=new.staff_id,
+            action=new.action,
+            comment=new.comment,
+            created_at=new.at,
+        )
+    )
+    await db.flush()
+
+
+async def events_by_fine(
+    db: AsyncSession, fine_ids: Collection[UUID]
+) -> dict[UUID, list[FineEvent]]:
+    rows = await db.scalars(
+        select(FineEvent).where(FineEvent.fine_id.in_(fine_ids)).order_by(FineEvent.seq)
+    )
+    grouped: defaultdict[UUID, list[FineEvent]] = defaultdict(list)
+    for row in rows:
+        grouped[row.fine_id].append(row)
+    return grouped
+
+
+async def count_rental_fines(db: AsyncSession, rental_id: UUID) -> int:
+    """Under a transaction lock on the rental: two fines charged at once would otherwise both
+    count only themselves, get the same number and the second push be dropped as a repeat."""
+    await db.execute(
+        select(func.pg_advisory_xact_lock(_RENTAL_FINES_LOCK_CLASS, (rental_id.int >> 96) - 2**31))
+    )
+    return (
+        await db.scalar(
+            select(func.count()).select_from(FineRow).where(FineRow.rental_id == rental_id)
+        )
+        or 0
+    )

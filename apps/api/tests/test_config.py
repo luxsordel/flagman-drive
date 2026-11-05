@@ -248,6 +248,14 @@ def test_the_trip_low_battery_threshold_is_below_the_rentable_charge(
     assert make_settings(rental_low_battery_pct=19, fleet_min_battery_pct=20)
 
 
+def test_the_fine_threshold_is_not_above_the_rentable_charge(
+    make_settings: SettingsFactory,
+) -> None:
+    with pytest.raises(ValidationError, match="FINE_LOW_BATTERY_PCT"):
+        make_settings(fine_low_battery_pct=21, fleet_min_battery_pct=20)
+    assert make_settings(fine_low_battery_pct=20, fleet_min_battery_pct=20)
+
+
 _API_SECRETS = (
     "API_JWT_SECRET",
     "API_OTP_PEPPER",

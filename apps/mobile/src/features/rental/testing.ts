@@ -2,6 +2,7 @@ import type { LatLon } from '../map/mapConfig';
 import type {
   DamageSide,
   Debt,
+  Fine,
   HistoryPage,
   Inspection,
   InspectionStage,
@@ -15,6 +16,27 @@ import type {
 /** Test doubles shared by the rental tests. */
 
 export const serverNow = '2026-10-26T12:00:00Z';
+
+export function fine(overrides: Partial<Fine> = {}): Fine {
+  return {
+    id: 'fine-1',
+    rental_id: 'rental-1',
+    fine_type_id: 'type-1',
+    code: 'smoking',
+    name_ru: 'Курение в салоне',
+    name_en: 'Smoking in the car',
+    amount: 10000,
+    automatic: false,
+    status: 'paid',
+    comment: 'В салоне пахнет табаком',
+    cancel_reason: null,
+    refund_status: null,
+    photos: [],
+    created_at: '2026-11-03T10:00:00Z',
+    cancelled_at: null,
+    ...overrides,
+  };
+}
 
 export function rental(overrides: Partial<Rental> = {}): Rental {
   return {
@@ -101,6 +123,11 @@ export function fakeRentalApi() {
     debts: jest.fn<Promise<RentalResult<Debt[]>>, []>(() => Promise.resolve(ok([]))),
     history: jest.fn<Promise<RentalResult<HistoryPage>>, [string?]>(() =>
       Promise.resolve(ok({ items: [], next_cursor: null })),
+    ),
+    fines: jest.fn<Promise<RentalResult<Fine[]>>, [string?]>(() => Promise.resolve(ok([]))),
+    payFine: jest.fn<Promise<RentalResult<Fine>>, [string]>(),
+    finePhotoUrl: jest.fn<Promise<RentalResult<string>>, [string, string]>(() =>
+      Promise.resolve(ok('https://storage.test/fines/1.jpg')),
     ),
     uploadPhoto: jest.fn(
       (

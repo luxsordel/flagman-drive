@@ -9,10 +9,17 @@ import { fakeRentalApi, nearCar, ok, paidRental, rental, serverNow } from './tes
 initI18n('ru');
 
 const mockRouter = { push: jest.fn(), dismissTo: jest.fn() };
-jest.mock('expo-router', () => ({
-  useRouter: () => mockRouter,
-  useLocalSearchParams: () => ({ id: 'rental-1' }),
-}));
+jest.mock('expo-router', () => {
+  const { useEffect } = jest.requireActual<typeof import('react')>('react');
+  return {
+    useRouter: () => mockRouter,
+    useLocalSearchParams: () => ({ id: 'rental-1' }),
+    // The receipt is focused while it is rendered in these tests: its fines load.
+    useFocusEffect: (effect: () => void) => {
+      useEffect(effect, [effect]);
+    },
+  };
+});
 
 function setupStore() {
   const fake = fakeRentalApi();

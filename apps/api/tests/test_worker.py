@@ -19,6 +19,7 @@ from flagman.notifications.expo import ExpoPushProvider
 from flagman.notifications.fake_provider import FakePushProvider
 from flagman.payments import service as payments
 from flagman.rentals.tests.conftest import CAR_POINT as POINT
+from flagman.support import service as support
 
 
 def _worker_settings(settings: Settings) -> WorkerSettings:
@@ -559,3 +560,32 @@ async def test_trip_jobs_are_skipped_while_another_worker_holds_them(
         assert result is None
     finally:
         await engine.dispose()
+
+
+async def test_the_charges_job_settles_the_due_fines_too(
+    integration_settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    seen: list[datetime] = []
+
+    async def settle(*args: object) -> int:
+        now = args[-1]
+        assert isinstance(now, datetime)
+        seen.append(now)
+        return 2
+
+    monkeypatch.setattr(support, "settle_due_fines", settle)
+    engine = create_engine(integration_settings)
+    try:
+        settings = _with_payments(_worker_settings(integration_settings))
+        now = datetime.now(UTC)
+
+        tried = await worker.run_rental_charges(
+            engine, create_session_factory(engine), payments.gateway(settings), settings, now
+        )
+    finally:
+        await engine.dispose()
+
+    assert seen == [now]
+    assert tried is not None
+    # The two fines of the fake, with whatever rentals are due in the shared database.
+    assert tried >= 2

@@ -16,6 +16,8 @@ export type Receipt = components['schemas']['ReceiptOut'];
 export type Debt = components['schemas']['DebtOut'];
 export type HistoryItem = components['schemas']['HistoryItemOut'];
 export type HistoryPage = components['schemas']['HistoryPageOut'];
+export type Fine = components['schemas']['FineOut'];
+type FinePage = components['schemas']['FineListOut'];
 
 export type RentalResult<T> =
   | { ok: true; value: T }
@@ -58,6 +60,12 @@ export interface RentalApi {
   debts(): Promise<RentalResult<Debt[]>>;
   /** The client's rentals, newest first; `cursor` is `next_cursor` of the page before. */
   history(cursor?: string): Promise<RentalResult<HistoryPage>>;
+  /** The client's fines, newest first; of one trip with `rentalId`. */
+  fines(rentalId?: string): Promise<RentalResult<Fine[]>>;
+  /** One more try of the card for an unpaid fine; a paid one is answered as it is. */
+  payFine(id: string): Promise<RentalResult<Fine>>;
+  /** A link that opens the photo for minutes: asked for on a tap, never kept. */
+  finePhotoUrl(fineId: string, photoId: string): Promise<RentalResult<string>>;
 }
 
 export interface RentalApiOptions {
@@ -116,6 +124,37 @@ export function createRentalApi({
       send(
         api.GET('/rentals/history', { params: { query: cursor ? { cursor } : {} } }),
         (body) => body,
+      ),
+    // Every page at once: a client has a handful of fines, one page is nearly always all of them.
+    async fines(rentalId) {
+      const all: Fine[] = [];
+      let cursor: string | null = null;
+      do {
+        const query: { rental_id?: string; cursor?: string } = {
+          ...(rentalId ? { rental_id: rentalId } : {}),
+          ...(cursor ? { cursor } : {}),
+        };
+        const page: RentalResult<FinePage> = await send(
+          api.GET('/support/fines', { params: { query } }),
+          (body) => body,
+        );
+        if (!page.ok) return page;
+        all.push(...page.value.items);
+        cursor = page.value.next_cursor ?? null;
+      } while (cursor !== null);
+      return { ok: true, value: all };
+    },
+    payFine: (id) =>
+      send(
+        api.POST('/support/fines/{fine_id}/pay', { params: { path: { fine_id: id } } }),
+        (body) => body,
+      ),
+    finePhotoUrl: (fineId, photoId) =>
+      send(
+        api.GET('/support/fines/{fine_id}/photos/{photo_id}/url', {
+          params: { path: { fine_id: fineId, photo_id: photoId } },
+        }),
+        (body) => body.url,
       ),
     command: (id, command, at) =>
       send(

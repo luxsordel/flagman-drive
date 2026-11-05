@@ -5,6 +5,8 @@ const routes: Readonly<Record<string, Href>> = {
   reservation_expiring: '/rental',
   trip_low_battery: '/rental',
   support_reply: '/support',
+  // A trip may have several fines: the list shows them all, each with its payment.
+  fine_charged: '/fines',
 };
 // An ended rental and its payment are on the receipt, which loads the rental by its id even after
 // a restart; an expiry may have billed the paid wait (ADR-0024).

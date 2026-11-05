@@ -77,6 +77,7 @@ export default function RootLayout() {
                             <Stack.Screen name="rental/finish" />
                             <Stack.Screen name="rental/receipt" />
                             <Stack.Screen name="trips" />
+                            <Stack.Screen name="fines" />
                             <Stack.Screen name="payment-methods" />
                             <Stack.Screen name="notification-settings" />
                             <Stack.Screen name="support/index" />

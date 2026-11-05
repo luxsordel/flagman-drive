@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from flagman.core.db import Base
@@ -53,4 +53,39 @@ class TariffVersion(Base):
     valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     # The staff member who saved it; None for the demo seed. No key: staff accounts are disabled,
     # never deleted, and the audit log has the same id.
+    created_by: Mapped[UUID | None]
+
+
+class FineType(Base):
+    """A kind of fine in the catalog; its names and amount live in the versions."""
+
+    __tablename__ = "fine_types"
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    # Stable: the code says what the fine is for, automatic fines are found by it.
+    code: Mapped[str] = mapped_column(String(40), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class FineTypeVersion(Base):
+    """Rows are only added: a charged fine points at the version it was charged by."""
+
+    __tablename__ = "fine_type_versions"
+    __table_args__ = (
+        UniqueConstraint(
+            "fine_type_id", "number", name="uq_fine_type_versions_fine_type_id_number"
+        ),
+        CheckConstraint("number > 0", name="number_positive"),
+        CheckConstraint("amount > 0", name="amount_positive"),
+    )
+
+    id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
+    fine_type_id: Mapped[UUID] = mapped_column(ForeignKey("fine_types.id"))
+    number: Mapped[int]
+    name_ru: Mapped[str] = mapped_column(String(100))
+    name_en: Mapped[str] = mapped_column(String(100))
+    # Kopecks of BYN.
+    amount: Mapped[int]
+    valid_from: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    # As with tariff versions: the staff member, None for the demo seed.
     created_by: Mapped[UUID | None]

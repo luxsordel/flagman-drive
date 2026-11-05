@@ -6,6 +6,10 @@ describe('notificationRoute', () => {
     expect(notificationRoute({ event: 'support_reply', rental_id: 'r-1' })).toBe('/support');
   });
 
+  it('opens the fines for a charged fine', () => {
+    expect(notificationRoute({ event: 'fine_charged', rental_id: 'r-1' })).toBe('/fines');
+  });
+
   it.each(['reservation_expiring', 'trip_low_battery'])('opens the rental for %s', (event) => {
     expect(notificationRoute({ event, rental_id: 'r-1' })).toBe('/rental');
   });

@@ -65,6 +65,7 @@ def _to_rental(row: RentalRow) -> Rental:
         charge_next_at=row.charge_next_at,
         force_finish_reason=row.force_finish_reason,
         force_finished_by=row.force_finished_by,
+        end_battery_pct=row.end_battery_pct,
     )
 
 
@@ -377,6 +378,7 @@ async def finish(  # noqa: PLR0913 - the end of a trip has this many facts
     now: datetime,
     *,
     location: GeoPoint | None = None,
+    battery_pct: int | None = None,
     forced: ForcedFinish | None = None,
 ) -> None:
     await db.execute(
@@ -387,6 +389,7 @@ async def finish(  # noqa: PLR0913 - the end of a trip has this many facts
             ended_at=now,
             command_until=None,
             end_location=_geography(location),
+            end_battery_pct=battery_pct,
             force_finish_reason=forced.reason if forced else None,
             force_finished_by=forced.staff_id if forced else None,
             updated_at=now,

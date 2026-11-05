@@ -16,8 +16,9 @@
     "clients": "Clients",
     "support": "Support",
     "incidents": "Incidents",
+    "fines": "Fines",
     "zones": "Zones",
-    "tariffs": "Tariffs and fines",
+    "tariffs": "Tariffs",
     "audit": "Audit log"
   },
   "header": {
@@ -150,7 +151,14 @@
       "rentalRefundRetried": "Rental refund sent again",
       "rentalPhotoViewed": "Inspection photo viewed",
       "clientBlocked": "Client blocked",
-      "clientUnblocked": "Client unblocked"
+      "clientUnblocked": "Client unblocked",
+      "fineTypeCreated": "Fine type added",
+      "fineTypeUpdated": "Fine type changed",
+      "fineCharged": "Fine charged",
+      "fineCancelled": "Fine cancelled",
+      "fineRefundRetried": "Fine refund sent again",
+      "finePhotoAdded": "Fine photo added",
+      "finePhotoViewed": "Fine photo viewed"
     },
     "targets": {
       "staffMember": "Staff member",
@@ -163,7 +171,9 @@
       "incident": "Incident",
       "maintenanceTask": "Technician task",
       "rental": "Rental",
-      "client": "Client"
+      "client": "Client",
+      "fineType": "Fine type",
+      "fine": "Fine"
     },
     "noTarget": "none",
     "loading": "Loading the log…",
@@ -817,6 +827,7 @@
       "rejected": "Rejected"
     },
     "debt": "Debt",
+    "fines": "Client's fines",
     "rentals": "Latest rentals",
     "blockedBy": "Blocked by {{name}}. Reason: {{reason}}",
     "block": "Block",
@@ -846,5 +857,97 @@
     "rejected": "The request was not accepted. Check the filters.",
     "failed": "Could not load. Check the connection and reload the page.",
     "moreFailed": "Could not load the next page. Try again."
+  },
+  "fines": {
+    "client": "Client",
+    "clientMatches": "Clients found",
+    "filters": "Fine filters",
+    "status": "Status",
+    "type": "Type",
+    "any": "Any",
+    "from": "From",
+    "to": "To",
+    "oneClient": "Fines of one client.",
+    "showAll": "Show everyone",
+    "empty": "No fines.",
+    "created": "Charged",
+    "amount": "Amount",
+    "rental": "Rental",
+    "open": "Open",
+    "by": "Charged by",
+    "automatic": "Automatically",
+    "more": "Show more",
+    "statuses": {
+      "pending": "Being charged",
+      "paid": "Paid",
+      "unpaid": "Unpaid — a debt",
+      "cancelled": "Cancelled"
+    },
+    "refunds": {
+      "pending": "refund in progress",
+      "succeeded": "refunded",
+      "failed": "refund failed"
+    },
+    "kinds": {
+      "automatic": "Automatic",
+      "manual": "Manual"
+    },
+    "events": {
+      "charged": "charged",
+      "paid": "paid",
+      "declined": "the card declined the charge",
+      "cancelled": "cancelled",
+      "refunded": "refunded",
+      "refund_failed": "refund failed",
+      "refund_retried": "refund sent again"
+    },
+    "ofRental": "Fines",
+    "noneForRental": "No fines for this rental.",
+    "loading": "Loading the fines…",
+    "addPhoto": "Add photos",
+    "cancelledBecause": "Cancelled: {{reason}}",
+    "cancel": "Cancel the fine",
+    "retryRefund": "Retry the refund",
+    "cancelTitle": "Cancel a fine",
+    "reason": "Reason (the client sees it)",
+    "cancelSubmit": "Cancel",
+    "cancelConfirm": "Cancel the fine? If it is paid, the money goes back to the client's card.",
+    "chargeTitle": "Charge a fine",
+    "pickType": "Pick a type",
+    "photos": "Photos of the evidence",
+    "comment": "What happened (the client sees it)",
+    "chargeSubmit": "Charge",
+    "chargeConfirm": "Charge the fine «{{name}}» of {{amount}}? It is taken from the client's card at once.",
+    "problems": {
+      "charged": "The fine was charged by the first try, with other details. Check the fines above.",
+      "notFinished": "Fines are charged to ended trips only.",
+      "invalid": "Check the type and the comment.",
+      "photo": "The fine is charged, but not every photo was uploaded. Add them with \"Add photos\" on the fine.",
+      "failed": "That did not work. Check the connection and try again."
+    },
+    "catalog": {
+      "title": "Fine catalog",
+      "name": "Name",
+      "code": "Code",
+      "kind": "Kind",
+      "amount": "Amount, BYN",
+      "validFrom": "Valid from",
+      "edit": "Change",
+      "editTitle": "Change the fine «{{name}}»",
+      "editConfirm": "Save? The new amount applies to fines charged after saving.",
+      "nameRu": "Name in Russian",
+      "nameEn": "Name in English",
+      "save": "Save",
+      "cancel": "Cancel",
+      "addTitle": "New fine type",
+      "addHint": "Operators charge a new type by hand. The code is Latin letters, digits and \"_\", e.g. pets. The system charges the low_battery code itself, for a trip ended with a low battery.",
+      "add": "Add",
+      "problems": {
+        "exists": "A type with this code exists already.",
+        "changed": "Someone changed the fine. Reload the page and try again.",
+        "invalid": "Check the names and the amount.",
+        "failed": "Could not save. Try again."
+      }
+    }
   }
 }

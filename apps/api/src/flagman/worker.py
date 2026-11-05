@@ -32,6 +32,7 @@ from flagman.notifications.ports import PushProvider
 from flagman.payments import service as payments
 from flagman.payments.domain import PaymentsUnavailableError
 from flagman.rentals import service as rentals
+from flagman.support import service as support
 
 logger = structlog.get_logger(__name__)
 
@@ -173,11 +174,17 @@ async def run_rental_charges(
     settings: WorkerSettings,
     now: datetime,
 ) -> int | None:
-    """Returns how many rentals it tried to settle, None when another copy holds the job."""
+    """Returns how many rentals and fines it tried to settle, None when another copy holds the
+    job. Fines go through the same job: the same provider, the same retries (docs/adr/0028)."""
 
     async def charge() -> int:
         async with session_factory() as db:
-            return await rentals.retry_charges(db, gateway, rentals.settlement_rules(settings), now)
+            tried = await rentals.retry_charges(
+                db, gateway, rentals.settlement_rules(settings), now
+            )
+            return tried + await support.settle_due_fines(
+                db, gateway, support.fine_rules(settings), now
+            )
 
     tried = await _with_lock(engine, RENTAL_CHARGES_LOCK, RENTAL_CHARGES, charge)
     if tried:

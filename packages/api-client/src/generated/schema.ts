@@ -92,6 +92,61 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/admin/fine-types': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The fine catalog: every type with its current version */
+    get: operations['list_fine_types_admin_fine_types_get'];
+    put?: never;
+    /** Add a manual fine type */
+    post: operations['create_fine_type_admin_fine_types_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/fine-types/{fine_type_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Save new names or amount of a fine type
+     * @description Adds a version that applies from now on. Fines charged before keep theirs.
+     */
+    put: operations['update_fine_type_admin_fine_types__fine_type_id__put'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/fine-types/{fine_type_id}/versions': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Every version of a fine type, newest first */
+    get: operations['list_fine_type_versions_admin_fine_types__fine_type_id__versions_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/admin/fleet/cars': {
     parameters: {
       query?: never;
@@ -648,6 +703,98 @@ export interface paths {
     put?: never;
     /** Take the conversation; other operators can no longer answer it */
     post: operations['take_conversation_admin_support_conversations__conversation_id__take_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/support/fines': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** Charged fines, newest first, with filters */
+    get: operations['list_fines_admin_support_fines_get'];
+    put?: never;
+    /**
+     * Charge a manual fine to an ended trip
+     * @description The card is charged right after; a declined card makes the fine a debt of the client. Photos are added with `POST /admin/support/fines/{fine_id}/photos`.
+     */
+    post: operations['charge_fine_admin_support_fines_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/support/fines/{fine_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One fine with its history */
+    get: operations['get_fine_admin_support_fines__fine_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/support/fines/{fine_id}/cancel': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Cancel a fine; paid money goes back to the card
+     * @description The fine stays in the list as `cancelled`, with the reason. Cancelling a cancelled fine whose refund was declined tries the refund again; otherwise it changes nothing.
+     */
+    post: operations['cancel_fine_admin_support_fines__fine_id__cancel_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/support/fines/{fine_id}/photos': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Add a photo of the evidence to a fine */
+    post: operations['add_fine_photo_admin_support_fines__fine_id__photos_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/admin/support/fines/{fine_id}/photos/{photo_id}/url': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A short-lived link to a photo of the fine */
+    get: operations['get_fine_photo_url_admin_support_fines__fine_id__photos__photo_id__url_get'];
+    put?: never;
+    post?: never;
     delete?: never;
     options?: never;
     head?: never;
@@ -1725,6 +1872,77 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/support/fines': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The client's fines, newest first */
+    get: operations['list_my_fines_support_fines_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/support/fines/{fine_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** One of the client's fines */
+    get: operations['get_my_fine_support_fines__fine_id__get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/support/fines/{fine_id}/pay': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Try the card again for an unpaid fine
+     * @description Does nothing to a paid or cancelled fine; the answer shows where it stands.
+     */
+    post: operations['pay_my_fine_support_fines__fine_id__pay_post'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/support/fines/{fine_id}/photos/{photo_id}/url': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** A short-lived link to a photo of the fine */
+    get: operations['get_my_fine_photo_url_support_fines__fine_id__photos__photo_id__url_get'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/support/incidents': {
     parameters: {
       query?: never;
@@ -1945,6 +2163,8 @@ export interface components {
       | 'zone.disabled'
       | 'tariff.created'
       | 'tariff.updated'
+      | 'fine_type.created'
+      | 'fine_type.updated'
       | 'payment.succeeded'
       | 'payment.declined'
       | 'payment.failed'
@@ -1964,6 +2184,11 @@ export interface components {
       | 'incident.rejected'
       | 'incident.car_sent_to_service'
       | 'incident.photo_viewed'
+      | 'fine.charged'
+      | 'fine.cancelled'
+      | 'fine.refund_retried'
+      | 'fine.photo_added'
+      | 'fine.photo_viewed'
       | 'rental.force_finished'
       | 'rental.adjusted'
       | 'rental.refund_retried'
@@ -2041,11 +2266,13 @@ export interface components {
       | 'kyc_application'
       | 'zone'
       | 'tariff'
+      | 'fine_type'
       | 'payment_operation'
       | 'car'
       | 'maintenance_task'
       | 'support_conversation'
       | 'incident'
+      | 'fine'
       | 'rental'
       | 'client';
     /** BlockIn */
@@ -2541,6 +2768,235 @@ export interface components {
       message: string;
       /** Type */
       type: string;
+    };
+    /** FineCancelIn */
+    FineCancelIn: {
+      /**
+       * Reason
+       * @description Why; the client sees it.
+       */
+      reason: string;
+    };
+    /**
+     * FineEventAction
+     * @description A line of a fine's history; the fine itself is never deleted, a cancellation is a line.
+     * @enum {string}
+     */
+    FineEventAction:
+      | 'charged'
+      | 'paid'
+      | 'declined'
+      | 'cancelled'
+      | 'refunded'
+      | 'refund_failed'
+      | 'refund_retried';
+    /** FineEventOut */
+    FineEventOut: {
+      action: components['schemas']['FineEventAction'];
+      /** Comment */
+      comment: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Staff Id
+       * @description None for what the system did on its own.
+       */
+      staff_id: string | null;
+      /** Staff Name */
+      staff_name: string | null;
+    };
+    /** FineIn */
+    FineIn: {
+      /**
+       * Comment
+       * @description What happened; the client sees it.
+       */
+      comment: string;
+      /**
+       * Fine Type Id
+       * Format: uuid
+       * @description A manual type of the catalog.
+       */
+      fine_type_id: string;
+      /**
+       * Rental Id
+       * Format: uuid
+       * @description A rental whose trip has ended.
+       */
+      rental_id: string;
+    };
+    /**
+     * FineKind
+     * @description Worked out from the code, never stored: the API and the admin show it as is.
+     * @enum {string}
+     */
+    FineKind: 'automatic' | 'manual';
+    /** FineListOut */
+    FineListOut: {
+      /** Items */
+      items: components['schemas']['FineOut'][];
+      /**
+       * Next Cursor
+       * @description Absent on the last page.
+       */
+      next_cursor?: string | null;
+    };
+    /**
+     * FineOut
+     * @description A fine as the client sees it.
+     */
+    FineOut: {
+      /**
+       * Amount
+       * @description Kopecks of BYN.
+       */
+      amount: number;
+      /**
+       * Automatic
+       * @description Charged by the system, not by an operator.
+       */
+      automatic: boolean;
+      /** Cancel Reason */
+      cancel_reason: string | null;
+      /** Cancelled At */
+      cancelled_at: string | null;
+      /** Code */
+      code: string;
+      /**
+       * Comment
+       * @description The operator's; none for an automatic fine.
+       */
+      comment: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /**
+       * Fine Type Id
+       * Format: uuid
+       */
+      fine_type_id: string;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Name En */
+      name_en: string;
+      /** Name Ru */
+      name_ru: string;
+      /** Photos */
+      photos: components['schemas']['FinePhotoOut'][];
+      /** @description Only for a cancelled fine that was paid: where its money stands. */
+      refund_status: components['schemas']['RefundStatus'] | null;
+      /**
+       * Rental Id
+       * Format: uuid
+       */
+      rental_id: string;
+      status: components['schemas']['FineStatus'];
+    };
+    /** FinePhotoOut */
+    FinePhotoOut: {
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /**
+       * Uploaded At
+       * Format: date-time
+       */
+      uploaded_at: string;
+    };
+    /**
+     * FineStatus
+     * @description Values are stored as is: renaming one needs a migration.
+     * @enum {string}
+     */
+    FineStatus: 'pending' | 'paid' | 'unpaid' | 'cancelled';
+    /** FineTypeCreate */
+    FineTypeCreate: {
+      /**
+       * Amount
+       * @description Kopecks of BYN.
+       */
+      amount: number;
+      /**
+       * Code
+       * @description Stable code of the type; a manual fine, but for `low_battery`, which the system charges itself.
+       */
+      code: string;
+      /** Name En */
+      name_en: string;
+      /** Name Ru */
+      name_ru: string;
+    };
+    /** FineTypeList */
+    FineTypeList: {
+      /** Items */
+      items: components['schemas']['FineTypeVersionOut'][];
+    };
+    /** FineTypeUpdate */
+    FineTypeUpdate: {
+      /**
+       * Amount
+       * @description Kopecks of BYN.
+       */
+      amount: number;
+      /**
+       * Based On Version
+       * @description The version number the form was filled from, as with tariffs: a newer one saved meanwhile refuses the change with `fine-type-changed`.
+       */
+      based_on_version: number;
+      /** Name En */
+      name_en: string;
+      /** Name Ru */
+      name_ru: string;
+    };
+    /** FineTypeVersionOut */
+    FineTypeVersionOut: {
+      /**
+       * Amount
+       * @description Kopecks of BYN.
+       */
+      amount: number;
+      /** Code */
+      code: string;
+      /**
+       * Created By
+       * @description The staff member; none for the demo seed.
+       */
+      created_by: string | null;
+      /**
+       * Fine Type Id
+       * Format: uuid
+       */
+      fine_type_id: string;
+      /**
+       * Id
+       * Format: uuid
+       * @description The version id.
+       */
+      id: string;
+      /** @description `automatic` fines are charged by the system on its own. */
+      kind: components['schemas']['FineKind'];
+      /** Name En */
+      name_en: string;
+      /** Name Ru */
+      name_ru: string;
+      /** Number */
+      number: number;
+      /**
+       * Valid From
+       * Format: date-time
+       * @description Fines charged from this moment use the version.
+       */
+      valid_from: string;
     };
     /**
      * FleetRulesOut
@@ -3415,6 +3871,12 @@ export interface components {
       refresh_token?: string | null;
     };
     /**
+     * RefundStatus
+     * @description What became of the money of a cancelled fine that was paid; stored as is.
+     * @enum {string}
+     */
+    RefundStatus: 'pending' | 'succeeded' | 'failed';
+    /**
      * RentalCarOut
      * @description The reserved car as the client needs it to find it: the plate is shown from now on.
      */
@@ -3698,7 +4160,7 @@ export interface components {
       created_at: string;
       /**
        * Debt
-       * @description Kopecks of BYN owed for earlier rentals.
+       * @description Kopecks of BYN owed for earlier rentals and unpaid fines.
        */
       debt: number;
       /** Email */
@@ -3716,6 +4178,88 @@ export interface components {
       last_name: string | null;
       /** Phone */
       phone: string;
+    };
+    /** StaffFineListOut */
+    StaffFineListOut: {
+      /** Items */
+      items: components['schemas']['StaffFineOut'][];
+      /**
+       * Next Cursor
+       * @description Absent on the last page.
+       */
+      next_cursor: string | null;
+    };
+    /** StaffFineOut */
+    StaffFineOut: {
+      /**
+       * Amount
+       * @description Kopecks of BYN.
+       */
+      amount: number;
+      /**
+       * Automatic
+       * @description Charged by the system, not by an operator.
+       */
+      automatic: boolean;
+      /** Cancel Reason */
+      cancel_reason: string | null;
+      /** Cancelled At */
+      cancelled_at: string | null;
+      /** Cancelled By */
+      cancelled_by: string | null;
+      /** Car Plate */
+      car_plate: string | null;
+      /** Code */
+      code: string;
+      /**
+       * Comment
+       * @description The operator's; none for an automatic fine.
+       */
+      comment: string | null;
+      /**
+       * Created At
+       * Format: date-time
+       */
+      created_at: string;
+      /** Created By */
+      created_by: string | null;
+      /** Created By Name */
+      created_by_name: string | null;
+      /** Events */
+      events: components['schemas']['FineEventOut'][];
+      /**
+       * Fine Type Id
+       * Format: uuid
+       */
+      fine_type_id: string;
+      /** First Name */
+      first_name: string | null;
+      /**
+       * Id
+       * Format: uuid
+       */
+      id: string;
+      /** Last Name */
+      last_name: string | null;
+      /** Name En */
+      name_en: string;
+      /** Name Ru */
+      name_ru: string;
+      /** Photos */
+      photos: components['schemas']['FinePhotoOut'][];
+      /** @description Only for a cancelled fine that was paid: where its money stands. */
+      refund_status: components['schemas']['RefundStatus'] | null;
+      /**
+       * Rental Id
+       * Format: uuid
+       */
+      rental_id: string;
+      status: components['schemas']['FineStatus'];
+      /**
+       * User Id
+       * Format: uuid
+       */
+      user_id: string;
     };
     /** StaffIncidentListOut */
     StaffIncidentListOut: {
@@ -4697,6 +5241,278 @@ export interface operations {
         };
       };
       /** @description `urn:flagman:problem:client-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_fine_types_admin_fine_types_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FineTypeList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see the fine catalog, only `admin` changes it. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  create_fine_type_admin_fine_types_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FineTypeCreate'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FineTypeVersionOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see the fine catalog, only `admin` changes it. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-type-exists`: the code is taken. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  update_fine_type_admin_fine_types__fine_type_id__put: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_type_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FineTypeUpdate'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FineTypeVersionOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see the fine catalog, only `admin` changes it. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-type-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-type-changed`: a newer version than `based_on_version` was saved meanwhile; reload the catalog. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_fine_type_versions_admin_fine_types__fine_type_id__versions_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_type_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FineTypeList'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: `operator` and `admin` see the fine catalog, only `admin` changes it. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-type-not-found`. */
       404: {
         headers: {
           [name: string]: unknown;
@@ -7291,6 +8107,502 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_fines_admin_support_fines_get: {
+    parameters: {
+      query?: {
+        /** @description `next_cursor` of the previous page. */
+        cursor?: string | null;
+        limit?: number;
+        status?: components['schemas']['FineStatus'][] | null;
+        fine_type_id?: string[] | null;
+        user_id?: string | null;
+        rental_id?: string | null;
+        /** @description Inclusive. */
+        created_from?: string | null;
+        /** @description Exclusive. */
+        created_to?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffFineListOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle support. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  charge_fine_admin_support_fines_post: {
+    parameters: {
+      query?: never;
+      header: {
+        /** @description A new one per filled form; a repeat with it charges nothing again. */
+        'Idempotency-Key': string;
+      };
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FineIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffFineOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle support. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:rental-not-found`; `fine-type-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-rental-not-finished`; `idempotency-key-reused`: the key was sent with another fine. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-type-not-manual`: the system charges that one itself. */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_fine_admin_support_fines__fine_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffFineOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle support. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  cancel_fine_admin_support_fines__fine_id__cancel_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['FineCancelIn'];
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffFineOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle support. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  add_fine_photo_admin_support_fines__fine_id__photos_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_id: string;
+      };
+      cookie?: never;
+    };
+    /** @description The photo, at most 10 MB. The type is detected from the content; the stored copy is a JPEG without metadata. */
+    requestBody: {
+      content: {
+        'image/jpeg': string;
+        'image/png': string;
+        'image/webp': string;
+      };
+    };
+    responses: {
+      /** @description Successful Response */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['StaffFineOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle support. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-photo-limit`; `fine-transition-not-allowed`: cancelled. */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:support-photo-too-large`. */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:support-photo-type-unsupported`: not a photo. */
+      415: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:photo-storage-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_fine_photo_url_admin_support_fines__fine_id__photos__photo_id__url_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_id: string;
+        photo_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PhotoUrlOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: sign in as staff. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:forbidden`: only `operator` and `admin` handle support. */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-not-found`, `fine-photo-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:photo-storage-unavailable`. */
+      503: {
         headers: {
           [name: string]: unknown;
         };
@@ -11603,6 +12915,273 @@ export interface operations {
       };
       /** @description Internal Server Error */
       500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  list_my_fines_support_fines_get: {
+    parameters: {
+      query?: {
+        /** @description Only the fines of this trip. */
+        rental_id?: string | null;
+        /** @description `next_cursor` of the previous page. */
+        cursor?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FineListOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_my_fine_support_fines__fine_id__get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FineOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  pay_my_fine_support_fines__fine_id__pay_post: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['FineOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-not-found`, also for another client's. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:payments-unavailable`. */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  get_my_fine_photo_url_support_fines__fine_id__photos__photo_id__url_get: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        fine_id: string;
+        photo_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Successful Response */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['PhotoUrlOut'];
+        };
+      };
+      /** @description `urn:flagman:problem:access-token-invalid`: refresh or sign in. */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:fine-not-found`, `fine-photo-not-found`. */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Unprocessable Entity */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Too many requests, type `urn:flagman:problem:rate-limited`. */
+      429: {
+        headers: {
+          /** @description Seconds to wait before retrying. */
+          'Retry-After'?: number;
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Internal Server Error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/problem+json': components['schemas']['Problem'];
+        };
+      };
+      /** @description `urn:flagman:problem:photo-storage-unavailable`. */
+      503: {
         headers: {
           [name: string]: unknown;
         };

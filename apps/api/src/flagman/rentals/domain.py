@@ -208,6 +208,8 @@ class Rental:
     # Set when an operator ended the trip (docs/adr/0026).
     force_finish_reason: str | None = None
     force_finished_by: uuid.UUID | None = None
+    # None for a trip that ended without telemetry, and for rentals that never drove.
+    end_battery_pct: int | None = None
 
     @property
     def is_active(self) -> bool:
@@ -430,7 +432,7 @@ class CardRequiredError(AppError):
 class OutstandingDebtError(AppError):
     status = HTTPStatus.CONFLICT
     slug = "outstanding-debt"
-    title = "Pay the debt of an earlier rental first"
+    title = "Pay the debt of an earlier rental or a fine first"
 
 
 class PaymentHoldDeclinedError(AppError):

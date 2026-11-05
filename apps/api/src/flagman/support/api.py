@@ -1,4 +1,4 @@
-"""Support chat and incidents: `/support` for clients, `/admin/support` for operators (#120).
+"""Support chat, incidents and fines: `/support` for clients, `/admin/support` for operators.
 
 New messages are polled with `after` (docs/adr/0023): the client and the admin panel pass the
 largest `seq` they have and get only what is newer.
@@ -9,7 +9,7 @@ from http import HTTPStatus
 from typing import Annotated, Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Request, Response
+from fastapi import APIRouter, Depends, Header, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
@@ -28,10 +28,14 @@ from flagman.identity.dependencies import (
     require_staff_role,
 )
 from flagman.identity.domain import StaffRole
+from flagman.payments import service as payments
+from flagman.payments.domain import PaymentsUnavailableError
 from flagman.support.domain import (
     POLL_PAGE_SIZE_MAX,
     QUEUE_SIZE_MAX,
     SEQ_MAX,
+    FineCursor,
+    FineFilter,
     IncidentTransition,
     SupportPhotoStorageUnavailableError,
     SupportPhotoTooLargeError,
@@ -40,6 +44,11 @@ from flagman.support.schemas import (
     ClientUnreadOut,
     ConversationOut,
     ConversationQueueOut,
+    FineCancelIn,
+    FineIn,
+    FineListOut,
+    FineOut,
+    FineQuery,
     IncidentCommentIn,
     IncidentIn,
     IncidentListOut,
@@ -49,6 +58,9 @@ from flagman.support.schemas import (
     MessageOut,
     MessagePageOut,
     PhotoUrlOut,
+    StaffFineListOut,
+    StaffFineOut,
+    StaffFineQuery,
     StaffIncidentListOut,
     StaffIncidentOut,
     StaffIncidentQuery,
@@ -58,11 +70,15 @@ from flagman.support.schemas import (
     UnreadOut,
 )
 from flagman.support.service import (
+    ClientFineService,
     ClientSupportService,
     IncidentReport,
+    ManualFineRequest,
     PhotoTarget,
+    StaffFineService,
     StaffRef,
     StaffSupportService,
+    fine_rules,
 )
 
 _PAGE_DEFAULT = 50
@@ -522,3 +538,201 @@ async def get_staff_incident_photo_url(
     staff: Staff, incident_id: UUID, photo_id: UUID, service: StaffService, storage: Storage
 ) -> PhotoUrlOut:
     return await service.incident_photo_url(storage, staff.staff_id, incident_id, photo_id)
+
+
+# Fines (#121, docs/adr/0028)
+
+
+def _payments_gateway(resources: Resources) -> payments.Gateway | None:
+    try:
+        return payments.gateway(resources.settings)
+    except PaymentsUnavailableError:
+        # Reading and charging work without payments; the job takes the money once it is set.
+        return None
+
+
+def get_client_fine_service(
+    db: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    resources: Annotated[Resources, Depends(get_resources)],
+) -> ClientFineService:
+    return ClientFineService(
+        db=db,
+        limiter=limiter,
+        rules=fine_rules(resources.settings),
+        gateway=_payments_gateway(resources),
+    )
+
+
+def get_staff_fine_service(
+    db: Annotated[AsyncSession, Depends(get_session)],
+    limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
+    origin: Annotated[RequestOrigin, Depends(get_request_origin)],
+    resources: Annotated[Resources, Depends(get_resources)],
+) -> StaffFineService:
+    return StaffFineService(
+        db=db,
+        limiter=limiter,
+        origin=origin,
+        rules=fine_rules(resources.settings),
+        gateway=_payments_gateway(resources),
+    )
+
+
+ClientFines = Annotated[ClientFineService, Depends(get_client_fine_service)]
+StaffFines = Annotated[StaffFineService, Depends(get_staff_fine_service)]
+_FINE_NOT_FOUND = _problem("`urn:flagman:problem:fine-not-found`, also for another client's.")
+_FINE_PHOTO_NOT_FOUND = _problem("`urn:flagman:problem:fine-not-found`, `fine-photo-not-found`.")
+
+
+@router.get("/fines", summary="The client's fines, newest first")
+async def list_my_fines(
+    client: Client, query: Annotated[FineQuery, Query()], service: ClientFines
+) -> FineListOut:
+    after = FineCursor.decode(query.cursor) if query.cursor else None
+    return await service.fines(client.user_id, query.rental_id, after)
+
+
+@router.get(
+    "/fines/{fine_id}",
+    summary="One of the client's fines",
+    responses={HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND},
+)
+async def get_my_fine(client: Client, fine_id: UUID, service: ClientFines) -> FineOut:
+    return await service.fine(client.user_id, fine_id)
+
+
+@router.post(
+    "/fines/{fine_id}/pay",
+    summary="Try the card again for an unpaid fine",
+    description="Does nothing to a paid or cancelled fine; the answer shows where it stands.",
+    responses={
+        HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND,
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+        HTTPStatus.SERVICE_UNAVAILABLE: _problem("`urn:flagman:problem:payments-unavailable`."),
+    },
+)
+async def pay_my_fine(client: Client, fine_id: UUID, service: ClientFines) -> FineOut:
+    return await service.pay(client.user_id, fine_id, datetime.now(UTC))
+
+
+@router.get(
+    "/fines/{fine_id}/photos/{photo_id}/url",
+    summary="A short-lived link to a photo of the fine",
+    dependencies=[Depends(_no_store)],
+    responses={HTTPStatus.NOT_FOUND: _FINE_PHOTO_NOT_FOUND, **_URL_ERRORS},
+)
+async def get_my_fine_photo_url(
+    client: Client, fine_id: UUID, photo_id: UUID, service: ClientFines, storage: Storage
+) -> PhotoUrlOut:
+    return await service.photo_url(storage, client.user_id, fine_id, photo_id)
+
+
+@staff_router.get("/fines", summary="Charged fines, newest first, with filters")
+async def list_fines(
+    staff: Staff, query: Annotated[StaffFineQuery, Query()], service: StaffFines
+) -> StaffFineListOut:
+    fine_filter = FineFilter(
+        statuses=frozenset(query.status) if query.status else None,
+        fine_type_ids=frozenset(query.fine_type_id) if query.fine_type_id else None,
+        user_id=query.user_id,
+        rental_id=query.rental_id,
+        created_from=query.created_from,
+        created_to=query.created_to,
+    )
+    cursor = FineCursor.decode(query.cursor) if query.cursor else None
+    return await service.list(fine_filter, cursor, query.limit)
+
+
+@staff_router.post(
+    "/fines",
+    status_code=HTTPStatus.CREATED,
+    summary="Charge a manual fine to an ended trip",
+    description=(
+        "The card is charged right after; a declined card makes the fine a debt of the client. "
+        "Photos are added with `POST /admin/support/fines/{fine_id}/photos`."
+    ),
+    responses={
+        HTTPStatus.NOT_FOUND: _problem(
+            "`urn:flagman:problem:rental-not-found`; `fine-type-not-found`."
+        ),
+        HTTPStatus.CONFLICT: _problem(
+            "`urn:flagman:problem:fine-rental-not-finished`; "
+            "`idempotency-key-reused`: the key was sent with another fine."
+        ),
+        HTTPStatus.UNPROCESSABLE_ENTITY: _problem(
+            "`urn:flagman:problem:fine-type-not-manual`: the system charges that one itself."
+        ),
+    },
+)
+async def charge_fine(
+    staff: LiveStaff,
+    body: FineIn,
+    idempotency_key: Annotated[
+        UUID,
+        Header(
+            alias="Idempotency-Key",
+            description="A new one per filled form; a repeat with it charges nothing again.",
+        ),
+    ],
+    service: StaffFines,
+) -> StaffFineOut:
+    request = ManualFineRequest(body.rental_id, body.fine_type_id, body.comment, idempotency_key)
+    return await service.charge(staff.staff_id, request, datetime.now(UTC))
+
+
+@staff_router.get(
+    "/fines/{fine_id}",
+    summary="One fine with its history",
+    responses={HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND},
+)
+async def get_fine(staff: Staff, fine_id: UUID, service: StaffFines) -> StaffFineOut:
+    return await service.get(fine_id)
+
+
+@staff_router.post(
+    "/fines/{fine_id}/cancel",
+    summary="Cancel a fine; paid money goes back to the card",
+    description=(
+        "The fine stays in the list as `cancelled`, with the reason. Cancelling a cancelled fine "
+        "whose refund was declined tries the refund again; otherwise it changes nothing."
+    ),
+    responses={HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND},
+)
+async def cancel_fine(
+    staff: LiveStaff, fine_id: UUID, body: FineCancelIn, service: StaffFines
+) -> StaffFineOut:
+    return await service.cancel(staff.staff_id, fine_id, body.reason, datetime.now(UTC))
+
+
+@staff_router.post(
+    "/fines/{fine_id}/photos",
+    status_code=HTTPStatus.CREATED,
+    summary="Add a photo of the evidence to a fine",
+    openapi_extra=photo_request_body("The photo"),
+    responses={
+        HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND,
+        HTTPStatus.CONFLICT: _problem(
+            "`urn:flagman:problem:fine-photo-limit`; `fine-transition-not-allowed`: cancelled."
+        ),
+        **_PHOTO_ERRORS,
+    },
+)
+async def add_fine_photo(
+    staff: LiveStaff, fine_id: UUID, request: Request, service: StaffFines, storage: Storage
+) -> StaffFineOut:
+    await service.count_upload(staff.staff_id)
+    photo = await _read_photo(request)
+    return await service.add_photo(storage, staff.staff_id, fine_id, photo, datetime.now(UTC))
+
+
+@staff_router.get(
+    "/fines/{fine_id}/photos/{photo_id}/url",
+    summary="A short-lived link to a photo of the fine",
+    dependencies=[Depends(_no_store)],
+    responses={HTTPStatus.NOT_FOUND: _FINE_PHOTO_NOT_FOUND, **_URL_ERRORS},
+)
+async def get_fine_photo_url(
+    staff: Staff, fine_id: UUID, photo_id: UUID, service: StaffFines, storage: Storage
+) -> PhotoUrlOut:
+    return await service.photo_url(storage, staff.staff_id, fine_id, photo_id)

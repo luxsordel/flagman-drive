@@ -5,9 +5,14 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from flagman.pricing.domain import (
     DEFAULT_FREE_WAITING_MINUTES,
+    MAX_FINE_AMOUNT,
+    MAX_FINE_NAME_LENGTH,
     MAX_FREE_WAITING_MINUTES,
     MAX_HOLD_AMOUNT,
     MAX_PRICE_PER_MINUTE,
+    FineKind,
+    FineTerms,
+    FineTypeVersion,
     ModelTariff,
     TariffPrices,
     TariffVersion,
@@ -122,3 +127,67 @@ class ModelTariffList(BaseModel):
 
 class TariffVersionList(BaseModel):
     items: list[TariffVersionOut]
+
+
+class FineTermsIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name_ru: str = Field(min_length=1, max_length=MAX_FINE_NAME_LENGTH)
+    name_en: str = Field(min_length=1, max_length=MAX_FINE_NAME_LENGTH)
+    amount: int = Field(ge=1, le=MAX_FINE_AMOUNT, strict=True, description="Kopecks of BYN.")
+
+    def terms(self) -> FineTerms:
+        return FineTerms(name_ru=self.name_ru, name_en=self.name_en, amount=self.amount)
+
+
+class FineTypeCreate(FineTermsIn):
+    code: str = Field(
+        pattern=r"^[a-z][a-z0-9_]{1,39}$",
+        description=(
+            "Stable code of the type; a manual fine, but for `low_battery`, which the system "
+            "charges itself."
+        ),
+    )
+
+
+class FineTypeUpdate(FineTermsIn):
+    based_on_version: int = Field(
+        ge=1,
+        strict=True,
+        description=(
+            "The version number the form was filled from, as with tariffs: a newer one saved "
+            "meanwhile refuses the change with `fine-type-changed`."
+        ),
+    )
+
+
+class FineTypeVersionOut(BaseModel):
+    id: UUID = Field(description="The version id.")
+    fine_type_id: UUID
+    code: str
+    kind: FineKind = Field(description="`automatic` fines are charged by the system on its own.")
+    number: int
+    name_ru: str
+    name_en: str
+    amount: int = Field(description="Kopecks of BYN.")
+    valid_from: datetime = Field(description="Fines charged from this moment use the version.")
+    created_by: UUID | None = Field(description="The staff member; none for the demo seed.")
+
+    @classmethod
+    def of(cls, version: FineTypeVersion) -> "FineTypeVersionOut":
+        return cls(
+            id=version.id,
+            fine_type_id=version.fine_type_id,
+            code=version.code,
+            kind=version.kind,
+            number=version.number,
+            name_ru=version.terms.name_ru,
+            name_en=version.terms.name_en,
+            amount=version.terms.amount,
+            valid_from=version.valid_from,
+            created_by=version.created_by,
+        )
+
+
+class FineTypeList(BaseModel):
+    items: list[FineTypeVersionOut]
