@@ -1,4 +1,4 @@
-"""What rentals need from the fines, which live in `support` (docs/adr/0027).
+"""What rentals need from the fines, which live in `support` (docs/adr/0028).
 
 `support` reads rentals through `rentals.service`, so rentals cannot import it back; the API wires
 the implementation in instead.

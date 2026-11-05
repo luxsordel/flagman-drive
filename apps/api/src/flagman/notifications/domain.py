@@ -130,7 +130,7 @@ class Notification:
         """
         if self.event is NotificationEvent.SUPPORT_REPLY:
             return f"{self.event}:{self.params['seq']}"
-        # A trip may earn several fines; `number` tells them apart (docs/adr/0027).
+        # A trip may earn several fines; `number` tells them apart (docs/adr/0028).
         if self.event is NotificationEvent.FINE_CHARGED:
             return f"{self.event}:{self.rental_id}:{self.params['number']}"
         return f"{self.event}:{self.rental_id}"

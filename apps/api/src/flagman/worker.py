@@ -175,7 +175,7 @@ async def run_rental_charges(
     now: datetime,
 ) -> int | None:
     """Returns how many rentals and fines it tried to settle, None when another copy holds the
-    job. Fines go through the same job: the same provider, the same retries (docs/adr/0027)."""
+    job. Fines go through the same job: the same provider, the same retries (docs/adr/0028)."""
 
     async def charge() -> int:
         async with session_factory() as db:

@@ -890,7 +890,7 @@ class StaffSupportService:
         return await _signed(storage, photo.object_key)
 
 
-# Fines (#121, docs/adr/0027): charged by the system at the end of a trip or by an operator,
+# Fines (#121, docs/adr/0028): charged by the system at the end of a trip or by an operator,
 # taken from the card like a rental's debt, cancelled with a refund.
 
 PAY_FINE_LIMIT = Limit("support-fine-pay-user", 10, _HOUR)

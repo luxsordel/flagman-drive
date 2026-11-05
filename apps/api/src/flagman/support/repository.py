@@ -462,7 +462,7 @@ async def events_by_incident(
     return grouped
 
 
-# Fines (docs/adr/0027)
+# Fines (docs/adr/0028)
 
 
 def _to_fine(row: FineRow) -> Fine:

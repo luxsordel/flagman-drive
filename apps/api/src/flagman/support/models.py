@@ -176,7 +176,7 @@ class IncidentEvent(Base):
 
 
 class Fine(Base):
-    """Never deleted: a cancellation is a status and a line of the history (docs/adr/0027)."""
+    """Never deleted: a cancellation is a status and a line of the history (docs/adr/0028)."""
 
     __tablename__ = "support_fines"
     __table_args__ = (

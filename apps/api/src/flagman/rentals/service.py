@@ -1272,7 +1272,7 @@ class RentalService:
                 await audit.record(self.db, audit_entry)
             if forced is None:
                 # An operator ends a trip for a reason of their own and fines by hand if the
-                # client is to blame (docs/adr/0027).
+                # client is to blame (docs/adr/0028).
                 await self.fines.trip_finished(self.db, ended, done_at)
             receipt = await self._bill(ended, done_at, receipt_always=True)
             total = receipt.quote.total if receipt else 0

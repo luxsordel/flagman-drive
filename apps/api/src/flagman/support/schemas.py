@@ -266,7 +266,7 @@ class StaffIncidentListOut(BaseModel):
     next_cursor: str | None = Field(description="Absent on the last page.")
 
 
-# Fines (docs/adr/0027)
+# Fines (docs/adr/0028)
 
 FineComment = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=FINE_COMMENT_MAX_LENGTH)

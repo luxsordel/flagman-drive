@@ -1,6 +1,6 @@
 """Support rules: conversations, incidents and fines, their statuses and who may do what.
 
-See docs/adr/0023 and docs/adr/0027.
+See docs/adr/0023 and docs/adr/0028.
 """
 
 import base64
@@ -252,7 +252,7 @@ def is_queue(statuses: frozenset[IncidentStatus] | None) -> bool:
     return statuses <= OPEN_INCIDENT_STATUSES
 
 
-# Fines (#121, docs/adr/0027).
+# Fines (#121, docs/adr/0028).
 FINE_COMMENT_MAX_LENGTH = 1000
 FINE_CANCEL_REASON_MAX_LENGTH = 500
 MAX_FINE_PHOTOS = 8

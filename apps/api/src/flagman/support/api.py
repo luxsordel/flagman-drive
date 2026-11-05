@@ -539,7 +539,7 @@ async def get_staff_incident_photo_url(
     return await service.incident_photo_url(storage, staff.staff_id, incident_id, photo_id)
 
 
-# Fines (#121, docs/adr/0027)
+# Fines (#121, docs/adr/0028)
 
 
 def _payments_gateway(resources: Resources) -> payments.Gateway | None:
