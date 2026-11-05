@@ -72,6 +72,22 @@ def execute(settings: Settings, sql: str, **params: Any) -> None:
     run_in_db(settings, run)
 
 
+def insert_test_user(settings: Settings, user_id: uuid.UUID) -> str:
+    """Insert a user with a unique test phone despite a shared integration database."""
+    for _ in range(100):
+        phone = f"+37529{random.SystemRandom().randrange(10**7):07d}"
+        rows = query(
+            settings,
+            "INSERT INTO users (id, phone, created_at) VALUES (:id, :phone, now()) "
+            "ON CONFLICT (phone) DO NOTHING RETURNING phone",
+            id=user_id,
+            phone=phone,
+        )
+        if rows:
+            return phone
+    raise RuntimeError("could not allocate a unique test phone")
+
+
 def reset_limits(settings: Settings) -> None:
     # The Redis container is shared by the test session.
     with Redis(
@@ -166,13 +182,7 @@ class Person:
         self.settings = settings
         self.client = client
         self.id = uuid.uuid4()
-        phone = f"+37529{random.SystemRandom().randrange(10**7):07d}"
-        execute(
-            settings,
-            "INSERT INTO users (id, phone, created_at) VALUES (:id, :phone, now())",
-            id=self.id,
-            phone=phone,
-        )
+        insert_test_user(settings, self.id)
         if kyc is not None:
             execute(
                 settings,
