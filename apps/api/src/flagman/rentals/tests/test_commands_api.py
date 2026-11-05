@@ -287,7 +287,7 @@ def test_a_blocked_client_cannot_open(person: Person, inspected: str, gateway: F
 
 
 def test_a_client_whose_documents_were_revoked_cannot_open(
-    integration_settings: Settings, person: Person, inspected: str
+    integration_settings: Settings, person: Person, inspected: str, gateway: FakeGateway
 ) -> None:
     execute(
         integration_settings,
@@ -299,6 +299,7 @@ def test_a_client_whose_documents_were_revoked_cannot_open(
 
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert problem_type(response) == "kyc-not-approved"
+    assert gateway.calls == []
 
 
 def test_a_cancelled_rental_takes_no_commands(

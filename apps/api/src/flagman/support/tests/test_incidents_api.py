@@ -228,6 +228,40 @@ def test_a_client_sees_only_their_own_incidents(
     }
 
 
+def _add_photo(person: Person, incident: str, seed: int = 0) -> str:
+    response = person.client.post(
+        f"/support/incidents/{incident}/photos",
+        content=photo(seed),
+        headers={**person.headers, "Content-Type": "image/jpeg"},
+    )
+    assert response.status_code == HTTPStatus.CREATED, response.text
+    return str(response.json()["photos"][-1]["id"])
+
+
+def test_a_photo_of_another_incident_is_not_found_under_ones_own(
+    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    own = _report(person).json()["id"]
+    _add_photo(person, own)
+    other = Person(integration_settings, app_client)
+    foreign = _report(other).json()["id"]
+    foreign_photo = _add_photo(other, foreign, 1)
+
+    responses = [
+        person.client.get(
+            f"/support/incidents/{own}/photos/{foreign_photo}/url", headers=person.headers
+        ),
+        app_client.get(
+            f"/admin/support/incidents/{own}/photos/{foreign_photo}/url",
+            headers=operator.headers,
+        ),
+    ]
+
+    assert [response.status_code for response in responses] == [HTTPStatus.NOT_FOUND] * 2
+    assert all(problem_type(response) == "incident-photo-not-found" for response in responses)
+    assert audit_actions(integration_settings, own) == []
+
+
 def test_photos_are_limited(person: Person, storage: FakeStorage) -> None:
     incident = _report(person).json()["id"]
     url = f"/support/incidents/{incident}/photos"

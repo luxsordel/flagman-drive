@@ -932,9 +932,51 @@ def test_another_clients_fine_is_not_found(
     assert _my_fines(other, fine["rental_id"]) == []
 
 
-@pytest.mark.parametrize("role", [StaffRole.TECHNICIAN, None])
+def _add_fine_photo(client: TestClient, staff: Staff, fine_id: str, seed: int = 1) -> str:
+    response = client.post(
+        f"{STAFF_URL}/{fine_id}/photos",
+        content=photo(seed),
+        headers={**staff.headers, "Content-Type": "image/jpeg"},
+    )
+    assert response.status_code == HTTPStatus.CREATED, response.text
+    return str(response.json()["photos"][-1]["id"])
+
+
+def test_a_photo_of_another_fine_is_not_found_under_ones_own(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+) -> None:
+    own = _charged(app_client, operator, _trip(person, car))["id"]
+    _add_fine_photo(app_client, operator, own)
+    other = Person(integration_settings, app_client)
+    other_car = add_priced_car(integration_settings, CAR_POINT)
+    foreign = _charged(app_client, operator, _trip(other, other_car))["id"]
+    foreign_photo = _add_fine_photo(app_client, operator, foreign, 2)
+
+    responses = [
+        person.client.get(
+            f"/support/fines/{own}/photos/{foreign_photo}/url", headers=person.headers
+        ),
+        app_client.get(f"{STAFF_URL}/{own}/photos/{foreign_photo}/url", headers=operator.headers),
+    ]
+
+    assert [response.status_code for response in responses] == [HTTPStatus.NOT_FOUND] * 2
+    assert all(problem_type(response) == "fine-photo-not-found" for response in responses)
+    assert "fine.photo_viewed" not in audit_actions(integration_settings, own)
+
+
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [(StaffRole.TECHNICIAN, HTTPStatus.FORBIDDEN), (None, HTTPStatus.UNAUTHORIZED)],
+)
 def test_technicians_and_clients_have_no_staff_fines(
-    app_client: TestClient, integration_settings: Settings, role: StaffRole | None
+    app_client: TestClient,
+    integration_settings: Settings,
+    role: StaffRole | None,
+    expected: HTTPStatus,
 ) -> None:
     if role is None:
         headers = Person(integration_settings, app_client).headers
@@ -949,10 +991,7 @@ def test_technicians_and_clients_have_no_staff_fines(
         ),
     ]
 
-    assert all(
-        response.status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED}
-        for response in responses
-    )
+    assert [response.status_code for response in responses] == [expected] * 3
 
 
 def test_unknown_fields_are_refused(

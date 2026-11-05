@@ -479,6 +479,67 @@ def test_photos_only_to_own_task_in_progress(
     assert storage.objects == {}
 
 
+def test_an_operator_works_only_on_tasks_they_took(
+    operator: Member, technician: Member, car: str, gateway: FakeGateway, storage: FakeStorage
+) -> None:
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+
+    command = operator.command(task_id, "open")
+    upload = operator.upload(task_id, photo())
+
+    assert command.status_code == HTTPStatus.CONFLICT
+    assert problem_type(command) == "maintenance-task-not-in-progress"
+    assert upload.status_code == HTTPStatus.CONFLICT
+    assert problem_type(upload) == "maintenance-task-not-in-progress"
+    assert gateway.calls == []
+    assert storage.objects == {}
+
+
+def test_a_colleague_gets_no_link_to_a_photo_of_the_task(
+    integration_settings: Settings,
+    operator: Member,
+    technician: Member,
+    colleague: Member,
+    car: str,
+) -> None:
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+    photo_id = technician.upload(task_id, photo()).json()["photos"][0]["id"]
+
+    response = colleague.get(f"/tasks/{task_id}/photos/{photo_id}/url")
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert problem_type(response) == "maintenance-task-not-found"
+    assert "maintenance_task.photo_viewed" not in events(integration_settings, task_id)
+
+
+def test_a_photo_of_another_task_is_not_found_under_ones_own(
+    integration_settings: Settings,
+    operator: Member,
+    technician: Member,
+    colleague: Member,
+    car: str,
+) -> None:
+    own = created(operator.create(car))
+    technician.start(own)
+    technician.upload(own, photo())
+    other = created(operator.create(add_car(integration_settings, CAR_POINT, battery_pct=80)))
+    colleague.start(other)
+    other_photo = colleague.upload(other, photo(1)).json()["photos"][0]["id"]
+
+    responses = [
+        technician.get(f"/tasks/{own}/photos/{other_photo}/url"),
+        operator.get(f"/tasks/{own}/photos/{other_photo}/url"),
+    ]
+
+    assert [response.status_code for response in responses] == [HTTPStatus.NOT_FOUND] * 2
+    assert all(
+        problem_type(response) == "maintenance-task-photo-not-found" for response in responses
+    )
+    assert "maintenance_task.photo_viewed" not in events(integration_settings, own)
+
+
 def test_photo_limit(operator: Member, technician: Member, car: str) -> None:
     task_id = created(operator.create(car))
     technician.start(task_id)

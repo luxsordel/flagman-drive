@@ -210,15 +210,21 @@ def test_operator_reads_but_does_not_change(
     assert updated.status_code == HTTPStatus.FORBIDDEN
 
 
-@pytest.mark.parametrize("role", [StaffRole.TECHNICIAN, None])
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [(StaffRole.TECHNICIAN, HTTPStatus.FORBIDDEN), (None, HTTPStatus.UNAUTHORIZED)],
+)
 def test_technicians_and_clients_see_nothing(
-    client: TestClient, integration_settings: Settings, role: StaffRole | None
+    client: TestClient,
+    integration_settings: Settings,
+    role: StaffRole | None,
+    expected: HTTPStatus,
 ) -> None:
     caller = Caller(integration_settings, role)
 
     response = client.get(URL, headers=caller.headers)
 
-    assert response.status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED}
+    assert response.status_code == expected
 
 
 def test_sign_in_is_required(client: TestClient) -> None:

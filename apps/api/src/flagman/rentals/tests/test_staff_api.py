@@ -287,6 +287,45 @@ def test_money_needs_a_live_session(
     assert _operations(integration_settings, rental_id)[-1].kind == "capture"
 
 
+def test_a_refund_retry_needs_a_live_session(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    before = _operations(integration_settings, rental_id)
+    operator.revoke_session()
+
+    response = app_client.post(
+        f"/admin/rentals/{rental_id}/refunds/retry", headers=operator.headers
+    )
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert _operations(integration_settings, rental_id) == before
+
+
+def test_a_forced_finish_needs_a_live_session(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    gateway: FakeGateway,
+) -> None:
+    rental_id = _start(person, car)
+    calls = list(gateway.calls)
+    operator.revoke_session()
+
+    response = _force(app_client, operator, rental_id)
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert gateway.calls == calls
+    assert car_status(integration_settings, car) == "in_rental"
+    assert not _audited(integration_settings, rental_id, "rental.force_finished")
+
+
 # The list and the card
 
 
