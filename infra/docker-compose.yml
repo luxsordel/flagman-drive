@@ -110,6 +110,9 @@ services:
       SMS_FIXED_PHONES: ${SMS_FIXED_PHONES:-}
       # Read by uvicorn itself; the default is uvicorn's own.
       FORWARDED_ALLOW_IPS: ${FORWARDED_ALLOW_IPS:-127.0.0.1,::1}
+      # Read by uvicorn itself (the CLI takes UVICORN_* variables). Each process has its own event
+      # loop, database pool and fleet stream listener (docs/adr/0017).
+      UVICORN_WORKERS: ${API_WORKERS:-1}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}

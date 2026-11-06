@@ -7,7 +7,7 @@ import requests
 from flagman_load import cli, stack
 from flagman_load.bootstrap import BootstrapError
 from flagman_load.cli import parse_env, stand_plan
-from flagman_load.profiles import STAND
+from flagman_load.profiles import PILOT, SMOKE, STAND, Profile
 
 VALUES = {
     "LOAD_STAND_API_URL": "https://api.stand.example/",
@@ -127,3 +127,27 @@ def test_the_shell_cannot_override_the_env_file_of_the_stack(
     local.save_logs(tmp_path / "stack.log")
     assert len(envs) == 2
     assert all("API_PORT" not in env and env["KEPT_BY_COMPOSE"] == "yes" for env in envs)
+
+
+def test_a_local_run_starts_the_api_processes_it_is_told(monkeypatch: pytest.MonkeyPatch) -> None:
+    runs: list[tuple[str, bool, int]] = []
+
+    def record(profile: Profile, keep: bool, api_workers: int) -> bool:
+        runs.append((profile.name, keep, api_workers))
+        return True
+
+    monkeypatch.setattr(cli, "run_local", record)
+    assert cli.main(["local", "pilot"]) == 0
+    assert cli.main(["local", "smoke", "--api-workers", "2"]) == 0
+    assert runs == [(PILOT.name, False, 1), (SMOKE.name, False, 2)]
+
+
+@pytest.mark.parametrize("workers", ["0", "-1", "two"])
+def test_a_local_run_needs_at_least_one_api_process(workers: str) -> None:
+    with pytest.raises(SystemExit):
+        cli.main(["local", "pilot", "--api-workers", workers])
+
+
+def test_the_stack_gets_the_number_of_api_processes() -> None:
+    assert stack.local_env(30, ["+375291000000"], "402918")["API_WORKERS"] == "1"
+    assert stack.local_env(30, ["+375291000000"], "402918", 2)["API_WORKERS"] == "2"

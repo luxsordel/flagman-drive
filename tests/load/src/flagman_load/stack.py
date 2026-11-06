@@ -22,10 +22,13 @@ def _key() -> str:
     return base64.b64encode(secrets.token_bytes(32)).decode("ascii")
 
 
-def local_env(car_count: int, phones: Sequence[str], otp_code: str) -> dict[str, str]:
+def local_env(
+    car_count: int, phones: Sequence[str], otp_code: str, api_workers: int = 1
+) -> dict[str, str]:
     return {
         "API_ENV": "dev",
         "API_PORT": str(API_PORT),
+        "API_WORKERS": str(api_workers),
         "API_CORS_ORIGINS": ORIGIN,
         "API_JWT_SECRET": secrets.token_hex(32),
         "API_OTP_PEPPER": secrets.token_hex(32),

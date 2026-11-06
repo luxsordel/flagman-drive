@@ -435,6 +435,8 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 
 ### Инфраструктура
 - Локально: **Docker Compose** (Postgres/PostGIS, Redis, SeaweedFS (S3), API, worker, эмулятор)
+- API — uvicorn, число процессов задаёт `API_WORKERS` (по умолчанию 1). Состояния в памяти процесса нет:
+  поток парка рассылается через `LISTEN/NOTIFY` ([ADR-0017](adr/0017-fleet-stream-websocket.md)), лимиты в Redis
 - CI: **GitHub Actions** — линт, типы, тесты, сканеры безопасности; образы стенда собираются и публикуются
   в GHCR только при выкладке
 - Демо-стенд: один дроплет DigitalOcean во Франкфурте, Compose + Caddy, выкладка по кнопке или тегу.
