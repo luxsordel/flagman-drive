@@ -11,6 +11,9 @@ from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
 from flagman.core.config import Settings
+from tools import container_guard
+
+pytest_plugins = ("pytester",)
 
 # Same images as infra/docker-compose.yml, so tests run against what developers run locally.
 POSTGRES_IMAGE = "postgis/postgis:16-3.6"
@@ -18,24 +21,11 @@ REDIS_IMAGE = "redis:7.4.11-alpine"
 
 ALEMBIC_INI = Path(__file__).parent / "alembic.ini"
 
-# Starting either container is what makes a test an integration test.
-CONTAINER_FIXTURES = frozenset({"postgres_container", "redis_container"})
 
-
-def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
-    # CI measures domain coverage with -m "not integration" on a promise of no database: an
-    # unmarked test that still reaches a container, even through an autouse fixture, breaks it.
-    unmarked = [
-        item.nodeid
-        for item in items
-        if item.get_closest_marker("integration") is None
-        and CONTAINER_FIXTURES & set(getattr(item, "fixturenames", ()))
-    ]
-    if unmarked:
-        shown = "\n  ".join(unmarked[:10])
-        raise pytest.UsageError(
-            f"{len(unmarked)} tests use Docker without the integration mark, e.g.:\n  {shown}"
-        )
+def pytest_configure(config: pytest.Config) -> None:
+    # Registered here rather than listed in pytest_plugins, which would warn that the module,
+    # already imported for the fixtures below, cannot have its asserts rewritten.
+    config.pluginmanager.register(container_guard)
 
 
 class SettingsFactory(Protocol):
@@ -64,7 +54,8 @@ def make_settings() -> SettingsFactory:
 
 
 @pytest.fixture(scope="session")
-def postgres_container() -> Iterator[PostgresContainer]:
+def postgres_container(request: pytest.FixtureRequest) -> Iterator[PostgresContainer]:
+    container_guard.refuse_unmarked_test(request)
     container = PostgresContainer(
         POSTGRES_IMAGE,
         username="flagman",
@@ -77,7 +68,8 @@ def postgres_container() -> Iterator[PostgresContainer]:
 
 
 @pytest.fixture(scope="session")
-def redis_container() -> Iterator[RedisContainer]:
+def redis_container(request: pytest.FixtureRequest) -> Iterator[RedisContainer]:
+    container_guard.refuse_unmarked_test(request)
     with RedisContainer(REDIS_IMAGE, password=secrets.token_hex(16)) as container:
         yield container
 
