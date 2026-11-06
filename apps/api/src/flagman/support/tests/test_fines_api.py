@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from flagman.core.config import Settings
+from flagman.core.ratelimit import Limit
 from flagman.fleet.tests.conftest import FakeGateway, Staff, run_in_db
 from flagman.geo import service as geo
 from flagman.identity.domain import StaffRole
@@ -658,6 +659,50 @@ def test_cancelling_again_changes_nothing(
     assert again.status_code == HTTPStatus.OK
     assert again.json()["cancel_reason"] == first["cancel_reason"]
     assert len(_operations(integration_settings, fine["id"])) == 2
+
+
+def test_fines_share_the_money_action_limit_per_staff_member(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        payments, "STAFF_MONEY_LIMIT", Limit(f"money-actions-staff-test-{uuid.uuid4()}", 1, 60)
+    )
+    rental_id = _trip(person, car)
+    key = uuid.uuid4()
+    smoking = _fine_type_id(integration_settings, "smoking")
+    first = _charge(app_client, operator, rental_id, smoking, key=key)
+    assert first.status_code == HTTPStatus.CREATED, first.text
+    fine = first.json()
+
+    cancelled = _cancel(app_client, operator, fine["id"])
+    charged = _charge(app_client, operator, rental_id, smoking)
+    # A repeat of a request that went through is counted too, and still charges nothing.
+    repeat = _charge(app_client, operator, rental_id, smoking, key=key)
+    # One counter for every money action: a rental adjustment is refused as well.
+    adjusted = app_client.post(
+        f"/admin/rentals/{rental_id}/adjustments",
+        json={"amount": -100, "comment": "Late unlock"},
+        headers={**operator.headers, "Idempotency-Key": str(uuid.uuid4())},
+    )
+
+    for limited in (cancelled, charged, repeat, adjusted):
+        assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+        assert "Retry-After" in limited.headers
+    assert [mine["status"] for mine in _my_fines(person, rental_id)] == ["paid"]
+    assert _operations(integration_settings, fine["id"]) == [
+        ("charge", "succeeded", fine["amount"])
+    ]
+    assert audit_actions(integration_settings, fine["id"]) == ["fine.charged"]
+    # Counted per staff member: a colleague still cancels the fine and the money goes back.
+    colleague = Staff(integration_settings, StaffRole.OPERATOR)
+    refunded = _cancel(app_client, colleague, fine["id"])
+    assert refunded.status_code == HTTPStatus.OK, refunded.text
+    assert refunded.json()["refund_status"] == "succeeded"
 
 
 @pytest.mark.usefixtures("declined_charge")

@@ -1573,6 +1573,7 @@ class StaffRentalService:
         A repeat with the same key adds nothing and finishes the refunds the first request
         left unmade, e.g. after a crash between the adjustment and the provider.
         """
+        await payments.limit_staff_money_actions(self.rentals.limiter, self.staff_id)
         gw = self.rentals._gateway()
         now = self.rentals.clock()
         recorded = await self._repeat_of(rental_id, change)
@@ -1695,6 +1696,7 @@ class StaffRentalService:
     async def retry_refunds(self, rental_id: UUID) -> StaffRentalCard:
         """Sends again the refunds the provider has not answered, with the same keys, and makes
         the ones a crash left unmade."""
+        await payments.limit_staff_money_actions(self.rentals.limiter, self.staff_id)
         gw = self.rentals._gateway()
         async with self.db.begin():
             rental = await repository.get_rental_by_id(self.db, rental_id)

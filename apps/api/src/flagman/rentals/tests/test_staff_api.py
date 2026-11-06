@@ -841,6 +841,45 @@ def test_a_repeat_with_the_same_key_moves_no_money_again(
     assert [op.amount for op in refunds] == [100]
 
 
+def test_money_actions_are_limited_per_staff_member(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        payments_service,
+        "STAFF_MONEY_LIMIT",
+        Limit(f"money-actions-staff-test-{uuid.uuid4()}", 1, 60),
+    )
+    rental_id = _paid_trip(integration_settings, person, car)
+    key = uuid.uuid4()
+    first = _adjust(app_client, operator, rental_id, -100, "Late unlock", key)
+    assert first.status_code == HTTPStatus.CREATED, first.text
+    operations = _operations(integration_settings, rental_id)
+    audit_log = _audit(integration_settings, rental_id)
+
+    lowered = _adjust(app_client, operator, rental_id, -50, "Goodwill")
+    retried = app_client.post(f"/admin/rentals/{rental_id}/refunds/retry", headers=operator.headers)
+    # A repeat of a request that went through is counted too, and still changes nothing.
+    repeat = _adjust(app_client, operator, rental_id, -100, "Late unlock", key)
+
+    for limited in (lowered, retried, repeat):
+        assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+        assert "Retry-After" in limited.headers
+    assert _operations(integration_settings, rental_id) == operations
+    assert _audit(integration_settings, rental_id) == audit_log
+    card = _card(app_client, operator, rental_id).json()
+    assert [adjustment["amount"] for adjustment in card["adjustments"]] == [-100]
+    # Counted per staff member: a colleague still lowers the total.
+    colleague = Staff(integration_settings, StaffRole.OPERATOR)
+    assert _adjust(app_client, colleague, rental_id, -50, "Goodwill").status_code == (
+        HTTPStatus.CREATED
+    )
+
+
 def test_each_decrease_refunds_its_own_share_over_several_payments(
     integration_settings: Settings,
     person: Person,

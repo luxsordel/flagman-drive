@@ -619,6 +619,7 @@ async def force_finish(
     ),
     responses={
         HTTPStatus.CONFLICT: _MONEY_CONFLICT,
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
         HTTPStatus.SERVICE_UNAVAILABLE: _problem("`urn:flagman:problem:payments-unavailable`."),
     },
 )
@@ -648,6 +649,7 @@ async def adjust_rental(
             "`urn:flagman:problem:rental-transition-not-allowed`: nothing was lowered; "
             "`rental-settlement-pending`."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
         HTTPStatus.SERVICE_UNAVAILABLE: _problem("`urn:flagman:problem:payments-unavailable`."),
     },
 )

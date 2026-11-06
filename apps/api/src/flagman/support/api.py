@@ -663,6 +663,7 @@ async def list_fines(
         HTTPStatus.UNPROCESSABLE_ENTITY: _problem(
             "`urn:flagman:problem:fine-type-not-manual`: the system charges that one itself."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
 async def charge_fine(
@@ -697,7 +698,10 @@ async def get_fine(staff: Staff, fine_id: UUID, service: StaffFines) -> StaffFin
         "The fine stays in the list as `cancelled`, with the reason. Cancelling a cancelled fine "
         "whose refund was declined tries the refund again; otherwise it changes nothing."
     ),
-    responses={HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND},
+    responses={
+        HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND,
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+    },
 )
 async def cancel_fine(
     staff: LiveStaff, fine_id: UUID, body: FineCancelIn, service: StaffFines
