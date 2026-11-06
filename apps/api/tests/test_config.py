@@ -109,7 +109,23 @@ def test_fixed_sms_needs_a_six_digit_code(make_settings: SettingsFactory, code: 
 
 
 @pytest.mark.parametrize(
-    "code", ["000000", "111111", "999999", "012345", "123456", "456789", "987654", "543210"]
+    "code",
+    [
+        "000000",
+        "111111",
+        "999999",
+        "012345",
+        "123456",
+        "456789",
+        "987654",
+        "543210",
+        "121212",
+        "112233",
+        "123123",
+        "000001",
+        "101010",
+        "111222",
+    ],
 )
 def test_fixed_sms_refuses_guessable_codes(make_settings: SettingsFactory, code: str) -> None:
     with pytest.raises(ValidationError, match="too easy to guess"):
