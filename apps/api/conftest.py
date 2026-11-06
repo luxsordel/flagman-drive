@@ -18,6 +18,25 @@ REDIS_IMAGE = "redis:7.4.11-alpine"
 
 ALEMBIC_INI = Path(__file__).parent / "alembic.ini"
 
+# Starting either container is what makes a test an integration test.
+CONTAINER_FIXTURES = frozenset({"postgres_container", "redis_container"})
+
+
+def pytest_collection_modifyitems(items: list[pytest.Item]) -> None:
+    # CI measures domain coverage with -m "not integration" on a promise of no database: an
+    # unmarked test that still reaches a container, even through an autouse fixture, breaks it.
+    unmarked = [
+        item.nodeid
+        for item in items
+        if item.get_closest_marker("integration") is None
+        and CONTAINER_FIXTURES & set(getattr(item, "fixturenames", ()))
+    ]
+    if unmarked:
+        shown = "\n  ".join(unmarked[:10])
+        raise pytest.UsageError(
+            f"{len(unmarked)} tests use Docker without the integration mark, e.g.:\n  {shown}"
+        )
+
 
 class SettingsFactory(Protocol):
     def __call__(self, **overrides: Any) -> Settings: ...

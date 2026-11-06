@@ -109,6 +109,12 @@ jobs:
       - name: Tests
         # Integration tests start Postgres/PostGIS and Redis through testcontainers (Docker is on the runner).
         run: uv run pytest -q
+      - name: Domain coverage
+        # Unit tests only: domain code is tested without a database (conftest.py refuses an unmarked
+        # test that starts a container), and tracing would slow the integration run. Fails below
+        # fail_under in pyproject.toml.
+        if: matrix.dir == 'apps/api'
+        run: uv run pytest -q -m "not integration" --cov --cov-report=term
 
   python-audit:
     name: Python dependency audit (${{ matrix.dir }})
