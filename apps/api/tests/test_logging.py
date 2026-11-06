@@ -5,6 +5,7 @@ import socket
 from collections.abc import Iterator
 
 import pytest
+import structlog
 import uvicorn
 from starlette.types import Receive, Scope, Send
 from websockets.asyncio.client import connect
@@ -86,3 +87,37 @@ async def test_websocket_handshake_is_logged_without_the_client_address(
         if line["logger"] == "uvicorn.error" and "WebSocket" in line["event"]
     ]
     assert handshakes == [f'"WebSocket {path}" {outcome}']
+
+
+def test_personal_data_and_secrets_are_redacted_from_logs(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    configure_logging("INFO")
+    structlog.contextvars.bind_contextvars(email="anna@example.com")
+    try:
+        structlog.get_logger("flagman.test").info(
+            "signed_in",
+            phone="+375291234567",
+            refresh_token="rt-secret",
+            Password="hunter2",
+            headers={"Authorization": "Bearer at-secret", "accept": "application/json"},
+            rental_id="r-1",
+            code="LOW_BATTERY",
+        )
+        # Records of libraries pass through the same chain, with the bound context merged in.
+        logging.getLogger("uvicorn.error").info("library record")
+    finally:
+        structlog.contextvars.clear_contextvars()
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    signed_in, library = lines
+    assert signed_in["phone"] == "[redacted]"
+    assert signed_in["refresh_token"] == "[redacted]"
+    assert signed_in["Password"] == "[redacted]"
+    assert signed_in["email"] == "[redacted]"
+    assert signed_in["headers"] == {"Authorization": "[redacted]", "accept": "application/json"}
+    assert signed_in["rental_id"] == "r-1"
+    # Error and catalog codes are not secrets; the sign-in code never reaches a log in prod.
+    assert signed_in["code"] == "LOW_BATTERY"
+    assert library["event"] == "library record"
+    assert library["email"] == "[redacted]"
