@@ -34,7 +34,8 @@ interface ActionError {
 /** `action` tells a refused reason of a forced finish from a refused amount of an adjustment. */
 function actionProblem(error: unknown, action: 'force' | 'adjust' | 'refund'): ActionError {
   if (error instanceof ApiError) {
-    // A forced finish shares the staff command limit with the fleet page: say how long to wait.
+    // A forced finish shares the staff command limit with the fleet page, an adjustment and a refund
+    // retry share the staff money limit with fines: either way, say how long to wait.
     if (error.status === 429)
       return { key: 'rateLimited', retryAfterSeconds: error.retryAfterSeconds };
     if (error.problem === 'rental-settlement-pending') return { key: 'pending' };
