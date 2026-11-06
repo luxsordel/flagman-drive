@@ -17,6 +17,7 @@ from flagman.identity.dependencies import (
     CurrentClient,
     CurrentStaff,
     get_current_client,
+    require_live_staff_session,
     require_staff_role,
 )
 from flagman.identity.domain import StaffRole
@@ -190,7 +191,10 @@ def get_kyc_review_service(
 
 
 # The reviewer comes first in every signature, as the client does above.
-Reviewer = Annotated[CurrentStaff, Depends(require_staff_role(StaffRole.OPERATOR, StaffRole.ADMIN))]
+_REVIEWER_ROLES = (StaffRole.OPERATOR, StaffRole.ADMIN)
+Reviewer = Annotated[CurrentStaff, Depends(require_staff_role(*_REVIEWER_ROLES))]
+# An approval admits the client to rentals at once: a revoked session must not give it.
+LiveReviewer = Annotated[CurrentStaff, Depends(require_live_staff_session(*_REVIEWER_ROLES))]
 ReviewService = Annotated[KycReviewService, Depends(get_kyc_review_service)]
 
 _APPLICATION_NOT_FOUND_RESPONSE: dict[str, Any] = {
@@ -274,7 +278,7 @@ async def get_document_url_for_review(
     },
 )
 async def approve_application(
-    reviewer: Reviewer,
+    reviewer: LiveReviewer,
     application_id: UUID,
     body: KycApproveRequest,
     service: ReviewService,
