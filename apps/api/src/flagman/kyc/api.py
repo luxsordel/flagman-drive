@@ -22,7 +22,7 @@ from flagman.identity.dependencies import (
 )
 from flagman.identity.domain import StaffRole
 from flagman.kyc.domain import AdmissionRules, DocumentKind, DocumentTooLargeError
-from flagman.kyc.ports import DocumentStorage, create_document_storage
+from flagman.kyc.ports import DocumentStorage, require_document_storage
 from flagman.kyc.schemas import (
     QUEUE_SIZE_DEFAULT,
     QUEUE_SIZE_MAX,
@@ -50,7 +50,7 @@ router = APIRouter(
 def get_document_storage(
     resources: Annotated[Resources, Depends(get_resources)],
 ) -> DocumentStorage:
-    return create_document_storage(resources.settings)
+    return require_document_storage(resources.storage)
 
 
 def _no_store(response: Response) -> None:

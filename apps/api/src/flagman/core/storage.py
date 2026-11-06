@@ -4,7 +4,10 @@ Shared by KYC documents and car inspections. Keys and links are not logged: a li
 photo.
 """
 
-from dataclasses import dataclass
+import asyncio
+from collections.abc import AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
+from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Protocol
 
@@ -30,14 +33,20 @@ class ObjectStorage(Protocol):
         ...
 
 
-# Shared by all requests: a session caches the S3 service model that every client is built from.
+# A session caches the S3 service model that every client is built from.
 _session = aioboto3.Session()
+
+_CONNECT_TIMEOUT = 5.0
+# Connections to the storage per process. Ten is botocore's default; a pilot process uses about
+# one at a time (2.4 photos/s at about 25 ms each, #162).
+_MAX_CONNECTIONS = 10
 
 _CLIENT_CONFIG = AioConfig(
     signature_version="s3v4",
     # SeaweedFS serves buckets as paths; virtual-host style would need DNS per bucket.
     s3={"addressing_style": "path"},
-    connect_timeout=5,
+    connect_timeout=_CONNECT_TIMEOUT,
+    max_pool_connections=_MAX_CONNECTIONS,
     read_timeout=30,
     retries={"max_attempts": 3, "mode": "standard"},
 )
@@ -45,53 +54,80 @@ _CLIENT_CONFIG = AioConfig(
 
 @dataclass(frozen=True)
 class S3ObjectStorage:
-    endpoint_url: str
-    public_url: str
-    region: str
-    bucket: str
-    access_key: str
-    secret_key: str
+    """Works on clients opened once per process by `open_object_storage`.
 
-    def _client(self, endpoint_url: str) -> "ClientCreatorContext[S3Client]":
-        return _session.client(
-            "s3",
-            endpoint_url=endpoint_url,
-            region_name=self.region,
-            aws_access_key_id=self.access_key,
-            aws_secret_access_key=self.secret_key,
-            config=_CLIENT_CONFIG,
-        )
+    Building a client parses the service model and makes an aiohttp connector: about 20 ms of
+    event-loop CPU per call, measured in #162. One client serves concurrent requests of the loop.
+    """
+
+    client: "S3Client"
+    # Never sends a request: it only signs links for the public address.
+    signer: "S3Client"
+    bucket: str
+    connections: asyncio.Semaphore = field(
+        default_factory=lambda: asyncio.Semaphore(_MAX_CONNECTIONS)
+    )
+
+    @asynccontextmanager
+    async def _connection(self) -> AsyncIterator[None]:
+        # aiobotocore gives aiohttp only socket timeouts, so a call would wait for a free pooled
+        # connection with no limit: with the storage stalled, every later upload of the process
+        # would queue behind ten hung ones. Waiting for one counts as connecting instead.
+        async with asyncio.timeout(_CONNECT_TIMEOUT):
+            await self.connections.acquire()
+        try:
+            yield
+        finally:
+            self.connections.release()
 
     async def put(self, key: str, data: bytes, content_type: str) -> None:
-        async with self._client(self.endpoint_url) as s3:
-            await s3.put_object(Bucket=self.bucket, Key=key, Body=data, ContentType=content_type)
+        async with self._connection():
+            await self.client.put_object(
+                Bucket=self.bucket, Key=key, Body=data, ContentType=content_type
+            )
 
     async def delete(self, key: str) -> None:
-        async with self._client(self.endpoint_url) as s3:
-            await s3.delete_object(Bucket=self.bucket, Key=key)
+        async with self._connection():
+            await self.client.delete_object(Bucket=self.bucket, Key=key)
 
     async def signed_get_url(self, key: str, ttl: timedelta) -> str:
         # Signed locally, no request to the storage. The signature covers the host, so the link
         # is signed for the address the client opens (docs/adr/0005), not the internal one.
         # no-store keeps the photo out of the browser's disk cache, where a copy would outlive the
         # link; it is signed too, so stripping it from the link breaks the link.
-        async with self._client(self.public_url) as s3:
-            return await s3.generate_presigned_url(
-                "get_object",
-                Params={"Bucket": self.bucket, "Key": key, "ResponseCacheControl": "no-store"},
-                ExpiresIn=int(ttl.total_seconds()),
-            )
+        return await self.signer.generate_presigned_url(
+            "get_object",
+            Params={"Bucket": self.bucket, "Key": key, "ResponseCacheControl": "no-store"},
+            ExpiresIn=int(ttl.total_seconds()),
+        )
 
 
-def object_storage_from_settings(settings: Settings) -> ObjectStorage | None:
-    """None without `S3_ACCESS_KEY` / `S3_SECRET_KEY`: the API runs, uploads answer 503."""
+@asynccontextmanager
+async def open_object_storage(settings: Settings) -> AsyncIterator[ObjectStorage | None]:
+    """The process-wide storage for the app lifespan; closes its clients on exit.
+
+    None without `S3_ACCESS_KEY` / `S3_SECRET_KEY`: the API runs, uploads answer 503. Opening
+    connects nowhere, so the API starts while the storage is down.
+    """
     if settings.s3_access_key is None or settings.s3_secret_key is None:
-        return None
-    return S3ObjectStorage(
-        endpoint_url=settings.s3_endpoint_url,
-        public_url=settings.storage_public_url,
-        region=settings.s3_region,
-        bucket=settings.s3_bucket,
-        access_key=settings.s3_access_key.get_secret_value(),
-        secret_key=settings.s3_secret_key.get_secret_value(),
-    )
+        yield None
+        return
+    access_key = settings.s3_access_key.get_secret_value()
+    secret_key = settings.s3_secret_key.get_secret_value()
+
+    def client(endpoint_url: str) -> "ClientCreatorContext[S3Client]":
+        return _session.client(
+            "s3",
+            endpoint_url=endpoint_url,
+            region_name=settings.s3_region,
+            aws_access_key_id=access_key,
+            aws_secret_access_key=secret_key,
+            config=_CLIENT_CONFIG,
+        )
+
+    async with AsyncExitStack() as stack:
+        yield S3ObjectStorage(
+            client=await stack.enter_async_context(client(settings.s3_endpoint_url)),
+            signer=await stack.enter_async_context(client(settings.storage_public_url)),
+            bucket=settings.s3_bucket,
+        )

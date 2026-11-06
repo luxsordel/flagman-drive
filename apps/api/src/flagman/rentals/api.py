@@ -14,7 +14,7 @@ from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.photos import PhotoTooLargeError, photo_request_body, read_photo_body
 from flagman.core.ratelimit import RateLimiter, get_rate_limiter
 from flagman.core.resources import Resources, get_resources
-from flagman.core.storage import ObjectStorage, object_storage_from_settings
+from flagman.core.storage import ObjectStorage
 from flagman.fleet import service as fleet
 from flagman.fleet.ports import TelematicsGateway
 from flagman.identity.dependencies import (
@@ -99,7 +99,7 @@ def get_rental_service(
 
 
 def get_photo_storage(resources: Annotated[Resources, Depends(get_resources)]) -> ObjectStorage:
-    storage = object_storage_from_settings(resources.settings)
+    storage = resources.storage
     if storage is None:
         raise PhotoStorageUnavailableError("No photo storage is configured.")
     return storage
