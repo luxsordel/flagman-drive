@@ -1,0 +1,88 @@
+import asyncio
+import json
+import logging
+import socket
+from collections.abc import Iterator
+
+import pytest
+import uvicorn
+from starlette.types import Receive, Scope, Send
+from websockets.asyncio.client import connect
+from websockets.exceptions import InvalidStatus
+
+from flagman.core.logging import configure_logging
+
+CLIENT_HOST = "127.0.0.1"
+_LOGGERS = ("", "uvicorn", "uvicorn.error", "uvicorn.access")
+
+
+@pytest.fixture(autouse=True)
+def _restore_logging() -> Iterator[None]:
+    """configure_logging and uvicorn rewire global loggers; later tests must not write to the
+    stdout this test captured."""
+    saved = [
+        (lg, lg.handlers[:], lg.filters[:], lg.level, lg.propagate, lg.disabled)
+        for lg in map(logging.getLogger, _LOGGERS)
+    ]
+    yield
+    for lg, handlers, filters, level, propagate, disabled in saved:
+        lg.handlers, lg.filters, lg.level = handlers, filters, level
+        lg.propagate, lg.disabled = propagate, disabled
+
+
+async def _stream(scope: Scope, receive: Receive, send: Send) -> None:
+    assert scope["type"] == "websocket"
+    await receive()
+    if scope["path"] == "/rejected":
+        await send({"type": "websocket.close", "code": 1008})
+        return
+    await send({"type": "websocket.accept"})
+    await send({"type": "websocket.send", "text": "hi"})
+    await send({"type": "websocket.close", "code": 1000})
+
+
+def _app_factory() -> object:
+    # The API is started by uvicorn with --factory, so its logging is configured after
+    # uvicorn has installed its own: the same order as here.
+    configure_logging("INFO")
+    return _stream
+
+
+async def _open_socket(ws: str, path: str) -> None:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind((CLIENT_HOST, 0))
+    # Listening before uvicorn starts queues the client's connection until the server takes it.
+    sock.listen()
+    url = f"ws://{CLIENT_HOST}:{sock.getsockname()[1]}{path}"
+    config = uvicorn.Config(
+        _app_factory, factory=True, ws=ws, lifespan="off", access_log=False, server_header=False
+    )
+    server = uvicorn.Server(config)
+    serving = asyncio.create_task(server.serve(sockets=[sock]))
+    try:
+        if path == "/rejected":
+            with pytest.raises(InvalidStatus) as rejected:
+                await connect(url)
+            assert rejected.value.response.status_code == 403
+        else:
+            async with connect(url) as client:
+                assert await client.recv() == "hi"
+    finally:
+        server.should_exit = True
+        await serving
+
+
+@pytest.mark.parametrize("ws", ["websockets", "websockets-sansio"])
+@pytest.mark.parametrize(("path", "outcome"), [("/stream", "[accepted]"), ("/rejected", "403")])
+async def test_websocket_handshake_is_logged_without_the_client_address(
+    capsys: pytest.CaptureFixture[str], ws: str, path: str, outcome: str
+) -> None:
+    await _open_socket(ws, path)
+
+    lines = [json.loads(line) for line in capsys.readouterr().out.splitlines() if line]
+    handshakes = [
+        line["event"]
+        for line in lines
+        if line["logger"] == "uvicorn.error" and "WebSocket" in line["event"]
+    ]
+    assert handshakes == [f'"WebSocket {path}" {outcome}']

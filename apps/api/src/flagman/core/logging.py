@@ -12,6 +12,23 @@ _SHARED_PROCESSORS: list[structlog.typing.Processor] = [
     structlog.processors.TimeStamper(fmt="iso", utc=True),
 ]
 
+# uvicorn logs every WebSocket handshake as '<client ip:port> - "WebSocket <path>" <outcome>'.
+# Behind Caddy that is the real address of the client from X-Forwarded-For, and we keep no IPs
+# in logs (Caddy drops them too).
+_WEBSOCKET_HANDSHAKE_PREFIX = '%s - "WebSocket '
+
+
+def _drop_websocket_client_address(record: logging.LogRecord) -> bool:
+    if (
+        isinstance(record.msg, str)
+        and record.msg.startswith(_WEBSOCKET_HANDSHAKE_PREFIX)
+        and isinstance(record.args, tuple)
+        and record.args
+    ):
+        record.msg = record.msg.removeprefix("%s - ")
+        record.args = record.args[1:]
+    return True
+
 
 def configure_logging(level: str) -> None:
     structlog.configure(
@@ -42,4 +59,7 @@ def configure_logging(level: str) -> None:
         uvicorn_logger = logging.getLogger(name)
         uvicorn_logger.handlers = []
         uvicorn_logger.propagate = True
+    uvicorn_error = logging.getLogger("uvicorn.error")
+    if _drop_websocket_client_address not in uvicorn_error.filters:
+        uvicorn_error.addFilter(_drop_websocket_client_address)
     logging.getLogger("uvicorn.access").disabled = True
