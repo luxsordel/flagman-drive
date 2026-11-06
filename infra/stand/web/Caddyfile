@@ -6,6 +6,19 @@
 	email {$ACME_EMAIL}
 	# Nothing reconfigures Caddy at runtime, so its admin API stays closed.
 	admin off
+	# Error lines (a failed upstream, for one) go to the default log, not to the sites' access log
+	# below, and carry the same request: the same filter applies to both.
+	log default {
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>client_ip delete
+				request>uri regexp [?].* ""
+				request>headers delete
+			}
+		}
+	}
 }
 
 (common) {
@@ -17,16 +30,14 @@
 		-Server
 	}
 	log {
-		# Hostnames and status only: client IPs and query strings stay out of the stand's logs.
+		# Hostnames, paths and status only: client IPs and query strings stay out of the stand's
+		# logs. A query carries a client search, a card binding session or a photo link signature.
 		format filter {
 			wrap json
 			fields {
 				request>remote_ip delete
 				request>client_ip delete
-				request>uri query {
-					delete code
-					delete token
-				}
+				request>uri regexp [?].* ""
 				request>headers delete
 				resp_headers delete
 			}
