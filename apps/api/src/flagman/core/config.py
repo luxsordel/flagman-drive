@@ -53,6 +53,11 @@ class DatabaseSettings(BaseSettings):
     postgres_user: str
     postgres_password: SecretStr
     postgres_db: str
+    # Connections each process keeps open, and how many more it may open for a burst. Those above
+    # the pool are closed on return, and a new one costs a TCP and auth handshake plus the lost
+    # prepared statement cache: with the old 5 the load test reopened ~1.8 per second (#162).
+    db_pool_size: int = Field(default=10, ge=1, le=50)
+    db_max_overflow: int = Field(default=10, ge=0, le=50)
 
     @property
     def is_prod(self) -> bool:

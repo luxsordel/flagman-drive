@@ -118,6 +118,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
@@ -211,6 +213,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      DB_POOL_SIZE: ${DB_POOL_SIZE:-}
+      DB_MAX_OVERFLOW: ${DB_MAX_OVERFLOW:-}
     depends_on:
       postgres:
         condition: service_healthy

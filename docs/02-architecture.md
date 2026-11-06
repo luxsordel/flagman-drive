@@ -437,6 +437,9 @@ CANCELLED         FINISHED ──▶ PAID / PAYMENT_FAILED (долг)
 - Локально: **Docker Compose** (Postgres/PostGIS, Redis, SeaweedFS (S3), API, worker, эмулятор)
 - API — uvicorn, число процессов задаёт `API_WORKERS` (по умолчанию 1). Состояния в памяти процесса нет:
   поток парка рассылается через `LISTEN/NOTIFY` ([ADR-0017](adr/0017-fleet-stream-websocket.md)), лимиты в Redis
+- У каждого процесса API и у worker свой пул соединений с Postgres: `DB_POOL_SIZE` постоянных (по умолчанию 10)
+  и `DB_MAX_OVERFLOW` сверх них на всплеск (10). Бюджет: `(API_WORKERS + 1) × (DB_POOL_SIZE + DB_MAX_OVERFLOW)
+  + API_WORKERS` меньше `max_connections` Postgres (100), формула и пример — в `.env.example`
 - CI: **GitHub Actions** — линт, типы, тесты, сканеры безопасности; образы стенда собираются и публикуются
   в GHCR только при выкладке
 - Демо-стенд: один дроплет DigitalOcean во Франкфурте, Compose + Caddy, выкладка по кнопке или тегу.
