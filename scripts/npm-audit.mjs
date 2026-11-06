@@ -7,11 +7,66 @@
 import { readFileSync } from 'node:fs';
 
 const blocking = new Set(['high', 'critical']);
-const allowlistPath = new URL('../.github/npm-audit-allowlist.json', import.meta.url);
-const allowlist = new Map(
-  JSON.parse(readFileSync(allowlistPath, 'utf8')).map((entry) => [entry.id, entry]),
-);
+// docs/03-security.md: an exception lives at most three months before someone has to look at it again.
+const maxReviewDays = 92;
+const dayMs = 24 * 60 * 60 * 1000;
 const today = new Date().toISOString().slice(0, 10);
+const latestReviewBy = new Date(Date.parse(today) + maxReviewDays * dayMs)
+  .toISOString()
+  .slice(0, 10);
+
+// A malformed entry fails even while its advisory is not reported: a missing reason or a far reviewBy
+// would otherwise only surface on the day the exception starts silencing a real advisory.
+function loadAllowlist(path) {
+  const entries = JSON.parse(readFileSync(path, 'utf8'));
+  if (!Array.isArray(entries)) {
+    console.error('FAIL  .github/npm-audit-allowlist.json must be a JSON array of exceptions');
+    process.exit(1);
+  }
+  const errors = [];
+  const allowlist = new Map();
+  entries.forEach((entry, index) => {
+    const where = `allowlist entry ${index + 1}`;
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      errors.push(`${where} must be an object`);
+      return;
+    }
+    const { id, package: name, reason, reviewBy } = entry;
+    const label = typeof id === 'string' ? `${where} (${id})` : where;
+    if (typeof id !== 'string' || !/^GHSA(-[0-9a-z]{4}){3}$/.test(id)) {
+      errors.push(`${label}: id must be a GitHub advisory id like GHSA-xxxx-xxxx-xxxx`);
+    } else if (allowlist.has(id)) {
+      errors.push(`${label}: advisory is listed twice`);
+    }
+    if (typeof name !== 'string' || name.trim() === '') {
+      errors.push(`${label}: package must name the vulnerable npm package`);
+    }
+    if (typeof reason !== 'string' || reason.trim() === '') {
+      errors.push(`${label}: reason must say why the advisory does not affect us`);
+    }
+    // The round trip rejects dates like 2026-02-30 that Date.parse would roll over into March.
+    const isDate =
+      typeof reviewBy === 'string' &&
+      /^\d{4}-\d{2}-\d{2}$/.test(reviewBy) &&
+      !Number.isNaN(Date.parse(reviewBy)) &&
+      new Date(Date.parse(reviewBy)).toISOString().slice(0, 10) === reviewBy;
+    if (!isDate) {
+      errors.push(`${label}: reviewBy must be a date in YYYY-MM-DD form`);
+    } else if (reviewBy > latestReviewBy) {
+      errors.push(
+        `${label}: reviewBy must be at most ${maxReviewDays} days ahead (${latestReviewBy}), got ${reviewBy}`,
+      );
+    }
+    if (typeof id === 'string') allowlist.set(id, entry);
+  });
+  if (errors.length > 0) {
+    for (const error of errors) console.error(`FAIL  ${error}`);
+    process.exit(1);
+  }
+  return allowlist;
+}
+
+const allowlist = loadAllowlist(new URL('../.github/npm-audit-allowlist.json', import.meta.url));
 
 let input = '';
 for await (const chunk of process.stdin) input += chunk;

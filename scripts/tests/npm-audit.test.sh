@@ -35,12 +35,41 @@ high='{"auditReportVersion":2,"vulnerabilities":{"tar":{"name":"tar","severity":
 
 check "a clean report passes" '[]' 0 'no unapproved' <<<"$clean"
 check "an unlisted high advisory fails" '[]' 1 'FAIL  high tar GHSA-aaaa-bbbb-cccc' <<<"$high"
-check "a listed high advisory passes until its review date" \
-  '[{"id":"GHSA-aaaa-bbbb-cccc","package":"tar","reviewBy":"2999-01-01"}]' 0 'allow high tar' <<<"$high"
-check "an expired exception fails" \
-  '[{"id":"GHSA-aaaa-bbbb-cccc","package":"tar","reviewBy":"2000-01-01"}]' 1 'expired' <<<"$high"
-check "a stale exception fails" \
-  '[{"id":"GHSA-aaaa-bbbb-cccc","package":"tar","reviewBy":"2999-01-01"}]' 1 'no longer reported' <<<"$clean"
+# reviewBy may lie at most 92 days ahead; dates come from node, as GNU and BSD date differ.
+days_ahead() { node -e "console.log(new Date(Date.now() + $1 * 864e5).toISOString().slice(0, 10))"; }
+soon=$(days_ahead 30)
+entry() { echo "[{\"id\":\"GHSA-aaaa-bbbb-cccc\",\"package\":\"tar\",\"reason\":\"Only unpacks our own archives\",$1}]"; }
+
+check "a listed high advisory passes until its review date"   "$(entry "\"reviewBy\":\"$soon\"")" 0 'allow high tar' <<<"$high"
+check "an expired exception fails"   "$(entry '"reviewBy":"2000-01-01"')" 1 'expired' <<<"$high"
+check "a stale exception fails"   "$(entry "\"reviewBy\":\"$soon\"")" 1 'no longer reported' <<<"$clean"
+
+# The script reads its own clock, so the exact 92/93-day boundary holds only if no UTC midnight
+# passes between computing the dates here and running the script. A run that straddles midnight
+# is discarded and repeated rather than reported, as its verdict compares dates from two days.
+boundary_cases() {
+  check "an exception may run for 92 days"     "$(entry "\"reviewBy\":\"$(days_ahead 92)\"")" 0 'allow high tar' <<<"$high"
+  check "an exception for more than 92 days fails"     "$(entry "\"reviewBy\":\"$(days_ahead 93)\"")" 1 'reviewBy must be at most 92 days ahead' <<<"$clean"
+}
+for _ in 1 2; do
+  day=$(days_ahead 0)
+  boundary_code=0
+  boundary_out=$(failed=0; boundary_cases; exit "$failed") || boundary_code=$?
+  [ "$(days_ahead 0)" = "$day" ] && break
+done
+echo "$boundary_out"
+[ "$boundary_code" -eq 0 ] || failed=1
+
+# Malformed entries fail even when no advisory is reported, so a bad exception never waits for one.
+check "an exception without a reason fails"   "[{\"id\":\"GHSA-aaaa-bbbb-cccc\",\"package\":\"tar\",\"reviewBy\":\"$soon\"}]" 1 'reason' <<<"$high"
+check "an exception with a blank reason fails"   "[{\"id\":\"GHSA-aaaa-bbbb-cccc\",\"package\":\"tar\",\"reason\":\" \",\"reviewBy\":\"$soon\"}]" 1 'reason' <<<"$high"
+check "an exception without a package fails"   "[{\"id\":\"GHSA-aaaa-bbbb-cccc\",\"reason\":\"x\",\"reviewBy\":\"$soon\"}]" 1 'package' <<<"$high"
+check "an exception with a non-GHSA id fails"   "[{\"id\":\"CVE-2024-1234\",\"package\":\"tar\",\"reason\":\"x\",\"reviewBy\":\"$soon\"}]" 1 'GHSA' <<<"$clean"
+check "an exception with a malformed date fails"   "$(entry '"reviewBy":"2026-13-01"')" 1 'reviewBy must be a date' <<<"$high"
+check "an exception with an impossible date fails"   "$(entry '"reviewBy":"2026-02-30"')" 1 'reviewBy must be a date' <<<"$high"
+check "an exception without a date fails" "$(entry '"note":1')" 1 'reviewBy must be a date' <<<"$high"
+check "a duplicate exception fails"   "[$(entry "\"reviewBy\":\"$soon\"" | tr -d '[]'),$(entry "\"reviewBy\":\"$soon\"" | tr -d '[]')]"   1 'listed twice' <<<"$high"
+check "an allowlist that is not a list fails" '{}' 1 'must be a JSON array' <<<"$clean"
 
 # What npm audit prints when the advisory endpoint is unreachable: valid JSON, but not a report.
 check "a registry error fails instead of passing as clean" '[]' 1 'not an npm audit report' <<'EOF'
