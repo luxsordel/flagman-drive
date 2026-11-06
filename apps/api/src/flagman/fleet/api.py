@@ -179,9 +179,12 @@ Rules = Annotated[AvailabilityRules, Depends(get_availability_rules)]
 async def list_map_cars(
     client: MapClient, db: Db, rules: Rules, query: Annotated[MapCarsQuery, Query()]
 ) -> MapCarList:
-    tariffs = await _map_tariffs(db)
-    map_query = replace(query.query(), models=frozenset(tariffs))
-    cars = await service.find_cars_on_map(db, rules, datetime.now(UTC), map_query)
+    # One transaction for both reads: the map is the most frequent request, and a transaction per
+    # read costs a pool checkout with its pre-ping and a BEGIN/COMMIT each.
+    async with db.begin():
+        tariffs = await _map_tariffs(db)
+        map_query = replace(query.query(), models=frozenset(tariffs))
+        cars = await service.find_cars_on_map(db, rules, datetime.now(UTC), map_query)
     return MapCarList(items=[MapCarOut.of(car, tariffs[car.model_id]) for car in cars])
 
 
@@ -197,9 +200,10 @@ async def get_map_car(
     rules: Rules,
     point: Annotated[ClientPoint, Query()],
 ) -> MapCarOut:
-    tariffs = await _map_tariffs(db)
-    map_query = MapQuery(area=None, near=point.point(), limit=1, models=frozenset(tariffs))
-    car = await service.get_car_on_map(db, car_id, rules, datetime.now(UTC), map_query)
+    async with db.begin():
+        tariffs = await _map_tariffs(db)
+        map_query = MapQuery(area=None, near=point.point(), limit=1, models=frozenset(tariffs))
+        car = await service.get_car_on_map(db, car_id, rules, datetime.now(UTC), map_query)
     return MapCarOut.of(car, tariffs[car.model_id])
 
 
