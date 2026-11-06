@@ -387,6 +387,42 @@ def test_totp_guessing_is_rate_limited(client: TestClient, operator: Staff) -> N
     assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
 
 
+def test_passwords_from_one_address_are_limited_across_emails(
+    client: TestClient, operator: Staff, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The per-email limit alone would let one address try a password on every account in turn.
+    limit = Limit(f"staff-password-ip-test-{secrets.token_hex(4)}", 2, 3600)
+    monkeypatch.setattr(service, "STAFF_PASSWORD_IP_LIMIT", limit)
+    for _ in range(2):
+        _password(client, f"nobody-{secrets.token_hex(6)}@flagman.by")
+
+    response = _password(client, operator.email)
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS, response.text
+    assert int(response.headers["retry-after"]) > 0
+
+
+def test_codes_from_one_address_are_limited_across_staff(
+    client: TestClient,
+    make_staff: Callable[[StaffRole], Staff],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = make_staff(StaffRole.OPERATOR)
+    secret, _ = _first_sign_in(client, owner)
+    others = [_challenge(client, make_staff(StaffRole.OPERATOR)) for _ in range(2)]
+    challenge = _challenge(client, owner)["challenge_token"]
+    # Patched only now: the sign-ins above went through the real limit.
+    limit = Limit(f"staff-totp-ip-test-{secrets.token_hex(4)}", 2, 3600)
+    monkeypatch.setattr(service, "STAFF_TOTP_IP_LIMIT", limit)
+    for other in others:
+        _totp(client, other["challenge_token"], "000000")
+
+    response = _totp(client, challenge, _code(secret, steps_ahead=1))
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS, response.text
+    assert int(response.headers["retry-after"]) > 0
+
+
 def _wrong_code(secret: str, steps_ahead: int = 0) -> str:
     return "000000" if _code(secret, steps_ahead) != "000000" else "111111"
 

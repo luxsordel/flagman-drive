@@ -751,6 +751,29 @@ def test_an_adjustment_is_checked(  # noqa: PLR0913, PLR0917 - the case and the 
     assert _card(app_client, operator, rental_id).json()["adjustments"] == []
 
 
+def test_an_adjustment_needs_an_idempotency_key(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    operations = _operations(integration_settings, rental_id)
+
+    # Without a key a retried request could refund or charge the client twice.
+    response = app_client.post(
+        f"/admin/rentals/{rental_id}/adjustments",
+        json={"amount": -100, "comment": "Waited for the unlock"},
+        headers=operator.headers,
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY, response.text
+    assert _card(app_client, operator, rental_id).json()["adjustments"] == []
+    assert _operations(integration_settings, rental_id) == operations
+    assert _audited(integration_settings, rental_id, "rental.adjusted") == []
+
+
 def test_a_rental_on_the_road_is_not_adjusted(
     integration_settings: Settings,
     person: Person,
