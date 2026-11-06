@@ -22,20 +22,30 @@ type ActionProblem =
   | 'reason'
   | 'reused'
   | 'paymentsUnavailable'
+  | 'rateLimited'
   | 'failed';
 
+interface ActionError {
+  key: ActionProblem;
+  /** From `Retry-After`; a proxy's 429 may come without it. */
+  retryAfterSeconds?: number | undefined;
+}
+
 /** `action` tells a refused reason of a forced finish from a refused amount of an adjustment. */
-function actionProblem(error: unknown, action: 'force' | 'adjust' | 'refund'): ActionProblem {
+function actionProblem(error: unknown, action: 'force' | 'adjust' | 'refund'): ActionError {
   if (error instanceof ApiError) {
-    if (error.problem === 'rental-settlement-pending') return 'pending';
-    if (error.problem === 'idempotency-key-reused') return 'reused';
-    if (error.problem === 'rental-command-in-progress') return 'busy';
-    if (error.problem === 'payments-unavailable') return 'paymentsUnavailable';
-    if (error.status === 422) return action === 'force' ? 'reason' : 'rejected';
-    if (error.problem === 'rental-adjustment-invalid') return 'invalid';
-    if (error.status === 409) return 'conflict';
+    // A forced finish shares the staff command limit with the fleet page: say how long to wait.
+    if (error.status === 429)
+      return { key: 'rateLimited', retryAfterSeconds: error.retryAfterSeconds };
+    if (error.problem === 'rental-settlement-pending') return { key: 'pending' };
+    if (error.problem === 'idempotency-key-reused') return { key: 'reused' };
+    if (error.problem === 'rental-command-in-progress') return { key: 'busy' };
+    if (error.problem === 'payments-unavailable') return { key: 'paymentsUnavailable' };
+    if (error.status === 422) return { key: action === 'force' ? 'reason' : 'rejected' };
+    if (error.problem === 'rental-adjustment-invalid') return { key: 'invalid' };
+    if (error.status === 409) return { key: 'conflict' };
   }
-  return 'failed';
+  return { key: 'failed' };
 }
 
 const driving = new Set(['in_trip', 'parked']);
@@ -50,7 +60,7 @@ export function RentalPage() {
   const [card, setCard] = useState<StaffRental | null>(null);
   const [loadFailed, setLoadFailed] = useState<LoadProblem | null>(null);
   const [busy, setBusy] = useState(false);
-  const [problem, setProblem] = useState<ActionProblem | null>(null);
+  const [problem, setProblem] = useState<ActionError | null>(null);
   const [notLocked, setNotLocked] = useState(false);
   const [reason, setReason] = useState('');
   const [direction, setDirection] = useState<'down' | 'up'>('down');
@@ -316,7 +326,7 @@ export function RentalPage() {
 
       {problem && (
         <p role="alert" className="list-error">
-          {t(`rentals.problems.${problem}`)}
+          {t(`rentals.problems.${problem.key}`, { seconds: problem.retryAfterSeconds ?? 60 })}
         </p>
       )}
 

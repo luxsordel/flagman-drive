@@ -299,15 +299,11 @@ def get_telematics_gateway(
     )
 
 
-# A command per car is a matter of seconds of thought; dozens a minute are a script or a mistake.
-COMMAND_LIMIT = Limit("car-commands-staff", 20, 60)
-
-
 async def limit_commands(
     staff: Annotated[CurrentStaff, Depends(require_live_staff_session(*CAR_COMMANDERS))],
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
 ) -> CurrentStaff:
-    await limiter.hit(COMMAND_LIMIT, str(staff.staff_id))
+    await service.limit_staff_commands(limiter, staff.staff_id)
     return staff
 
 

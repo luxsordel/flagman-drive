@@ -506,8 +506,16 @@ def get_live_staff_rental_service(
     return _staff_service(staff, service, origin)
 
 
+async def limit_staff_commands(
+    staff: LiveStaff, limiter: Annotated[RateLimiter, Depends(get_rate_limiter)]
+) -> CurrentStaff:
+    # The lock of a forced finish is a car command like any other: it shares the staff limit.
+    await fleet.limit_staff_commands(limiter, staff.staff_id)
+    return staff
+
+
 def get_staff_car_commander(
-    staff: LiveStaff,
+    staff: Annotated[CurrentStaff, Depends(limit_staff_commands)],
     db: Annotated[AsyncSession, Depends(get_session)],
     origin: Annotated[RequestOrigin, Depends(get_request_origin)],
     gateway: Annotated[TelematicsGateway, Depends(get_telematics_gateway)],
@@ -585,6 +593,7 @@ async def get_staff_inspection_photo_url(  # noqa: PLR0913 - the path names the 
             "`urn:flagman:problem:rental-transition-not-allowed`: not a trip; "
             "`rental-command-in-progress`: the car is answering another command."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
 async def force_finish(

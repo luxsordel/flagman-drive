@@ -4,6 +4,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -12,6 +13,8 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.core.ratelimit import Limit
+from flagman.fleet import api as fleet_api
+from flagman.fleet import service as fleet_service
 from flagman.fleet.domain import TelematicsTimeoutError
 from flagman.fleet.tests.conftest import FakeGateway, Staff, run_in_db
 from flagman.geo import service as geo
@@ -326,6 +329,43 @@ def test_a_forced_finish_needs_a_live_session(  # noqa: PLR0913, PLR0917 - the f
     assert gateway.calls == calls
     assert car_status(integration_settings, car) == "in_rental"
     assert not _audited(integration_settings, rental_id, "rental.force_finished")
+
+
+def test_a_forced_finish_counts_against_the_staff_command_limit(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        fleet_service, "COMMAND_LIMIT", Limit(f"car-commands-test-{uuid.uuid4()}", 1, 60)
+    )
+    app = app_client.app
+    assert isinstance(app, FastAPI)
+    app.dependency_overrides[fleet_api.get_telematics_gateway] = lambda: gateway
+    rental_id = _start(person, car)
+    other_car = add_priced_car(integration_settings, CAR_POINT)
+    sent = app_client.post(
+        f"/admin/fleet/cars/{other_car}/commands",
+        json={"command": "open", "comment": "Checking the car before it goes out"},
+        headers=operator.headers,
+    )
+    assert sent.status_code == HTTPStatus.OK, sent.text
+    calls = list(gateway.calls)
+
+    limited = _force(app_client, operator, rental_id)
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert gateway.calls == calls
+    assert person.get(rental_id).json()["status"] == "in_trip"
+    assert not _audited(integration_settings, rental_id, "rental.force_finished")
+    # Counted per staff member: a colleague still ends the trip.
+    colleague = Staff(integration_settings, StaffRole.OPERATOR)
+    assert _force(app_client, colleague, rental_id).status_code == HTTPStatus.OK
 
 
 # The list and the card

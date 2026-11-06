@@ -27,6 +27,7 @@ from flagman.audit.domain import (
 )
 from flagman.core.config import Settings
 from flagman.core.errors import AppError
+from flagman.core.ratelimit import Limit, RateLimiter
 from flagman.fleet import domain, repository
 from flagman.fleet.changes import CommandNotice, encode_car_changes, encode_command
 from flagman.fleet.domain import (
@@ -329,6 +330,17 @@ class CarCommandRequest:
     confirm_active_rental: bool
     # Set for the service access of a technician (docs/adr/0025): the audit links the two.
     maintenance_task_id: UUID | None = None
+
+
+# A command per car is a matter of seconds of thought; dozens a minute are a script or a mistake.
+# Shared by the fleet command route and rental force finish; maintenance task commands keep their
+# own counter (maintenance.service.COMMAND_LIMIT), so a new car-command path needs its own check.
+COMMAND_LIMIT = Limit("car-commands-staff", 20, 60)
+
+
+async def limit_staff_commands(limiter: RateLimiter, staff_id: UUID) -> None:
+    """Counts a car command of a staff member; RateLimitedError once over COMMAND_LIMIT."""
+    await limiter.hit(COMMAND_LIMIT, str(staff_id))
 
 
 @dataclass(frozen=True)

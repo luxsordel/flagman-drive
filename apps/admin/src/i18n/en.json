@@ -784,6 +784,7 @@
       "reused": "This form was already sent with other data. Fill it in again.",
       "busy": "The car is still answering the previous command. Try again in a minute.",
       "paymentsUnavailable": "Payments are not available now. Try again later.",
+      "rateLimited": "Too many actions in a row. Wait {{seconds}} s.",
       "rejected": "Check the amount and the comment: up to 500 characters, no control characters."
     },
     "forceFinish": "Force finish",

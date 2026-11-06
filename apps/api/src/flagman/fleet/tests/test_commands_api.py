@@ -16,7 +16,7 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.core.ratelimit import Limit
-from flagman.fleet import api
+from flagman.fleet import api, service
 from flagman.fleet.domain import (
     CarCommand,
     CarCommandDuplicateError,
@@ -342,7 +342,7 @@ def test_commands_are_rate_limited(
     operator: Staff,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(api, "COMMAND_LIMIT", Limit(f"car-commands-test-{uuid.uuid4()}", 2, 60))
+    monkeypatch.setattr(service, "COMMAND_LIMIT", Limit(f"car-commands-test-{uuid.uuid4()}", 2, 60))
     car_id = add_car(integration_settings, POINT)
 
     for _ in range(2):
