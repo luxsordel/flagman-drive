@@ -924,6 +924,7 @@
       "notFinished": "Fines are charged to ended trips only.",
       "invalid": "Check the type and the comment.",
       "photo": "The fine is charged, but not every photo was uploaded. Add them with \"Add photos\" on the fine.",
+      "rateLimited": "Too many money actions in a row. Wait {{seconds}} s.",
       "failed": "That did not work. Check the connection and try again."
     },
     "catalog": {

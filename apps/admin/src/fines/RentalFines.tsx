@@ -16,16 +16,46 @@ import {
 } from './api';
 import { fineName } from './format';
 
-type FineProblem = 'notFinished' | 'invalid' | 'photo' | 'charged' | 'failed';
+type FineProblemKey = 'notFinished' | 'invalid' | 'photo' | 'charged' | 'rateLimited' | 'failed';
+
+interface FineProblem {
+  key: FineProblemKey;
+  /** From `Retry-After`; a proxy's 429 may come without it. */
+  retryAfterSeconds?: number | undefined;
+}
+
+/** Fines share the staff money limit with the rental's adjustments: say how long to wait. */
+function rateLimited(error: unknown): FineProblem | null {
+  if (error instanceof ApiError && error.status === 429)
+    return { key: 'rateLimited', retryAfterSeconds: error.retryAfterSeconds };
+  return null;
+}
 
 function fineProblem(error: unknown): FineProblem {
+  const limited = rateLimited(error);
+  if (limited) return limited;
   if (error instanceof ApiError) {
-    if (error.problem === 'fine-rental-not-finished') return 'notFinished';
+    if (error.problem === 'fine-rental-not-finished') return { key: 'notFinished' };
     // The first try went through though its answer was lost, and the form was changed since.
-    if (error.problem === 'idempotency-key-reused') return 'charged';
-    if (error.status === 422) return 'invalid';
+    if (error.problem === 'idempotency-key-reused') return { key: 'charged' };
+    if (error.status === 422) return { key: 'invalid' };
   }
-  return 'failed';
+  return { key: 'failed' };
+}
+
+function ProblemAlert({ problem, inline }: { problem: FineProblem; inline?: boolean }) {
+  const { t } = useTranslation();
+  const text = t(`fines.problems.${problem.key}`, { seconds: problem.retryAfterSeconds ?? 60 });
+  return inline ? (
+    <span role="alert" className="list-error">
+      {' '}
+      {text}
+    </span>
+  ) : (
+    <p role="alert" className="list-error">
+      {text}
+    </p>
+  );
 }
 
 function CancelForm({ fine, onCancelled }: { fine: Fine; onCancelled: (fine: Fine) => void }) {
@@ -35,7 +65,7 @@ function CancelForm({ fine, onCancelled }: { fine: Fine; onCancelled: (fine: Fin
   const [open, setOpen] = useState(false);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [problem, setProblem] = useState<FineProblem | null>(null);
 
   if (!open) {
     return (
@@ -57,7 +87,7 @@ function CancelForm({ fine, onCancelled }: { fine: Fine; onCancelled: (fine: Fin
         event.preventDefault();
         if (!window.confirm(t('fines.cancelConfirm'))) return;
         setBusy(true);
-        setFailed(false);
+        setProblem(null);
         fines
           .cancel(fine.id, reason.trim())
           .then(
@@ -68,7 +98,7 @@ function CancelForm({ fine, onCancelled }: { fine: Fine; onCancelled: (fine: Fin
             },
             (error: unknown) => {
               if (error instanceof ApiError && error.status === 401) void signOut();
-              else setFailed(true);
+              else setProblem(rateLimited(error) ?? { key: 'failed' });
             },
           )
           .finally(() => {
@@ -91,12 +121,7 @@ function CancelForm({ fine, onCancelled }: { fine: Fine; onCancelled: (fine: Fin
       <button type="submit" className="button" disabled={busy || !reason.trim()}>
         {t('fines.cancelSubmit')}
       </button>
-      {failed && (
-        <span role="alert" className="list-error">
-          {' '}
-          {t('fines.problems.failed')}
-        </span>
-      )}
+      {problem && <ProblemAlert problem={problem} inline />}
     </form>
   );
 }
@@ -171,7 +196,7 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
   const refused = useCallback(
     (error: unknown) => {
       if (error instanceof ApiError && error.status === 401) void signOut();
-      else setProblem('failed');
+      else setProblem({ key: 'failed' });
     },
     [signOut],
   );
@@ -219,7 +244,7 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
       } catch (error) {
         // The fine is charged already: a lost photo is told, not a reason to undo it.
         if (error instanceof ApiError && error.status === 401) throw error;
-        setProblem('photo');
+        setProblem({ key: 'photo' });
       }
     }
     replaceFine(fine);
@@ -308,7 +333,7 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
                   }
                   const found = fineProblem(error);
                   setProblem(found);
-                  if (found === 'charged') {
+                  if (found.key === 'charged') {
                     setReload((count) => count + 1);
                     setChargeKey(crypto.randomUUID());
                   }
@@ -372,18 +397,10 @@ export function RentalFines({ rentalId, ended }: { rentalId: string; ended: bool
           >
             {t('fines.chargeSubmit')}
           </button>
-          {problem && (
-            <p role="alert" className="list-error">
-              {t(`fines.problems.${problem}`)}
-            </p>
-          )}
+          {problem && <ProblemAlert problem={problem} />}
         </form>
       )}
-      {!ended && problem && (
-        <p role="alert" className="list-error">
-          {t(`fines.problems.${problem}`)}
-        </p>
-      )}
+      {!ended && problem && <ProblemAlert problem={problem} />}
     </section>
   );
 }
