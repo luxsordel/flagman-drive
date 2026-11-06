@@ -19,13 +19,26 @@ let report;
 try {
   report = JSON.parse(input);
 } catch {
-  // Also covers an empty pipe, e.g. when npm audit could not reach the registry.
   console.error('Expected `npm audit --json` output on stdin, got:\n', input.slice(0, 2000));
   process.exit(1);
 }
 
+// A failed npm audit still prints valid JSON, e.g. {"message": ..., "error": {...}} when the registry
+// is unreachable. It lists no vulnerabilities, so without this check an audit that never ran would pass.
+const totals = report?.metadata?.vulnerabilities;
+if (
+  report?.error !== undefined ||
+  typeof report?.vulnerabilities !== 'object' ||
+  report.vulnerabilities === null ||
+  typeof totals !== 'object' ||
+  totals === null
+) {
+  console.error('npm audit output is not an npm audit report:\n', input.slice(0, 2000));
+  process.exit(1);
+}
+
 const advisories = new Map();
-for (const vulnerability of Object.values(report.vulnerabilities ?? {})) {
+for (const vulnerability of Object.values(report.vulnerabilities)) {
   for (const source of vulnerability.via) {
     if (typeof source !== 'object' || !blocking.has(source.severity)) continue;
     const id = source.url.split('/').pop();
@@ -39,6 +52,15 @@ for (const vulnerability of Object.values(report.vulnerabilities ?? {})) {
 }
 
 let failed = false;
+// The totals and the advisories come from the same report; if they disagree, the report format has
+// changed under this parser, and trusting the empty list would hide the vulnerable packages.
+if ((totals.high ?? 0) + (totals.critical ?? 0) > 0 && advisories.size === 0) {
+  console.error(
+    `FAIL  npm audit counts ${totals.high ?? 0} high and ${totals.critical ?? 0} critical packages, ` +
+      'but none could be read from the report',
+  );
+  failed = true;
+}
 for (const advisory of advisories.values()) {
   const entry = allowlist.get(advisory.id);
   const line = `${advisory.severity} ${advisory.package} ${advisory.id}: ${advisory.title}`;
@@ -55,9 +77,12 @@ for (const advisory of advisories.values()) {
   }
 }
 
+// A stale exception would silently allow the advisory again if it ever came back, so it fails too.
 for (const id of allowlist.keys()) {
-  if (!advisories.has(id))
-    console.warn(`note  ${id} is no longer reported: remove it from the allowlist`);
+  if (!advisories.has(id)) {
+    console.error(`FAIL  ${id} is no longer reported: remove it from the allowlist`);
+    failed = true;
+  }
 }
 
 if (failed) process.exit(1);
