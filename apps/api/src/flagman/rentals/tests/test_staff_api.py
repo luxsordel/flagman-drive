@@ -11,6 +11,7 @@ from sqlalchemy.exc import DBAPIError
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
+from flagman.core.ratelimit import Limit
 from flagman.fleet.domain import TelematicsTimeoutError
 from flagman.fleet.tests.conftest import FakeGateway, Staff, run_in_db
 from flagman.geo import service as geo
@@ -19,6 +20,7 @@ from flagman.payments import service as payments_service
 from flagman.payments.domain import IdempotencyKeyReusedError
 from flagman.payments.fake_provider import FakeProvider
 from flagman.payments.ports import OperationRequest, OperationResult, PaymentProviderError
+from flagman.rentals import service as rentals_service
 from flagman.rentals.service import StaffRentalService
 from flagman.rentals.tests.conftest import (
     CAR_POINT,
@@ -414,6 +416,39 @@ def test_a_photo_link_for_staff_is_in_the_audit_log(  # noqa: PLR0913, PLR0917 -
     ]
     assert event.actor_id == operator.id
     assert event.details["photo_id"] == photo_id
+
+
+def test_photo_links_are_limited_per_staff_member(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    storage: FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        rentals_service,
+        "STAFF_PHOTO_URL_LIMIT",
+        Limit(f"rental-photo-url-staff-test-{uuid.uuid4()}", 1, 3600),
+    )
+    rental_id = _paid_trip(integration_settings, person, car)
+    [before, _] = _card(app_client, operator, rental_id).json()["inspections"]
+    url = f"/admin/rentals/{rental_id}/inspections/before/photos/{before['photos'][0]['id']}/url"
+
+    assert app_client.get(url, headers=operator.headers).status_code == HTTPStatus.OK
+    limited = app_client.get(url, headers=operator.headers)
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    # Counted per staff member: a colleague still opens the photos.
+    colleague = Staff(integration_settings, StaffRole.OPERATOR)
+    assert app_client.get(url, headers=colleague.headers).status_code == HTTPStatus.OK
+    # Only the links handed out are in the audit log.
+    viewed = [
+        e for e in _audit(integration_settings, rental_id) if e.action == "rental.photo_viewed"
+    ]
+    assert len(viewed) == 2
 
 
 # The forced finish

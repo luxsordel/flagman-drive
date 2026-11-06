@@ -165,6 +165,9 @@ COMMAND_LIMIT = Limit("rental-commands-user", 10, 60)
 # Eight photos per inspection and a few retries on a bad network.
 UPLOAD_LIMIT = Limit("rental-photo-upload-user", 40, _HOUR)
 PHOTO_URL_LIMIT = Limit("rental-photo-url-user", 120, _HOUR)
+# An operator opens eight photos per inspection, two inspections per trip, some more than once:
+# room for a busy hour of disputes, and still far from paging through every client's car photos.
+STAFF_PHOTO_URL_LIMIT = Limit("rental-photo-url-staff", 600, _HOUR)
 # A client paying a debt by hand after changing the card; more is a script hammering the bank.
 PAY_DEBT_LIMIT = Limit("rental-pay-debt-user", 10, _HOUR)
 
@@ -1488,6 +1491,7 @@ class StaffRentalService:
     async def photo_url(
         self, storage: ObjectStorage, rental_id: UUID, stage: InspectionStage, photo_id: UUID
     ) -> str:
+        await self.rentals.limiter.hit(STAFF_PHOTO_URL_LIMIT, str(self.staff_id))
         async with self.db.begin():
             record = await repository.get_inspection(self.db, rental_id, stage)
             key = record.object_keys.get(photo_id) if record else None

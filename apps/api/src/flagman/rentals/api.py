@@ -556,6 +556,7 @@ async def get_staff_rental(staff: Staff, rental_id: UUID, service: StaffService)
         HTTPStatus.NOT_FOUND: _problem(
             "`urn:flagman:problem:rental-not-found`, `inspection-photo-not-found`."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
         HTTPStatus.SERVICE_UNAVAILABLE: _STORAGE_UNAVAILABLE,
     },
 )
