@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flagman.audit.domain import RequestOrigin
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.ratelimit import Limit
 from flagman.fleet.domain import CarCommand, CarStatus, TelematicsUnavailableError
 from flagman.fleet.tests.conftest import FakeGateway, Staff, add_car, run_in_db
 from flagman.identity.domain import StaffRole
@@ -409,6 +410,27 @@ def test_charging_commands_on_charging_task(
     assert problem_type(response) == "maintenance-command-not-for-task"
 
 
+def test_service_commands_are_limited_per_staff_member(
+    operator: Member,
+    technician: Member,
+    car: str,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        service, "COMMAND_LIMIT", Limit(f"maintenance-commands-test-{uuid.uuid4()}", 1, 60)
+    )
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+    assert technician.command(task_id, "open").status_code == HTTPStatus.OK
+
+    limited = technician.command(task_id, "open")
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert [call[2] for call in gateway.calls] == [CarCommand.SERVICE_OPEN]
+
+
 def test_technician_has_no_manual_fleet_commands(
     app_client: TestClient, technician: Member, car: str, gateway: FakeGateway
 ) -> None:
@@ -563,6 +585,28 @@ def test_not_a_photo_is_refused(operator: Member, technician: Member, car: str) 
     technician.start(task_id)
     response = technician.upload(task_id, b"not an image")
     assert response.status_code == HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+
+
+def test_photo_uploads_are_limited_per_staff_member(
+    operator: Member,
+    technician: Member,
+    car: str,
+    storage: FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        service, "UPLOAD_LIMIT", Limit(f"maintenance-photo-upload-test-{uuid.uuid4()}", 1, 3600)
+    )
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+    assert technician.upload(task_id, photo(1)).status_code == HTTPStatus.OK
+
+    limited = technician.upload(task_id, photo(2))
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert len(storage.objects) == 1
+    assert len(operator.get(f"/tasks/{task_id}").json()["photos"]) == 1
 
 
 # The charging task job

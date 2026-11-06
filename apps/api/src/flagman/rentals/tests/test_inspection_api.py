@@ -8,7 +8,9 @@ from PIL import Image
 
 from flagman.core.config import Settings
 from flagman.core.photos import MAX_UPLOAD_BYTES
+from flagman.core.ratelimit import Limit
 from flagman.fleet.tests.conftest import add_car
+from flagman.rentals import service
 from flagman.rentals.domain import MAX_INSPECTION_PHOTOS, MIN_INSPECTION_PHOTOS
 from flagman.rentals.tests.conftest import (
     CAR_POINT,
@@ -138,6 +140,23 @@ def test_a_failed_storage_leaves_no_photo(
 
     inspection = person.client.get(f"/rentals/{rental}/inspections/before", headers=person.headers)
     assert inspection.json()["photos"] == []
+
+
+def test_photo_uploads_are_rate_limited(
+    person: Person, rental: str, storage: FakeStorage, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        service, "UPLOAD_LIMIT", Limit(f"rental-photo-upload-test-{uuid.uuid4()}", 1, 3600)
+    )
+    assert person.upload(rental, photo(1)).status_code == HTTPStatus.OK
+
+    limited = person.upload(rental, photo(2))
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert len(storage.objects) == 1
+    inspection = person.client.get(f"/rentals/{rental}/inspections/before", headers=person.headers)
+    assert len(inspection.json()["photos"]) == 1
 
 
 def test_the_inspection_needs_four_photos(person: Person, rental: str) -> None:

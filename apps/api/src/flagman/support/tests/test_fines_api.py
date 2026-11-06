@@ -610,6 +610,38 @@ def test_the_client_pays_an_unpaid_fine_and_may_reserve_again(
     assert person.reserve(car).status_code == HTTPStatus.CREATED
 
 
+def test_fine_payments_are_rate_limited(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _trip(person, car)
+    declined = OperationResult(OperationStatus.DECLINED, decline_reason=DeclineReason.DECLINED)
+    original = FakeProvider.charge
+
+    async def decline(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        return declined
+
+    monkeypatch.setattr(FakeProvider, "charge", decline)
+    fine = _charged(app_client, operator, rental_id)
+    monkeypatch.setattr(
+        service, "PAY_FINE_LIMIT", Limit(f"support-fine-pay-test-{uuid.uuid4()}", 1, 3600)
+    )
+    pay_url = f"/support/fines/{fine['id']}/pay"
+    assert person.client.post(pay_url, headers=person.headers).json()["status"] == "unpaid"
+    monkeypatch.setattr(FakeProvider, "charge", original)
+    operations = _operations(person.settings, fine["id"])
+
+    limited = person.client.post(pay_url, headers=person.headers)
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert _operations(person.settings, fine["id"]) == operations
+    assert [item["status"] for item in _my_fines(person, rental_id)] == ["unpaid"]
+
+
 # Cancellation
 
 
@@ -936,6 +968,34 @@ def test_a_cancelled_fine_takes_no_photos(
     )
 
     assert added.status_code == HTTPStatus.CONFLICT
+
+
+def test_photo_uploads_are_limited_per_staff_member(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    storage: FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fine = _charged(app_client, operator, _trip(person, car))
+    monkeypatch.setattr(
+        service,
+        "STAFF_UPLOAD_LIMIT",
+        Limit(f"support-fine-photo-upload-staff-test-{uuid.uuid4()}", 1, 3600),
+    )
+    _add_fine_photo(app_client, operator, fine["id"])
+
+    limited = app_client.post(
+        f"{STAFF_URL}/{fine['id']}/photos",
+        content=photo(2),
+        headers={**operator.headers, "Content-Type": "image/jpeg"},
+    )
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert len([key for key in storage.objects if key.startswith(f"fines/{fine['id']}/")]) == 1
+    assert audit_actions(operator.settings, fine["id"]) == ["fine.charged", "fine.photo_added"]
 
 
 # Access
