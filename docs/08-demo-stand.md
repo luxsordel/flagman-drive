@@ -160,6 +160,7 @@ stand() { STAND_TAG="$(tail -n 1 deployed-tags.log | cut -d ' ' -f 2)" docker co
   --env-file stand.env -f infra/docker-compose.yml -f infra/stand/compose.yml "$@"; }
 stand ps                       # что запущено
 stand logs --tail 100 api      # логи; ротация — 5 файлов по 10 МБ на контейнер
+stand logs api | grep security_spike  # всплески неудачных входов и команд (ADR-0029)
 stand exec backup ls -lh /backups
 ```
 

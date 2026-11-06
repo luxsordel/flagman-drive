@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
 from flagman.audit.domain import RequestOrigin
+from flagman.core.alerts import SpikeMeter
 from flagman.core.db import get_session
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.ratelimit import Limit, RateLimiter, get_rate_limiter
@@ -317,6 +318,7 @@ def get_car_commander(
     return service.CarCommander(
         db=db,
         gateway=gateway,
+        alerts=SpikeMeter(resources.redis),
         staff_id=staff.staff_id,
         origin=origin,
         max_skew=service.telemetry_clock_skew(resources.settings),

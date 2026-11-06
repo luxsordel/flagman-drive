@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -14,9 +15,11 @@ from structlog.testing import capture_logs
 
 from flagman.audit import service as audit
 from flagman.audit.domain import ActorType, AuditAction, AuditEventFilter
+from flagman.core.alerts import SpikeMeter
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
+from flagman.core.ratelimit import Limit
 from flagman.fleet.domain import (
     CarCommand,
     CarCommandDuplicateError,
@@ -391,6 +394,38 @@ def test_commands_are_rate_limited(person: Person, inspected: str) -> None:
 
     assert responses[-1].status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert "Retry-After" in responses[-1].headers
+
+
+def test_client_commands_add_up_to_a_spike_warning(
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+    alert_logs: list[MutableMapping[str, Any]],
+) -> None:
+    threshold = Limit(f"car-commands-client-test-{uuid.uuid4()}", 2, 60)
+    monkeypatch.setattr("flagman.fleet.service.CLIENT_COMMANDS_ALERT", threshold)
+
+    person.command(inspected, "open")
+    gateway.outcome = CarCommandRejectedError("ignition_on")
+    person.command(inspected, "close")
+
+    spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
+    assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
+
+
+def test_client_commands_work_while_the_spike_meter_is_down(
+    person: Person,
+    inspected: str,
+    broken_spike_meter: SpikeMeter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "SpikeMeter", lambda _: broken_spike_meter)
+
+    response = person.command(inspected, "open")
+
+    assert response.status_code == HTTPStatus.OK, response.text
+    assert response.json()["status"] == "in_trip"
 
 
 @dataclass

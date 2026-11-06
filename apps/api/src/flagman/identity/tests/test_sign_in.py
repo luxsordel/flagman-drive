@@ -1,7 +1,7 @@
 import asyncio
 import secrets
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, MutableMapping
 from http import HTTPStatus
 from typing import Annotated, Any
 
@@ -12,9 +12,12 @@ from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy import Row, text
 
+from flagman.core.alerts import SpikeMeter
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.db import create_engine
+from flagman.core.ratelimit import Limit
+from flagman.identity import api, service
 from flagman.identity.api import get_sms_sender
 from flagman.identity.dependencies import CurrentClient, get_current_client
 from flagman.identity.domain import REFRESH_REUSE_GRACE, generate_otp_code, hash_refresh_token
@@ -347,6 +350,51 @@ def test_guesses_per_ip_are_limited_per_hour(client: TestClient) -> None:
     response = _verify(client, "+375449999999", "123456")
 
     assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+
+
+def _spikes(logs: list[MutableMapping[str, Any]]) -> list[MutableMapping[str, Any]]:
+    return [entry for entry in logs if entry["event"] == "security_spike"]
+
+
+def test_failed_sign_ins_add_up_to_a_spike_warning(
+    client: TestClient,
+    sms: FakeSms,
+    phone: str,
+    monkeypatch: pytest.MonkeyPatch,
+    alert_logs: list[MutableMapping[str, Any]],
+) -> None:
+    threshold = Limit(f"sign-in-failed-client-test-{secrets.token_hex(4)}", 2, 300)
+    monkeypatch.setattr(service, "SIGN_IN_FAILED_CLIENT_ALERT", threshold)
+    other_phone = f"+37533{secrets.randbelow(10**7):07d}"
+
+    _request_code(client, phone)
+    _verify(client, phone, _wrong(sms.code_for(phone)))
+    _verify(client, phone, sms.code_for(phone))  # a success does not count
+    quiet = _spikes(alert_logs)
+    _verify(client, other_phone, "123456")  # no code was requested: looks expired
+
+    assert quiet == []
+    spikes = _spikes(alert_logs)
+    assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
+    assert phone[1:] not in repr(alert_logs)
+    assert other_phone[1:] not in repr(alert_logs)
+
+
+def test_sign_in_works_while_the_spike_meter_is_down(
+    client: TestClient,
+    sms: FakeSms,
+    phone: str,
+    broken_spike_meter: SpikeMeter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "SpikeMeter", lambda _: broken_spike_meter)
+    _request_code(client, phone)
+
+    wrong = _verify(client, phone, _wrong(sms.code_for(phone)))
+
+    assert wrong.status_code == HTTPStatus.BAD_REQUEST
+    assert wrong.json()["type"] == "urn:flagman:problem:otp-invalid"
+    assert _verify(client, phone, sms.code_for(phone)).status_code == HTTPStatus.OK
 
 
 def test_refresh_rotates_the_token(client: TestClient, sms: FakeSms, phone: str) -> None:

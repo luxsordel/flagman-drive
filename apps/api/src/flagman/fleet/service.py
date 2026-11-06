@@ -25,6 +25,7 @@ from flagman.audit.domain import (
     AuditTargetType,
     RequestOrigin,
 )
+from flagman.core.alerts import SpikeMeter
 from flagman.core.config import Settings
 from flagman.core.errors import AppError
 from flagman.core.ratelimit import Limit, RateLimiter
@@ -337,6 +338,12 @@ class CarCommandRequest:
 # own counter (maintenance.service.COMMAND_LIMIT), so a new car-command path needs its own check.
 COMMAND_LIMIT = Limit("car-commands-staff", 20, 60)
 
+# Commands that reached telematics, of all staff and of all clients together: a warning in the
+# log when many people send far more than usual, each below their own limit (docs/adr/0029).
+# Staff ones include technicians and forced finishes; failed commands count too.
+STAFF_COMMANDS_ALERT = Limit("car-commands-staff", 40, 300)
+CLIENT_COMMANDS_ALERT = Limit("car-commands-client", 120, 60)
+
 
 async def limit_staff_commands(limiter: RateLimiter, staff_id: UUID) -> None:
     """Counts a car command of a staff member; RateLimitedError once over COMMAND_LIMIT."""
@@ -360,6 +367,7 @@ class CarCommander:
 
     db: AsyncSession
     gateway: TelematicsGateway
+    alerts: SpikeMeter
     staff_id: UUID
     origin: RequestOrigin
     max_skew: timedelta
@@ -394,6 +402,7 @@ class CarCommander:
             outcome=sent.outcome,
             reason=sent.reason,
         )
+        await self.alerts.count(STAFF_COMMANDS_ALERT)
         if sent.failure is not None:
             raise sent.failure
         return CarCommandResult(command_id=sent.command_id, car=await get_car(self.db, car.id))
@@ -446,6 +455,7 @@ class RentalCarCommander:
 
     db: AsyncSession
     gateway: TelematicsGateway
+    alerts: SpikeMeter
     origin: RequestOrigin
     max_skew: timedelta
 
@@ -486,6 +496,7 @@ class RentalCarCommander:
             reason=sent.reason,
             by="client",
         )
+        await self.alerts.count(CLIENT_COMMANDS_ALERT)
         if sent.failure is not None:
             raise sent.failure
         return await get_car(self.db, car.id)

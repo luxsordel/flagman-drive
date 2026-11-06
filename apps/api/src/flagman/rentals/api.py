@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
 from flagman.audit.domain import RequestOrigin
+from flagman.core.alerts import SpikeMeter
 from flagman.core.db import get_session
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.photos import PhotoTooLargeError, photo_request_body, read_photo_body
@@ -119,6 +120,7 @@ def get_rental_car_commander(
     return fleet.RentalCarCommander(
         db=db,
         gateway=gateway,
+        alerts=SpikeMeter(resources.redis),
         origin=origin,
         max_skew=fleet.telemetry_clock_skew(resources.settings),
     )
@@ -524,6 +526,7 @@ def get_staff_car_commander(
     return fleet.CarCommander(
         db=db,
         gateway=gateway,
+        alerts=SpikeMeter(resources.redis),
         staff_id=staff.staff_id,
         origin=origin,
         max_skew=fleet.telemetry_clock_skew(resources.settings),

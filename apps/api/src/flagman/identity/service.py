@@ -20,6 +20,7 @@ from flagman.audit.domain import (
     AuditTargetType,
     RequestOrigin,
 )
+from flagman.core.alerts import SpikeMeter
 from flagman.core.config import Settings
 from flagman.core.errors import RateLimitedError
 from flagman.core.ratelimit import Limit, RateLimiter
@@ -136,6 +137,12 @@ STAFF_CHALLENGE_SESSION_LIMIT = Limit(
     "staff-challenge-session", 1, int(STAFF_CHALLENGE_TTL.total_seconds())
 )
 
+# Failed sign-ins of everyone together: a warning in the log when guessing spreads over many
+# phones, emails or addresses, each of them below its own limit (docs/adr/0029).
+_FIVE_MINUTES = 300
+SIGN_IN_FAILED_CLIENT_ALERT = Limit("sign-in-failed-client", 20, _FIVE_MINUTES)
+SIGN_IN_FAILED_STAFF_ALERT = Limit("sign-in-failed-staff", 8, _FIVE_MINUTES)
+
 _UNKNOWN_IP = "unknown"
 
 
@@ -210,6 +217,7 @@ class ClientDevice:
 class SignInService:
     db: AsyncSession
     limiter: RateLimiter
+    alerts: SpikeMeter
     settings: Settings
 
     @property
@@ -259,6 +267,8 @@ class SignInService:
                 if outcome is OtpOutcome.ACCEPTED:
                     tokens = await self._sign_in(phone, device, now)
         # Raised after the transaction so that the counted attempt is committed, not rolled back.
+        if tokens is None:
+            await self.alerts.count(SIGN_IN_FAILED_CLIENT_ALERT)
         if outcome is OtpOutcome.WRONG:
             raise OtpInvalidError
         if tokens is None:
@@ -482,6 +492,7 @@ class StaffTokens:
 class StaffSignInService:
     db: AsyncSession
     limiter: RateLimiter
+    alerts: SpikeMeter
     settings: Settings
 
     @property
@@ -525,6 +536,7 @@ class StaffSignInService:
                 await repository.set_staff_password_hash(self.db, staff.id, new_hash)
         # Raised after the transaction so that the failed attempt is committed, not rolled back.
         if staff is None or not accepted:
+            await self.alerts.count(SIGN_IN_FAILED_STAFF_ALERT)
             raise StaffCredentialsInvalidError
         return StaffChallengeIssued(
             challenge_token=issue_staff_challenge(staff.id, self._jwt_secret, now),
@@ -617,6 +629,8 @@ class StaffSignInService:
                     ),
                 )
         # Raised after the transaction so that the failed attempt is committed, not rolled back.
+        if tokens is None:
+            await self.alerts.count(SIGN_IN_FAILED_STAFF_ALERT)
         if challenge_used:
             raise StaffChallengeInvalidError
         if tokens is None:

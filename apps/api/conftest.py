@@ -1,15 +1,20 @@
 import base64
 import secrets
-from collections.abc import Iterator
+from collections.abc import Iterator, MutableMapping
 from pathlib import Path
 from typing import Any, Protocol
 
 import pytest
+import structlog
 from alembic import command
 from alembic.config import Config
+from redis.asyncio import Redis
+from structlog.testing import LogCapture
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
+from flagman.core import alerts
+from flagman.core.alerts import SpikeMeter
 from flagman.core.config import Settings
 from tools import container_guard
 
@@ -110,3 +115,29 @@ def integration_settings(
     integration_env: dict[str, str], migrated_database: None, make_settings: SettingsFactory
 ) -> Settings:
     return make_settings(**{name.lower(): value for name, value in integration_env.items()})
+
+
+@pytest.fixture
+def broken_spike_meter(integration_settings: Settings) -> SpikeMeter:
+    """A spike meter whose Redis turns down every command, as if Redis were down."""
+    # A wrong password fails at once, while an unreachable host would wait for a timeout.
+    redis = Redis(
+        host=integration_settings.redis_host,
+        port=integration_settings.redis_port,
+        password=secrets.token_hex(8),
+    )
+    return SpikeMeter(redis)
+
+
+@pytest.fixture
+def alert_logs(monkeypatch: pytest.MonkeyPatch) -> list[MutableMapping[str, Any]]:
+    """What SpikeMeter logs, as capture_logs would show it.
+
+    capture_logs misses loggers that were used before it: the app caches them on first use.
+    """
+    capture = LogCapture()
+    logger = structlog.wrap_logger(
+        structlog.ReturnLogger(), processors=[capture], wrapper_class=structlog.BoundLogger
+    )
+    monkeypatch.setattr(alerts, "logger", logger)
+    return capture.entries
