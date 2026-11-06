@@ -340,9 +340,10 @@ COMMAND_LIMIT = Limit("car-commands-staff", 20, 60)
 
 # Commands that reached telematics, of all staff and of all clients together: a warning in the
 # log when many people send far more than usual, each below their own limit (docs/adr/0029).
-# Staff ones include technicians and forced finishes; failed commands count too.
-STAFF_COMMANDS_ALERT = Limit("car-commands-staff", 40, 300)
-CLIENT_COMMANDS_ALERT = Limit("car-commands-client", 120, 60)
+# Staff ones include technicians and forced finishes; failed commands count too. The names differ
+# from the per-person limits on purpose: the scope differs.
+STAFF_COMMANDS_ALERT = Limit("car-commands-all-staff", 40, 300)
+CLIENT_COMMANDS_ALERT = Limit("car-commands-all-clients", 120, 60)
 
 
 async def limit_staff_commands(limiter: RateLimiter, staff_id: UUID) -> None:
@@ -390,11 +391,15 @@ class CarCommander:
             staff_id=self.staff_id,
             at=now,
         )
-        async with self.db.begin():
-            if sent.state is not None:
-                await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
-            await audit.record(self.db, self._entry(car, request, notice, during_rental))
-            await repository.notify(self.db, [encode_command(notice)])
+        try:
+            async with self.db.begin():
+                if sent.state is not None:
+                    await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
+                await audit.record(self.db, self._entry(car, request, notice, during_rental))
+                await repository.notify(self.db, [encode_command(notice)])
+        finally:
+            # The car has the command already: a failed record must not hide it from the warning.
+            await self.alerts.count(STAFF_COMMANDS_ALERT)
         logger.info(
             "car_command_sent",
             car_id=str(car.id),
@@ -402,7 +407,6 @@ class CarCommander:
             outcome=sent.outcome,
             reason=sent.reason,
         )
-        await self.alerts.count(STAFF_COMMANDS_ALERT)
         if sent.failure is not None:
             raise sent.failure
         return CarCommandResult(command_id=sent.command_id, car=await get_car(self.db, car.id))
@@ -468,26 +472,30 @@ class RentalCarCommander:
             raise ValueError(f"clients do not send {command}")
         car = await get_car(self.db, request.car_id)
         sent = await _send(self.gateway, car, command)
-        async with self.db.begin():
-            if sent.state is not None:
-                await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
-            await audit.record(
-                self.db,
-                AuditEntry(
-                    Actor(ActorType.CLIENT, request.client_id),
-                    AuditAction.CAR_COMMAND_SENT,
-                    self.origin,
-                    AuditTarget(AuditTargetType.CAR, car.id),
-                    details={
-                        "command": command.value,
-                        "outcome": sent.outcome.value,
-                        "reason": sent.reason,
-                        "command_id": sent.command_id,
-                        "car_status": car.status.value,
-                        "rental_id": request.rental_id,
-                    },
-                ),
-            )
+        try:
+            async with self.db.begin():
+                if sent.state is not None:
+                    await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
+                await audit.record(
+                    self.db,
+                    AuditEntry(
+                        Actor(ActorType.CLIENT, request.client_id),
+                        AuditAction.CAR_COMMAND_SENT,
+                        self.origin,
+                        AuditTarget(AuditTargetType.CAR, car.id),
+                        details={
+                            "command": command.value,
+                            "outcome": sent.outcome.value,
+                            "reason": sent.reason,
+                            "command_id": sent.command_id,
+                            "car_status": car.status.value,
+                            "rental_id": request.rental_id,
+                        },
+                    ),
+                )
+        finally:
+            # The car has the command already: a failed record must not hide it from the warning.
+            await self.alerts.count(CLIENT_COMMANDS_ALERT)
         logger.info(
             "car_command_sent",
             car_id=str(car.id),
@@ -496,7 +504,6 @@ class RentalCarCommander:
             reason=sent.reason,
             by="client",
         )
-        await self.alerts.count(CLIENT_COMMANDS_ALERT)
         if sent.failure is not None:
             raise sent.failure
         return await get_car(self.db, car.id)

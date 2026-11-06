@@ -403,7 +403,7 @@ def test_client_commands_add_up_to_a_spike_warning(
     monkeypatch: pytest.MonkeyPatch,
     alert_logs: list[MutableMapping[str, Any]],
 ) -> None:
-    threshold = Limit(f"car-commands-client-test-{uuid.uuid4()}", 2, 60)
+    threshold = Limit(f"car-commands-all-clients-test-{uuid.uuid4()}", 2, 60)
     monkeypatch.setattr("flagman.fleet.service.CLIENT_COMMANDS_ALERT", threshold)
 
     person.command(inspected, "open")
@@ -412,6 +412,32 @@ def test_client_commands_add_up_to_a_spike_warning(
 
     spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
     assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
+
+
+class AuditDown:
+    @staticmethod
+    async def record(*_: object) -> None:
+        raise RuntimeError("audit is down")
+
+
+def test_a_client_command_the_car_got_counts_even_if_recording_it_fails(
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+    alert_logs: list[MutableMapping[str, Any]],
+) -> None:
+    threshold = Limit(f"car-commands-all-clients-test-{uuid.uuid4()}", 1, 60)
+    monkeypatch.setattr("flagman.fleet.service.CLIENT_COMMANDS_ALERT", threshold)
+    monkeypatch.setattr("flagman.fleet.service.audit", AuditDown)
+
+    failed = person.command(inspected, "open")
+
+    assert failed.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    assert gateway.calls[-1][2] is CarCommand.OPEN
+    spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
+    assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 1)]
 
 
 def test_client_commands_work_while_the_spike_meter_is_down(

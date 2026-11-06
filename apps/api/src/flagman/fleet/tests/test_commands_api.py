@@ -361,7 +361,7 @@ class Spikes(NamedTuple):
 
 @pytest.fixture
 def spikes(monkeypatch: pytest.MonkeyPatch, alert_logs: list[MutableMapping[str, Any]]) -> Spikes:
-    threshold = Limit(f"car-commands-staff-test-{uuid.uuid4()}", 2, 300)
+    threshold = Limit(f"car-commands-all-staff-test-{uuid.uuid4()}", 2, 300)
     monkeypatch.setattr(service, "STAFF_COMMANDS_ALERT", threshold)
     return Spikes(threshold, alert_logs)
 
@@ -379,6 +379,38 @@ def test_done_and_failed_commands_add_up_to_a_spike_warning(
     gateway.outcome = CarCommandRejectedError("ignition_on")
     client.post(_url(car_id), json=_body(command="close"), headers=operator.headers)
 
+    warned = [entry for entry in spikes.logs if entry["event"] == "security_spike"]
+    assert [(entry["metric"], entry["count"]) for entry in warned] == [(spikes.threshold.name, 2)]
+
+
+class AuditDown:
+    @staticmethod
+    async def record(*_: object) -> None:
+        raise RuntimeError("audit is down")
+
+
+@pytest.fixture
+def audit_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(service, "audit", AuditDown)
+
+
+@pytest.mark.usefixtures("audit_down")
+def test_commands_the_car_got_count_even_if_recording_them_fails(
+    client: TestClient,
+    integration_settings: Settings,
+    gateway: FakeGateway,
+    operator: Staff,
+    spikes: Spikes,
+) -> None:
+    car_id = add_car(integration_settings, POINT)
+
+    failed = [
+        client.post(_url(car_id), json=_body(command=command), headers=operator.headers)
+        for command in ("open", "close")
+    ]
+
+    assert [response.status_code for response in failed] == [HTTPStatus.INTERNAL_SERVER_ERROR] * 2
+    assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
     warned = [entry for entry in spikes.logs if entry["event"] == "security_spike"]
     assert [(entry["metric"], entry["count"]) for entry in warned] == [(spikes.threshold.name, 2)]
 
