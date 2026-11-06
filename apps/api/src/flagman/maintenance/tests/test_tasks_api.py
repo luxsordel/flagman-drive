@@ -501,6 +501,29 @@ def test_assignee_adds_photos_and_staff_get_short_links(
     assert [item["id"] for item in details["photos"]] == [photo_id]
 
 
+def test_every_photo_a_technician_adds_is_audited(
+    integration_settings: Settings, operator: Member, technician: Member, car: str
+) -> None:
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+
+    response = technician.upload(task_id, photo(1))
+
+    assert response.status_code == HTTPStatus.OK, response.text
+    [added] = response.json()["photos"]
+    rows = query(
+        integration_settings,
+        "SELECT actor_type, actor_id, target_type, details FROM audit_events "
+        "WHERE action = 'maintenance_task.photo_added' AND target_id = :id",
+        id=uuid.UUID(task_id),
+    )
+    assert [(row.actor_type, str(row.actor_id), row.target_type) for row in rows] == [
+        ("staff", technician.id, "maintenance_task")
+    ]
+    # Only the id: the object key and links stay out of the journal, as for other photos.
+    assert rows[0].details == {"photo_id": added["id"]}
+
+
 def test_photos_only_to_own_task_in_progress(
     operator: Member, technician: Member, colleague: Member, car: str, storage: FakeStorage
 ) -> None:

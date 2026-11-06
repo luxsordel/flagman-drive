@@ -145,6 +145,7 @@
       "maintenanceTaskStarted": "Задача взята в работу",
       "maintenanceTaskCompleted": "Задача выполнена",
       "maintenanceTaskCancelled": "Задача отменена",
+      "maintenanceTaskPhotoAdded": "Добавлено фото к задаче",
       "maintenanceTaskPhotoViewed": "Просмотрено фото задачи",
       "rentalForceFinished": "Аренда завершена принудительно",
       "rentalAdjusted": "Стоимость аренды изменена",

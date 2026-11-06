@@ -145,6 +145,7 @@
       "maintenanceTaskStarted": "Task taken",
       "maintenanceTaskCompleted": "Task done",
       "maintenanceTaskCancelled": "Task cancelled",
+      "maintenanceTaskPhotoAdded": "Task photo added",
       "maintenanceTaskPhotoViewed": "Task photo viewed",
       "rentalForceFinished": "Rental force-finished",
       "rentalAdjusted": "Rental total adjusted",

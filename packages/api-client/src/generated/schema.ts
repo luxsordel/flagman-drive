@@ -2174,6 +2174,7 @@ export interface components {
       | 'maintenance_task.started'
       | 'maintenance_task.completed'
       | 'maintenance_task.cancelled'
+      | 'maintenance_task.photo_added'
       | 'maintenance_task.photo_viewed'
       | 'support.conversation_taken'
       | 'support.message_sent'
