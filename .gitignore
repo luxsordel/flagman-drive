@@ -1,7 +1,8 @@
-# Secrets
+# Secrets: every env file (.env, .env.local, .env.test, stand.env, ...) except the committed examples
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
+*.env
 *.pem
 *.key
 secrets/
@@ -42,6 +43,5 @@ Thumbs.db
 infra/data/
 *.log
 
-# Load test runs: results, and the logins of the stand.
+# Load test runs (the stand's logins in tests/load/stand.env are covered by *.env above).
 tests/load/reports/
-tests/load/stand.env
