@@ -70,7 +70,8 @@ TASK_PLANNERS = (StaffRole.OPERATOR, StaffRole.ADMIN)
 
 AnyWorker = Annotated[CurrentStaff, Depends(require_staff_role(*TASK_WORKERS))]
 Planner = Annotated[CurrentStaff, Depends(require_staff_role(*TASK_PLANNERS))]
-# Commands to cars wait for no token expiry after a sign-out, as the fleet's do.
+# Commands to cars, and taking a car off the client map, wait for no token expiry after a
+# sign-out, as the fleet's do.
 LiveWorker = Annotated[CurrentStaff, Depends(require_live_staff_session(*TASK_WORKERS))]
 Db = Annotated[AsyncSession, Depends(get_session)]
 
@@ -240,7 +241,7 @@ async def assign_task(task_id: UUID, staff: Planner, body: AssignIn, service: Se
         ),
     },
 )
-async def start_task(task_id: UUID, staff: AnyWorker, service: Service) -> TaskOut:
+async def start_task(task_id: UUID, staff: LiveWorker, service: Service) -> TaskOut:
     await service.start(_worker(staff), task_id, datetime.now(UTC))
     return await _details(service, staff, task_id)
 

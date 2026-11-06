@@ -443,6 +443,16 @@ def test_service_access_needs_live_session(
     assert gateway.calls == []
 
 
+def test_taking_a_task_needs_live_session(operator: Member, technician: Member, car: str) -> None:
+    # Taking the task pulls the car off the client map, too much for a token left after sign-out.
+    task_id = created(operator.create(car))
+    technician.staff.revoke_session()
+    assert technician.start(task_id).status_code == HTTPStatus.UNAUTHORIZED
+    body = operator.get(f"/tasks/{task_id}").json()
+    assert body["status"] == "new"
+    assert body["car"]["status"] != "service"
+
+
 # Photos
 
 
