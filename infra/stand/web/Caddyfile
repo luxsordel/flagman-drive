@@ -6,8 +6,8 @@
 	email {$ACME_EMAIL}
 	# Nothing reconfigures Caddy at runtime, so its admin API stays closed.
 	admin off
-	# Error lines (a failed upstream, for one) go to the default log, not to the sites' access log
-	# below, and carry the same request: the same filter applies to both.
+	# Lines outside the sites' access log that carry a request (an error the error route below
+	# fails to handle, for one) go to the default log: the same filter applies to both.
 	log default {
 		format filter {
 			wrap json
@@ -21,13 +21,31 @@
 	}
 }
 
+(security_headers) {
+	Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	X-Content-Type-Options "nosniff"
+	Referrer-Policy "no-referrer"
+}
+
 (common) {
 	encode zstd gzip
+	# Set before any handler runs, so Caddy's own error responses (a failed upstream, a missing
+	# file) carry them too.
 	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		X-Content-Type-Options "nosniff"
-		Referrer-Policy "no-referrer"
+		import security_headers
+	}
+	# A proxy adds the upstream's headers to those, and the API sends its own: a deletion makes
+	# this block wait for the response, so it replaces them and drops the upstream's Server.
+	header {
+		import security_headers
 		-Server
+	}
+	# Caddy writes an error response past that deferred deletion; the error route drops it again.
+	# Caddy logs a handled error at debug level only, so its cause goes to the access line instead.
+	handle_errors {
+		header -Server
+		log_append error {err.message}
+		respond "" {err.status_code}
 	}
 	log {
 		# Hostnames, paths and status only: client IPs and query strings stay out of the stand's
@@ -85,7 +103,9 @@ api.{$STAND_DOMAIN} {
 
 # Signed links to document photos. The signature covers the host, so the request reaches
 # SeaweedFS with s3.STAND_DOMAIN as its Host, which is Caddy's default.
+# Only re-encoded photos come from here, and they need nothing from a CSP.
 s3.{$STAND_DOMAIN} {
 	import common
+	header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
 	reverse_proxy seaweedfs:8333
 }

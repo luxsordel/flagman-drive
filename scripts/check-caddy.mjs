@@ -29,13 +29,23 @@ const query = ['search', 'session', 'X-Amz-Signature', 'code', 'token', 'cursor'
   .map((key) => `${key}=${marker}`)
   .join('&');
 
-// The api and admin hosts reach the stub; s3 has no upstream at all, so its 502 covers the error
-// path, and app has no built files, so its 404 covers the file server.
+// The api host and the admin API reach the stub; s3 has no upstream at all, so its 502 covers the
+// error path, and admin and app have no built files, so their 404s cover the file server. Caddy
+// writes those error responses itself, and they must carry the same headers as any other answer.
+const pageCsp = "frame-ancestors 'none'";
 const cases = [
   { host: 'api.localhost', path: '/rentals/current', status: 200 },
   { host: 'admin.localhost', path: '/admin/clients', status: 200 },
-  { host: 's3.localhost', path: '/documents/photo.jpg', status: 502 },
-  { host: 'app.localhost', path: '/cards/bind', status: 404 },
+  { host: 'admin.localhost', path: '/clients', status: 404, csp: pageCsp },
+  // s3 serves only re-encoded photos, which need nothing from a CSP: it denies everything.
+  {
+    host: 's3.localhost',
+    path: '/documents/photo.jpg',
+    status: 502,
+    csp: "default-src 'none'; frame-ancestors 'none'",
+    exactCsp: true,
+  },
+  { host: 'app.localhost', path: '/cards/bind', status: 404, csp: pageCsp },
 ];
 
 function docker(args, { check = true } = {}) {
@@ -87,6 +97,13 @@ async function run() {
     // The edge must drop this header (-Server in the Caddyfile), even when the API sends one.
     '--header',
     'Server: upstream',
+    // The API sets these itself (core/middleware.py): the edge must replace them, not add a copy.
+    '--header',
+    'Strict-Transport-Security: max-age=63072000; includeSubDomains',
+    '--header',
+    'X-Content-Type-Options: nosniff',
+    '--header',
+    'Referrer-Policy: no-referrer',
     'ok',
   ]);
   docker([
@@ -126,24 +143,27 @@ async function run() {
   }
 
   const problems = [];
-  for (const { host, path, status } of cases) {
+  const expected = {
+    'strict-transport-security': 'max-age=31536000; includeSubDomains',
+    'x-content-type-options': 'nosniff',
+    'referrer-policy': 'no-referrer',
+  };
+  for (const { host, path, status, csp, exactCsp } of cases) {
     const res = await get(port, ca, host, `${path}?${query}`);
-    if (res.statusCode !== status) problems.push(`${host}${path}: status ${res.statusCode}`);
-    // Caddy writes an error response itself, past the deferred header handler, so only proxied
-    // answers carry the shared headers.
-    if (status !== 200) continue;
-    const expected = {
-      'strict-transport-security': 'max-age=31536000; includeSubDomains',
-      'x-content-type-options': 'nosniff',
-      'referrer-policy': 'no-referrer',
-    };
+    const where = `${host}${path}`;
+    if (res.statusCode !== status) problems.push(`${where}: status ${res.statusCode}`);
     for (const [header, value] of Object.entries(expected)) {
       if (res.headers[header] !== value) {
-        problems.push(`${host}${path}: ${header} is ${res.headers[header]}`);
+        problems.push(`${where}: ${header} is ${res.headers[header]}`);
       }
     }
     if (res.headers.server !== undefined) {
-      problems.push(`${host}${path}: Server header ${res.headers.server}`);
+      problems.push(`${where}: Server header ${res.headers.server}`);
+    }
+    if (csp !== undefined) {
+      const actual = res.headers['content-security-policy'];
+      const matches = exactCsp ? actual === csp : actual?.includes(csp) === true;
+      if (!matches) problems.push(`${where}: content-security-policy is ${actual}`);
     }
   }
 
@@ -159,20 +179,24 @@ async function run() {
     .filter((line) => line.startsWith('{'))
     .map((line) => JSON.parse(line))
     .filter((entry) => entry.request !== undefined);
-  for (const { host, path } of cases) {
+  for (const host of new Set(cases.map((item) => item.host))) {
     if (!entries.some((e) => e.request.host === host && e.logger.startsWith('http.log.access'))) {
       problems.push(`${host}: no access log line`);
     }
   }
-  // The failed s3 upstream must have produced an error line, or that path went unchecked.
-  if (!entries.some((entry) => entry.logger.startsWith('http.log.error'))) {
-    problems.push('no error log line with a request');
+  // Caddy logs an error its error route handled at debug level only, so the route puts the cause
+  // on the access line (log_append); without it a dead s3 upstream would leave no trace.
+  const s3Access = entries.find(
+    (e) => e.request.host === 's3.localhost' && e.logger.startsWith('http.log.access'),
+  );
+  if (typeof s3Access?.error !== 'string' || s3Access.error === '') {
+    problems.push('s3.localhost: the access line has no error cause');
   }
   for (const { logger, request: logged, resp_headers: respHeaders } of entries) {
     const where = `${logger} ${logged.host}`;
     // The path stays: it is what the logs are for.
-    const path = cases.find((item) => item.host === logged.host)?.path;
-    if (logged.uri !== path) problems.push(`${where}: logged uri ${logged.uri}`);
+    const paths = cases.filter((item) => item.host === logged.host).map((item) => item.path);
+    if (!paths.includes(logged.uri)) problems.push(`${where}: logged uri ${logged.uri}`);
     for (const field of ['remote_ip', 'client_ip', 'headers']) {
       if (field in logged) problems.push(`${where}: request>${field} is logged`);
     }
@@ -180,7 +204,9 @@ async function run() {
   }
 
   if (problems.length > 0) fail(`${problems.join('\n      ')}`);
-  console.log(`ok    ${image}: ${cases.length} hosts, paths logged, query strings dropped`);
+  console.log(
+    `ok    ${image}: ${cases.length} requests, headers on errors too, paths logged, query strings dropped`,
+  );
 }
 
 try {
