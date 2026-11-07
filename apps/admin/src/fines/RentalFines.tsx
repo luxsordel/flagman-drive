@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { ApiError } from '../api/client';
+import { ApiError, FALLBACK_RETRY_AFTER_SECONDS } from '../api/client';
 import { useApis } from '../api/context';
 import { useAuth } from '../auth/context';
 import { SupportPhoto } from '../support/SupportPhoto';
@@ -45,7 +45,9 @@ function fineProblem(error: unknown): FineProblem {
 
 function ProblemAlert({ problem, inline }: { problem: FineProblem; inline?: boolean }) {
   const { t } = useTranslation();
-  const text = t(`fines.problems.${problem.key}`, { seconds: problem.retryAfterSeconds ?? 60 });
+  const text = t(`fines.problems.${problem.key}`, {
+    seconds: problem.retryAfterSeconds ?? FALLBACK_RETRY_AFTER_SECONDS,
+  });
   return inline ? (
     <span role="alert" className="list-error">
       {' '}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
 
+import { FALLBACK_RETRY_AFTER_SECONDS } from '../api/client';
 import { useApis } from '../api/context';
 import { useAuth, useStaff } from '../auth/context';
 import {
@@ -531,7 +532,7 @@ function CommandPanel({ car }: { car: FleetCar }) {
           {t(`fleet.commandErrors.${step.error.key}`, {
             command: t(`fleet.command.${step.command}`),
             reason: reasonText(step.error.reason),
-            seconds: step.error.retryAfterSeconds ?? 60,
+            seconds: step.error.retryAfterSeconds ?? FALLBACK_RETRY_AFTER_SECONDS,
           })}
         </p>
       )}

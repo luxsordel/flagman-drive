@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useParams } from 'react-router';
 
-import { ApiError } from '../api/client';
+import { ApiError, FALLBACK_RETRY_AFTER_SECONDS } from '../api/client';
 import { useApis } from '../api/context';
 import { loadProblem, type LoadProblem } from '../api/loadProblem';
 import { useAuth } from '../auth/context';
@@ -327,7 +327,9 @@ export function RentalPage() {
 
       {problem && (
         <p role="alert" className="list-error">
-          {t(`rentals.problems.${problem.key}`, { seconds: problem.retryAfterSeconds ?? 60 })}
+          {t(`rentals.problems.${problem.key}`, {
+            seconds: problem.retryAfterSeconds ?? FALLBACK_RETRY_AFTER_SECONDS,
+          })}
         </p>
       )}
 
