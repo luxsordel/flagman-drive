@@ -167,6 +167,29 @@ async function run() {
     }
   }
 
+  // handle_errors catches every error these requests cause, so none of them reaches the default
+  // log and the lines below cannot show a broken filter there. The adapted config can.
+  const adapted = JSON.parse(
+    docker(['exec', edge, 'caddy', 'adapt', '--config', '/etc/caddy/Caddyfile']).stdout,
+  );
+  const requiredFields = {
+    'request>remote_ip': { filter: 'delete' },
+    'request>client_ip': { filter: 'delete' },
+    'request>headers': { filter: 'delete' },
+    // Caddy leaves an empty replacement out of the JSON.
+    'request>uri': { filter: 'regexp', regexp: '[?].*', value: undefined },
+  };
+  const configuredLogs = adapted.logging?.logs ?? {};
+  if (configuredLogs.default === undefined) problems.push('no default log in the config');
+  for (const [logName, log] of Object.entries(configuredLogs)) {
+    const fields = log.encoder?.format === 'filter' ? (log.encoder.fields ?? {}) : {};
+    for (const [field, filter] of Object.entries(requiredFields)) {
+      const actual = fields[field] ?? {};
+      const same = Object.entries(filter).every(([key, value]) => actual[key] === value);
+      if (!same) problems.push(`log ${logName}: ${field} filter is ${JSON.stringify(actual)}`);
+    }
+  }
+
   // Caddy logs to stderr; a short pause lets the last access line arrive.
   await sleep(500);
   const logs = docker(['logs', edge]);
@@ -205,7 +228,7 @@ async function run() {
 
   if (problems.length > 0) fail(`${problems.join('\n      ')}`);
   console.log(
-    `ok    ${image}: ${cases.length} requests, headers on errors too, paths logged, query strings dropped`,
+    `ok    ${image}: ${cases.length} requests, headers on errors too, paths logged, query strings dropped, every log filtered`,
   );
 }
 
