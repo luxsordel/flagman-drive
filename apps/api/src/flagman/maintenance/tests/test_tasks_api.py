@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from flagman.audit.domain import RequestOrigin
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.ratelimit import Limit
 from flagman.fleet.domain import CarCommand, CarStatus, TelematicsUnavailableError
 from flagman.fleet.tests.conftest import FakeGateway, Staff, add_car, run_in_db
 from flagman.identity.domain import StaffRole
@@ -409,6 +410,27 @@ def test_charging_commands_on_charging_task(
     assert problem_type(response) == "maintenance-command-not-for-task"
 
 
+def test_service_commands_are_limited_per_staff_member(
+    operator: Member,
+    technician: Member,
+    car: str,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        service, "COMMAND_LIMIT", Limit(f"maintenance-commands-test-{uuid.uuid4()}", 1, 60)
+    )
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+    assert technician.command(task_id, "open").status_code == HTTPStatus.OK
+
+    limited = technician.command(task_id, "open")
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert [call[2] for call in gateway.calls] == [CarCommand.SERVICE_OPEN]
+
+
 def test_technician_has_no_manual_fleet_commands(
     app_client: TestClient, technician: Member, car: str, gateway: FakeGateway
 ) -> None:
@@ -443,6 +465,16 @@ def test_service_access_needs_live_session(
     assert gateway.calls == []
 
 
+def test_taking_a_task_needs_live_session(operator: Member, technician: Member, car: str) -> None:
+    # Taking the task pulls the car off the client map, too much for a token left after sign-out.
+    task_id = created(operator.create(car))
+    technician.staff.revoke_session()
+    assert technician.start(task_id).status_code == HTTPStatus.UNAUTHORIZED
+    body = operator.get(f"/tasks/{task_id}").json()
+    assert body["status"] == "new"
+    assert body["car"]["status"] != "service"
+
+
 # Photos
 
 
@@ -469,6 +501,29 @@ def test_assignee_adds_photos_and_staff_get_short_links(
     assert [item["id"] for item in details["photos"]] == [photo_id]
 
 
+def test_every_photo_a_technician_adds_is_audited(
+    integration_settings: Settings, operator: Member, technician: Member, car: str
+) -> None:
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+
+    response = technician.upload(task_id, photo(1))
+
+    assert response.status_code == HTTPStatus.OK, response.text
+    [added] = response.json()["photos"]
+    rows = query(
+        integration_settings,
+        "SELECT actor_type, actor_id, target_type, details FROM audit_events "
+        "WHERE action = 'maintenance_task.photo_added' AND target_id = :id",
+        id=uuid.UUID(task_id),
+    )
+    assert [(row.actor_type, str(row.actor_id), row.target_type) for row in rows] == [
+        ("staff", technician.id, "maintenance_task")
+    ]
+    # Only the id: the object key and links stay out of the journal, as for other photos.
+    assert rows[0].details == {"photo_id": added["id"]}
+
+
 def test_photos_only_to_own_task_in_progress(
     operator: Member, technician: Member, colleague: Member, car: str, storage: FakeStorage
 ) -> None:
@@ -477,6 +532,67 @@ def test_photos_only_to_own_task_in_progress(
     technician.start(task_id)
     assert colleague.upload(task_id, photo()).status_code == HTTPStatus.NOT_FOUND
     assert storage.objects == {}
+
+
+def test_an_operator_works_only_on_tasks_they_took(
+    operator: Member, technician: Member, car: str, gateway: FakeGateway, storage: FakeStorage
+) -> None:
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+
+    command = operator.command(task_id, "open")
+    upload = operator.upload(task_id, photo())
+
+    assert command.status_code == HTTPStatus.CONFLICT
+    assert problem_type(command) == "maintenance-task-not-in-progress"
+    assert upload.status_code == HTTPStatus.CONFLICT
+    assert problem_type(upload) == "maintenance-task-not-in-progress"
+    assert gateway.calls == []
+    assert storage.objects == {}
+
+
+def test_a_colleague_gets_no_link_to_a_photo_of_the_task(
+    integration_settings: Settings,
+    operator: Member,
+    technician: Member,
+    colleague: Member,
+    car: str,
+) -> None:
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+    photo_id = technician.upload(task_id, photo()).json()["photos"][0]["id"]
+
+    response = colleague.get(f"/tasks/{task_id}/photos/{photo_id}/url")
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert problem_type(response) == "maintenance-task-not-found"
+    assert "maintenance_task.photo_viewed" not in events(integration_settings, task_id)
+
+
+def test_a_photo_of_another_task_is_not_found_under_ones_own(
+    integration_settings: Settings,
+    operator: Member,
+    technician: Member,
+    colleague: Member,
+    car: str,
+) -> None:
+    own = created(operator.create(car))
+    technician.start(own)
+    technician.upload(own, photo())
+    other = created(operator.create(add_car(integration_settings, CAR_POINT, battery_pct=80)))
+    colleague.start(other)
+    other_photo = colleague.upload(other, photo(1)).json()["photos"][0]["id"]
+
+    responses = [
+        technician.get(f"/tasks/{own}/photos/{other_photo}/url"),
+        operator.get(f"/tasks/{own}/photos/{other_photo}/url"),
+    ]
+
+    assert [response.status_code for response in responses] == [HTTPStatus.NOT_FOUND] * 2
+    assert all(
+        problem_type(response) == "maintenance-task-photo-not-found" for response in responses
+    )
+    assert "maintenance_task.photo_viewed" not in events(integration_settings, own)
 
 
 def test_photo_limit(operator: Member, technician: Member, car: str) -> None:
@@ -492,6 +608,28 @@ def test_not_a_photo_is_refused(operator: Member, technician: Member, car: str) 
     technician.start(task_id)
     response = technician.upload(task_id, b"not an image")
     assert response.status_code == HTTPStatus.UNSUPPORTED_MEDIA_TYPE
+
+
+def test_photo_uploads_are_limited_per_staff_member(
+    operator: Member,
+    technician: Member,
+    car: str,
+    storage: FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        service, "UPLOAD_LIMIT", Limit(f"maintenance-photo-upload-test-{uuid.uuid4()}", 1, 3600)
+    )
+    task_id = created(operator.create(car))
+    technician.start(task_id)
+    assert technician.upload(task_id, photo(1)).status_code == HTTPStatus.OK
+
+    limited = technician.upload(task_id, photo(2))
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert len(storage.objects) == 1
+    assert len(operator.get(f"/tasks/{task_id}").json()["photos"]) == 1
 
 
 # The charging task job

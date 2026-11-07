@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from starlette.requests import HTTPConnection
 
 from flagman.core.config import Settings
+from flagman.core.storage import ObjectStorage
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,8 @@ class Resources:
     engine: AsyncEngine
     session_factory: async_sessionmaker[AsyncSession]
     redis: Redis
+    # None without storage keys: photo endpoints answer 503.
+    storage: ObjectStorage | None
 
 
 def get_resources(connection: HTTPConnection) -> Resources:

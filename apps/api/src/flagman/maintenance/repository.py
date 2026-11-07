@@ -210,6 +210,8 @@ async def count_photos(db: AsyncSession, task_id: UUID) -> int:
 
 async def add_photo(
     db: AsyncSession, task_id: UUID, object_key: str, size_bytes: int, now: datetime
-) -> None:
-    db.add(PhotoRow(task_id=task_id, object_key=object_key, size_bytes=size_bytes, uploaded_at=now))
+) -> UUID:
+    row = PhotoRow(task_id=task_id, object_key=object_key, size_bytes=size_bytes, uploaded_at=now)
+    db.add(row)
     await db.flush()
+    return row.id

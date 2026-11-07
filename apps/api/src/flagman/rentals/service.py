@@ -123,6 +123,7 @@ from flagman.rentals.domain import (
     TripWarningRules,
     adjusted_total,
     apply_transition,
+    blocked_client_may_command,
     debt_key,
     ensure_adjustment_allowed,
     ensure_command_allowed,
@@ -165,6 +166,9 @@ COMMAND_LIMIT = Limit("rental-commands-user", 10, 60)
 # Eight photos per inspection and a few retries on a bad network.
 UPLOAD_LIMIT = Limit("rental-photo-upload-user", 40, _HOUR)
 PHOTO_URL_LIMIT = Limit("rental-photo-url-user", 120, _HOUR)
+# An operator opens eight photos per inspection, two inspections per trip, some more than once:
+# room for a busy hour of disputes, and still far from paging through every client's car photos.
+STAFF_PHOTO_URL_LIMIT = Limit("rental-photo-url-staff", 600, _HOUR)
 # A client paying a debt by hand after changing the card; more is a script hammering the bank.
 PAY_DEBT_LIMIT = Limit("rental-pay-debt-user", 10, _HOUR)
 
@@ -780,10 +784,10 @@ class RentalService:
             raise PaymentsUnavailableError
         return self.gateway
 
-    async def _ensure_admitted(self, user_id: UUID) -> None:
+    async def _ensure_admitted(self, user_id: UUID, *, even_if_blocked: bool = False) -> None:
         if await kyc.get_admission_status(self.db, user_id) is not KycStatus.APPROVED:
             raise KycNotApprovedError
-        if await identity.is_client_blocked(self.db, user_id):
+        if not even_if_blocked and await identity.is_client_blocked(self.db, user_id):
             raise ClientBlockedError
 
     async def _lock(self, user_id: UUID, rental_id: UUID, now: datetime) -> Rental:
@@ -1035,7 +1039,9 @@ class RentalService:
         async with self.db.begin():
             rental = await self._lock(user_id, rental_id, now)
             if not _was_expired(rental):
-                await self._ensure_admitted(user_id)
+                await self._ensure_admitted(
+                    user_id, even_if_blocked=blocked_client_may_command(rental, request.command)
+                )
                 before = await repository.get_inspection(self.db, rental.id, InspectionStage.BEFORE)
                 ensure_command_allowed(
                     rental, before is not None and before.inspection.is_submitted, now
@@ -1488,6 +1494,7 @@ class StaffRentalService:
     async def photo_url(
         self, storage: ObjectStorage, rental_id: UUID, stage: InspectionStage, photo_id: UUID
     ) -> str:
+        await self.rentals.limiter.hit(STAFF_PHOTO_URL_LIMIT, str(self.staff_id))
         async with self.db.begin():
             record = await repository.get_inspection(self.db, rental_id, stage)
             key = record.object_keys.get(photo_id) if record else None
@@ -1569,6 +1576,7 @@ class StaffRentalService:
         A repeat with the same key adds nothing and finishes the refunds the first request
         left unmade, e.g. after a crash between the adjustment and the provider.
         """
+        await payments.limit_staff_money_actions(self.rentals.limiter, self.staff_id)
         gw = self.rentals._gateway()
         now = self.rentals.clock()
         recorded = await self._repeat_of(rental_id, change)
@@ -1691,6 +1699,7 @@ class StaffRentalService:
     async def retry_refunds(self, rental_id: UUID) -> StaffRentalCard:
         """Sends again the refunds the provider has not answered, with the same keys, and makes
         the ones a crash left unmade."""
+        await payments.limit_staff_money_actions(self.rentals.limiter, self.staff_id)
         gw = self.rentals._gateway()
         async with self.db.begin():
             rental = await repository.get_rental_by_id(self.db, rental_id)

@@ -25,6 +25,7 @@ from flagman.core.db import create_engine
 from flagman.identity.api import get_sms_sender
 from flagman.identity.domain import generate_otp_code
 from flagman.kyc.domain import REQUIRED_DOCUMENTS, DocumentKind
+from tools.container_guard import refuse_unmarked_test
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3 import S3Client
@@ -85,7 +86,8 @@ def _published_port(container: DockerContainer, port: int) -> int:
 
 
 @pytest.fixture(scope="session")
-def seaweedfs() -> Iterator[S3Endpoint]:
+def seaweedfs(request: pytest.FixtureRequest) -> Iterator[S3Endpoint]:
+    refuse_unmarked_test(request)
     access_key, secret_key = secrets.token_hex(10), secrets.token_hex(20)
     container = (
         DockerContainer(SEAWEEDFS_IMAGE)

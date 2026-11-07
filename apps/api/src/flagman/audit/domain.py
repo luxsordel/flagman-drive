@@ -63,6 +63,7 @@ class AuditAction(StrEnum):
     MAINTENANCE_TASK_STARTED = "maintenance_task.started"
     MAINTENANCE_TASK_COMPLETED = "maintenance_task.completed"
     MAINTENANCE_TASK_CANCELLED = "maintenance_task.cancelled"
+    MAINTENANCE_TASK_PHOTO_ADDED = "maintenance_task.photo_added"
     MAINTENANCE_TASK_PHOTO_VIEWED = "maintenance_task.photo_viewed"
     SUPPORT_CONVERSATION_TAKEN = "support.conversation_taken"
     SUPPORT_MESSAGE_SENT = "support.message_sent"

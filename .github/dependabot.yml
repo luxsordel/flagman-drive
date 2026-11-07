@@ -88,3 +88,14 @@ updates:
     ignore:
       - dependency-name: python
         update-types: [version-update:semver-major, version-update:semver-minor]
+  # The stand's edge image: node only builds the web bundles, caddy serves them (docs/adr/0021).
+  # Node stays on the 22 line that CI and `engines` use, so a new major is a decision made by hand.
+  - package-ecosystem: docker
+    directory: /infra/stand/web
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: node
+        update-types: [version-update:semver-major]

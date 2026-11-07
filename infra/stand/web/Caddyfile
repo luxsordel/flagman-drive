@@ -6,30 +6,71 @@
 	email {$ACME_EMAIL}
 	# Nothing reconfigures Caddy at runtime, so its admin API stays closed.
 	admin off
-}
-
-(common) {
-	encode zstd gzip
-	header {
-		Strict-Transport-Security "max-age=31536000; includeSubDomains"
-		X-Content-Type-Options "nosniff"
-		Referrer-Policy "no-referrer"
-		-Server
-	}
-	log {
-		# Hostnames and status only: client IPs and query strings stay out of the stand's logs.
+	# Lines outside the sites' access log that carry a request (an error the error route below
+	# fails to handle, for one) go to the default log: the same filter applies to both.
+	log default {
 		format filter {
 			wrap json
 			fields {
 				request>remote_ip delete
 				request>client_ip delete
-				request>uri query {
-					delete code
-					delete token
-				}
+				request>uri regexp [?].* ""
+				request>headers delete
+			}
+		}
+	}
+}
+
+(security_headers) {
+	Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	X-Content-Type-Options "nosniff"
+	Referrer-Policy "no-referrer"
+}
+
+(common) {
+	encode zstd gzip
+	# Set before any handler runs, so Caddy's own error responses (a failed upstream, a missing
+	# file) carry them too.
+	header {
+		import security_headers
+	}
+	# A proxy adds the upstream's headers to those, and the API sends its own: a deletion makes
+	# this block wait for the response, so it replaces them and drops the upstream's Server.
+	header {
+		import security_headers
+		-Server
+	}
+	# Caddy writes an error response past that deferred deletion; the error route drops it again.
+	# Caddy logs a handled error at debug level only, so its cause goes to the access line instead.
+	handle_errors {
+		header -Server
+		log_append error {err.message}
+		respond "" {err.status_code}
+	}
+	log {
+		# Hostnames, paths and status only: client IPs and query strings stay out of the stand's
+		# logs. A query carries a client search, a card binding session or a photo link signature.
+		format filter {
+			wrap json
+			fields {
+				request>remote_ip delete
+				request>client_ip delete
+				request>uri regexp [?].* ""
 				request>headers delete
 				resp_headers delete
 			}
+		}
+	}
+}
+
+# The API. Caddy keeps an idle upstream connection for 2 minutes by default, uvicorn for
+# API_KEEP_ALIVE_SECONDS (75 s by default, infra/docker-compose.yml). A request Caddy sends on a
+# socket uvicorn is closing fails: Caddy retries only idempotent methods, a POST becomes a 502.
+# Caddy has to give up an idle connection first, so it waits less than uvicorn.
+(api) {
+	reverse_proxy api:8000 {
+		transport http {
+			keepalive 60s
 		}
 	}
 }
@@ -48,7 +89,7 @@ admin.{$STAND_DOMAIN} {
 	import common
 	@api path /staff/* /admin/*
 	handle @api {
-		reverse_proxy api:8000
+		import api
 	}
 	handle {
 		root * /srv/admin
@@ -69,12 +110,14 @@ app.{$STAND_DOMAIN} {
 # The API for the app. It sets its own security headers (core/middleware.py).
 api.{$STAND_DOMAIN} {
 	import common
-	reverse_proxy api:8000
+	import api
 }
 
 # Signed links to document photos. The signature covers the host, so the request reaches
 # SeaweedFS with s3.STAND_DOMAIN as its Host, which is Caddy's default.
+# Only re-encoded photos come from here, and they need nothing from a CSP.
 s3.{$STAND_DOMAIN} {
 	import common
+	header Content-Security-Policy "default-src 'none'; frame-ancestors 'none'"
 	reverse_proxy seaweedfs:8333
 }

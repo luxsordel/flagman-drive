@@ -562,6 +562,7 @@ async def test_trip_jobs_are_skipped_while_another_worker_holds_them(
         await engine.dispose()
 
 
+@pytest.mark.integration
 async def test_the_charges_job_settles_the_due_fines_too(
     integration_settings: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:

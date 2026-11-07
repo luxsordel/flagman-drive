@@ -12,7 +12,8 @@ from sqlalchemy import text
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.ratelimit import Limit
-from flagman.identity.domain import StaffAccessClaims, StaffRole, issue_staff_access_token
+from flagman.fleet.tests.conftest import Staff as SignedInStaff
+from flagman.identity.domain import StaffRole
 from flagman.kyc import service
 from flagman.kyc.domain import REQUIRED_DOCUMENTS, DocumentKind
 from flagman.kyc.tests.conftest import (
@@ -31,17 +32,19 @@ LICENSED = "2015-06-01"
 
 
 class Staff:
-    """A signed-in staff member; only the token matters to these endpoints."""
+    """A staff member with a real session: approval checks it in the database."""
 
     def __init__(self, client: TestClient, settings: Settings, role: StaffRole) -> None:
         self.client = client
-        self.id = uuid.uuid4()
-        token = issue_staff_access_token(
-            StaffAccessClaims(staff_id=self.id, session_id=uuid.uuid4(), role=role),
-            settings.api_jwt_secret.get_secret_value(),
-            datetime.now(UTC),
-        )
-        self.headers = {"Authorization": f"Bearer {token}"}
+        self._member = SignedInStaff(settings, role)
+        self.id = self._member.id
+
+    @property
+    def headers(self) -> dict[str, str]:
+        return self._member.headers
+
+    def revoke_session(self) -> None:
+        self._member.revoke_session()
 
     def queue(self, limit: int = 100) -> Any:
         return self.client.get(URL, params={"limit": limit}, headers=self.headers)
@@ -199,6 +202,21 @@ def test_approval_admits_the_client_and_is_audited(
         "kyc.approved",
     )
     assert (event.target_type, event.details) == ("kyc_application", {})
+
+
+def test_approval_needs_a_live_session(
+    applicant: Callable[..., Person], operator: Staff, kyc_settings: Settings
+) -> None:
+    client = applicant()
+    application_id = _application_id(kyc_settings, client)
+    operator.revoke_session()
+
+    response = operator.approve(application_id)
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED, response.text
+    assert problem_type(response) == "access-token-invalid"
+    assert client.application().json()["status"] == "pending"
+    assert _events(kyc_settings, application_id) == []
 
 
 # Years and days ago, (birth date, license issue date): each one day short of the threshold.

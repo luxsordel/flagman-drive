@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.ratelimit import Limit
 from flagman.fleet.domain import CarStatus
 from flagman.fleet.tests.conftest import add_car
 from flagman.kyc.domain import KycStatus
@@ -214,6 +215,22 @@ def test_the_body_is_checked(person: Person) -> None:
     )
 
     assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
+
+
+def test_reservations_are_rate_limited(
+    integration_settings: Settings, person: Person, car: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        service, "RESERVE_LIMIT", Limit(f"rental-reserve-test-{uuid.uuid4()}", 1, 3600)
+    )
+    # A failed attempt counts too: otherwise probing car ids would cost nothing.
+    assert person.reserve(str(uuid.uuid4())).status_code == HTTPStatus.NOT_FOUND
+
+    limited = person.reserve(car)
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert int(limited.headers["retry-after"]) > 0
+    assert car_status(integration_settings, car) == CarStatus.AVAILABLE
 
 
 def test_reservations_need_a_client(app_client: TestClient, car: str) -> None:

@@ -208,13 +208,13 @@ def _execute(plan: Plan, report_dir: Path) -> bool:
     return _report(_judge(plan.profile, report_dir), report_dir)
 
 
-def run_local(profile: Profile, keep: bool) -> bool:
+def run_local(profile: Profile, keep: bool, api_workers: int = 1) -> bool:
     report_dir = _new_report_dir(profile)
     otp_code = pools.new_otp_code()
     phones = pools.phones(profile.phones_needed)
     env_file = report_dir / "stack.env"
     local = stack.Stack(env_file)
-    local.write_env(stack.local_env(LOCAL_CAR_COUNTS[profile.name], phones, otp_code))
+    local.write_env(stack.local_env(LOCAL_CAR_COUNTS[profile.name], phones, otp_code, api_workers))
     staff = [
         StaffAccount(f"load{i}@flagman.example", secrets.token_urlsafe(24), pyotp.random_base32())
         for i in range(profile.staff_streams)
@@ -252,19 +252,43 @@ def run_stand() -> bool:
     return _execute(plan, _new_report_dir(plan.profile))
 
 
+# The stack keeps the default database pool (10 + 10 per process). With the worker and one
+# listener per API process, (N + 1) x 20 + N stays under Postgres max_connections (100) only up
+# to three processes; above that a burst fails with "too many clients", which would read as an
+# API error in the report rather than a fault of the test setup.
+MAX_API_WORKERS = 3
+
+
+def _api_workers(value: str) -> int:
+    number = int(value)
+    if not 1 <= number <= MAX_API_WORKERS:
+        raise argparse.ArgumentTypeError(f"must be from 1 to {MAX_API_WORKERS}")
+    return number
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="flagman-load", description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     local = commands.add_parser("local", help="run against a throwaway local Compose stack")
     local.add_argument("profile", choices=[SMOKE.name, PILOT.name])
     local.add_argument("--keep", action="store_true", help="leave the stack up after the run")
+    local.add_argument(
+        "--api-workers",
+        type=_api_workers,
+        default=1,
+        help=(
+            f"uvicorn processes of the API, 1 to {MAX_API_WORKERS} (default 1), to compare runs"
+            " with one and several; more do not fit the default database pool budget"
+        ),
+    )
     commands.add_parser("stand", help="run the small profile against the demo stand")
     args = parser.parse_args(argv)
     try:
         if args.command == "stand":
             passed = run_stand()
         else:
-            passed = run_local(SMOKE if args.profile == SMOKE.name else PILOT, args.keep)
+            profile = SMOKE if args.profile == SMOKE.name else PILOT
+            passed = run_local(profile, args.keep, args.api_workers)
     # Whatever it was: Python's own exit code for it is 1, and here that means "targets missed".
     except Exception as error:
         print(f"error: {type(error).__name__}: {error}", file=sys.stderr)

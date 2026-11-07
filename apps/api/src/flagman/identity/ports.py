@@ -46,7 +46,7 @@ class LogSmsSender:
         return generate_otp_code()
 
     async def send_otp(self, phone: str, code: str) -> None:
-        logger.info("otp_sms_stub", phone=mask_phone(phone), code=code)
+        logger.info("otp_sms_stub", masked_phone=mask_phone(phone), code=code)
 
 
 class FixedCodeSmsSender:

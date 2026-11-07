@@ -31,6 +31,8 @@ def create_engine(settings: DatabaseSettings) -> AsyncEngine:
     # hide_parameters keeps bound values (phones, document numbers) out of exception text and logs.
     return create_async_engine(
         settings.database_url,
+        pool_size=settings.db_pool_size,
+        max_overflow=settings.db_max_overflow,
         pool_pre_ping=True,
         hide_parameters=True,
     )

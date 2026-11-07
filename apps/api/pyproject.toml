@@ -45,6 +45,7 @@ dev = [
     "mypy>=2.4.0",
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
+    "pytest-cov>=7.1.0",
     "ruff>=0.17.1",
     "testcontainers[postgres,redis]>=4.15.0",
     "types-aioboto3[s3]>=15.5.0",
@@ -96,6 +97,17 @@ pythonpath = ["."]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = ["integration: needs Docker (Postgres and Redis via testcontainers)"]
+
+# The MVP goal is domain logic covered at 80% or more (docs/01-vision-and-mvp.md); domain.py files
+# are pure Python by design (docs/02-architecture.md), so unit tests alone are expected to reach it.
+[tool.coverage.run]
+source = ["flagman"]
+branch = true
+
+[tool.coverage.report]
+include = ["*/domain.py"]
+fail_under = 80
+show_missing = true
 
 [tool.importlinter]
 root_package = "flagman"

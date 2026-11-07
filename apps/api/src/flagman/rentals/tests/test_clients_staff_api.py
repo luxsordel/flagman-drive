@@ -228,3 +228,13 @@ def test_a_block_needs_a_live_session(
     operator.revoke_session()
 
     assert _block(app_client, operator, person).status_code == HTTPStatus.UNAUTHORIZED
+
+
+def test_an_unblock_needs_a_live_session(
+    person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    assert _block(app_client, operator, person).status_code == HTTPStatus.OK
+    operator.revoke_session()
+
+    assert _unblock(app_client, operator, person).status_code == HTTPStatus.UNAUTHORIZED
+    assert app_client.get("/me", headers=person.headers).json()["blocked"] is True

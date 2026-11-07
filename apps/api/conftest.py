@@ -1,16 +1,29 @@
 import base64
+import logging
 import secrets
-from collections.abc import Iterator
+import threading
+from collections.abc import Iterator, MutableMapping
+from concurrent.futures import Future
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
 import pytest
+import structlog
 from alembic import command
 from alembic.config import Config
+from redis.asyncio import Redis
+from starlette.testclient import WebSocketTestSession
+from structlog.testing import LogCapture
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
 
+from flagman.core import alerts
+from flagman.core.alerts import SpikeMeter
 from flagman.core.config import Settings
+from tools import container_guard
+
+pytest_plugins = ("pytester",)
 
 # Same images as infra/docker-compose.yml, so tests run against what developers run locally.
 POSTGRES_IMAGE = "postgis/postgis:16-3.6"
@@ -19,11 +32,17 @@ REDIS_IMAGE = "redis:7.4.11-alpine"
 ALEMBIC_INI = Path(__file__).parent / "alembic.ini"
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    # Registered here rather than listed in pytest_plugins, which would warn that the module,
+    # already imported for the fixtures below, cannot have its asserts rewritten.
+    config.pluginmanager.register(container_guard)
+
+
 class SettingsFactory(Protocol):
     def __call__(self, **overrides: Any) -> Settings: ...
 
 
-@pytest.fixture
+@pytest.fixture(scope="session")
 def make_settings() -> SettingsFactory:
     """Settings that never read the developer's .env file."""
 
@@ -45,7 +64,8 @@ def make_settings() -> SettingsFactory:
 
 
 @pytest.fixture(scope="session")
-def postgres_container() -> Iterator[PostgresContainer]:
+def postgres_container(request: pytest.FixtureRequest) -> Iterator[PostgresContainer]:
+    container_guard.refuse_unmarked_test(request)
     container = PostgresContainer(
         POSTGRES_IMAGE,
         username="flagman",
@@ -58,7 +78,8 @@ def postgres_container() -> Iterator[PostgresContainer]:
 
 
 @pytest.fixture(scope="session")
-def redis_container() -> Iterator[RedisContainer]:
+def redis_container(request: pytest.FixtureRequest) -> Iterator[RedisContainer]:
+    container_guard.refuse_unmarked_test(request)
     with RedisContainer(REDIS_IMAGE, password=secrets.token_hex(16)) as container:
         yield container
 
@@ -99,3 +120,65 @@ def integration_settings(
     integration_env: dict[str, str], migrated_database: None, make_settings: SettingsFactory
 ) -> Settings:
     return make_settings(**{name.lower(): value for name, value in integration_env.items()})
+
+
+@pytest.fixture
+def broken_spike_meter(integration_settings: Settings) -> SpikeMeter:
+    """A spike meter whose Redis turns down every command, as if Redis were down."""
+    # A wrong password fails at once, while an unreachable host would wait for a timeout.
+    redis = Redis(
+        host=integration_settings.redis_host,
+        port=integration_settings.redis_port,
+        password=secrets.token_hex(8),
+    )
+    return SpikeMeter(redis)
+
+
+@pytest.fixture
+def alert_logs(monkeypatch: pytest.MonkeyPatch) -> list[MutableMapping[str, Any]]:
+    """What SpikeMeter logs, as capture_logs would show it.
+
+    capture_logs misses loggers that were used before it: the app caches them on first use.
+    """
+    capture = LogCapture()
+    logger = structlog.wrap_logger(
+        structlog.ReturnLogger(), processors=[capture], wrapper_class=structlog.BoundLogger
+    )
+    monkeypatch.setattr(alerts, "logger", logger)
+    return capture.entries
+
+
+@dataclass(frozen=True)
+class CapturedLogs:
+    alerts: list[MutableMapping[str, Any]]
+    caplog: pytest.LogCaptureFixture
+
+    def text(self) -> str:
+        """Everything the app logged: the spike warnings and every other record."""
+        return repr(self.alerts) + self.caplog.text
+
+
+@pytest.fixture
+def captured_logs(
+    alert_logs: list[MutableMapping[str, Any]], caplog: pytest.LogCaptureFixture
+) -> CapturedLogs:
+    caplog.set_level(logging.DEBUG)
+    return CapturedLogs(alert_logs, caplog)
+
+
+def receive_json(socket: WebSocketTestSession, timeout: float) -> dict[str, Any]:
+    """The next message of a test WebSocket, or TimeoutError.
+
+    The test client has no receive timeout: a missing message would hang the whole run. A daemon
+    thread that nobody joins, because a pool would wait on leaving for that very message.
+    """
+    received: Future[dict[str, Any]] = Future()
+
+    def read() -> None:
+        try:
+            received.set_result(socket.receive_json())
+        except Exception as error:
+            received.set_exception(error)
+
+    threading.Thread(target=read, daemon=True).start()
+    return received.result(timeout)

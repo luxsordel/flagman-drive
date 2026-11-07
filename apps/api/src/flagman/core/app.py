@@ -21,6 +21,7 @@ from flagman.core.middleware import (
     SecurityHeadersMiddleware,
 )
 from flagman.core.resources import Resources
+from flagman.core.storage import open_object_storage
 from flagman.fleet.api import map_router as map_cars_router
 from flagman.fleet.api import router as fleet_router
 from flagman.fleet.api import staff_router as fleet_staff_router
@@ -77,14 +78,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             socket_connect_timeout=settings.redis_timeout_seconds,
             socket_timeout=settings.redis_timeout_seconds,
         )
-        app.state.resources = Resources(
-            settings=settings,
-            engine=engine,
-            session_factory=create_session_factory(engine),
-            redis=redis,
-        )
         try:
-            yield
+            async with open_object_storage(settings) as storage:
+                app.state.resources = Resources(
+                    settings=settings,
+                    engine=engine,
+                    session_factory=create_session_factory(engine),
+                    redis=redis,
+                    storage=storage,
+                )
+                yield
         finally:
             await redis.aclose()
             await engine.dispose()

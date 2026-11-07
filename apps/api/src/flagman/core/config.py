@@ -21,6 +21,7 @@ MIN_SECRET_LENGTH = 32
 PILOT_PHONE_RE = re.compile(r"\+375(25|29|33|44)[0-9]{7}")
 OTP_CODE_RE = re.compile(r"[0-9]{6}")
 _DIGIT_RUNS = "0123456789"
+_MIN_DISTINCT_DIGITS = 4
 
 
 def _decode_key(key: SecretStr) -> bytes:
@@ -52,6 +53,11 @@ class DatabaseSettings(BaseSettings):
     postgres_user: str
     postgres_password: SecretStr
     postgres_db: str
+    # Connections each process keeps open, and how many more it may open for a burst. Those above
+    # the pool are closed on return, and a new one costs a TCP and auth handshake plus the lost
+    # prepared statement cache: with the old 5 the load test reopened ~1.8 per second (#162).
+    db_pool_size: int = Field(default=10, ge=1, le=50)
+    db_max_overflow: int = Field(default=10, ge=0, le=50)
 
     @property
     def is_prod(self) -> bool:
@@ -408,7 +414,12 @@ class Settings(TripSettings):
         if not OTP_CODE_RE.fullmatch(code):
             raise ValueError("SMS_BACKEND=fixed needs SMS_FIXED_CODE of 6 digits")
         # The test phones are known to the whole team: a guessable code opens all of them at once.
-        if len(set(code)) == 1 or code in _DIGIT_RUNS or code in _DIGIT_RUNS[::-1]:
+        # Under four distinct digits also covers repeated short blocks such as 121212 or 123123.
+        if (
+            len(set(code)) < _MIN_DISTINCT_DIGITS
+            or code in _DIGIT_RUNS
+            or code in _DIGIT_RUNS[::-1]
+        ):
             raise ValueError("SMS_FIXED_CODE is too easy to guess, generate a random one")
         if not self.sms_fixed_phones:
             raise ValueError("SMS_BACKEND=fixed needs at least one phone in SMS_FIXED_PHONES")

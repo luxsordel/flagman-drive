@@ -145,6 +145,7 @@
       "maintenanceTaskStarted": "Task taken",
       "maintenanceTaskCompleted": "Task done",
       "maintenanceTaskCancelled": "Task cancelled",
+      "maintenanceTaskPhotoAdded": "Task photo added",
       "maintenanceTaskPhotoViewed": "Task photo viewed",
       "rentalForceFinished": "Rental force-finished",
       "rentalAdjusted": "Rental total adjusted",
@@ -784,6 +785,7 @@
       "reused": "This form was already sent with other data. Fill it in again.",
       "busy": "The car is still answering the previous command. Try again in a minute.",
       "paymentsUnavailable": "Payments are not available now. Try again later.",
+      "rateLimited": "Too many actions in a row. Wait {{seconds}} s.",
       "rejected": "Check the amount and the comment: up to 500 characters, no control characters."
     },
     "forceFinish": "Force finish",
@@ -923,6 +925,7 @@
       "notFinished": "Fines are charged to ended trips only.",
       "invalid": "Check the type and the comment.",
       "photo": "The fine is charged, but not every photo was uploaded. Add them with \"Add photos\" on the fine.",
+      "rateLimited": "Too many money actions in a row. Wait {{seconds}} s.",
       "failed": "That did not work. Check the connection and try again."
     },
     "catalog": {

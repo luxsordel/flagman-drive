@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterator, MutableMapping
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Any, NamedTuple
@@ -11,12 +11,13 @@ from fastapi.testclient import TestClient
 
 from flagman.audit import service as audit
 from flagman.audit.domain import AuditAction, AuditEventFilter
+from flagman.core.alerts import SpikeMeter
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.core.ratelimit import Limit
-from flagman.fleet import api
+from flagman.fleet import api, service
 from flagman.fleet.domain import (
     CarCommand,
     CarCommandDuplicateError,
@@ -342,7 +343,7 @@ def test_commands_are_rate_limited(
     operator: Staff,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(api, "COMMAND_LIMIT", Limit(f"car-commands-test-{uuid.uuid4()}", 2, 60))
+    monkeypatch.setattr(service, "COMMAND_LIMIT", Limit(f"car-commands-test-{uuid.uuid4()}", 2, 60))
     car_id = add_car(integration_settings, POINT)
 
     for _ in range(2):
@@ -351,6 +352,83 @@ def test_commands_are_rate_limited(
 
     assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert "Retry-After" in limited.headers
+
+
+class Spikes(NamedTuple):
+    threshold: Limit
+    logs: list[MutableMapping[str, Any]]
+
+
+@pytest.fixture
+def spikes(monkeypatch: pytest.MonkeyPatch, alert_logs: list[MutableMapping[str, Any]]) -> Spikes:
+    threshold = Limit(f"car-commands-all-staff-test-{uuid.uuid4()}", 2, 300)
+    monkeypatch.setattr(service, "STAFF_COMMANDS_ALERT", threshold)
+    return Spikes(threshold, alert_logs)
+
+
+def test_done_and_failed_commands_add_up_to_a_spike_warning(
+    client: TestClient,
+    integration_settings: Settings,
+    gateway: FakeGateway,
+    operator: Staff,
+    spikes: Spikes,
+) -> None:
+    car_id = add_car(integration_settings, POINT)
+
+    client.post(_url(car_id), json=_body(), headers=operator.headers)
+    gateway.outcome = CarCommandRejectedError("ignition_on")
+    client.post(_url(car_id), json=_body(command="close"), headers=operator.headers)
+
+    warned = [entry for entry in spikes.logs if entry["event"] == "security_spike"]
+    assert [(entry["metric"], entry["count"]) for entry in warned] == [(spikes.threshold.name, 2)]
+
+
+class AuditDown:
+    @staticmethod
+    async def record(*_: object) -> None:
+        raise RuntimeError("audit is down")
+
+
+@pytest.fixture
+def audit_down(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(service, "audit", AuditDown)
+
+
+@pytest.mark.usefixtures("audit_down")
+def test_commands_the_car_got_count_even_if_recording_them_fails(
+    client: TestClient,
+    integration_settings: Settings,
+    gateway: FakeGateway,
+    operator: Staff,
+    spikes: Spikes,
+) -> None:
+    car_id = add_car(integration_settings, POINT)
+
+    failed = [
+        client.post(_url(car_id), json=_body(command=command), headers=operator.headers)
+        for command in ("open", "close")
+    ]
+
+    assert [response.status_code for response in failed] == [HTTPStatus.INTERNAL_SERVER_ERROR] * 2
+    assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
+    warned = [entry for entry in spikes.logs if entry["event"] == "security_spike"]
+    assert [(entry["metric"], entry["count"]) for entry in warned] == [(spikes.threshold.name, 2)]
+
+
+def test_commands_work_while_the_spike_meter_is_down(
+    client: TestClient,
+    integration_settings: Settings,
+    operator: Staff,
+    broken_spike_meter: SpikeMeter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "SpikeMeter", lambda _: broken_spike_meter)
+    car_id = add_car(integration_settings, POINT)
+
+    response = client.post(_url(car_id), json=_body(), headers=operator.headers)
+
+    assert response.status_code == HTTPStatus.OK, response.text
+    assert response.json()["car"]["state"]["doors_locked"] is False
 
 
 def test_without_telematics_settings_commands_are_unavailable(

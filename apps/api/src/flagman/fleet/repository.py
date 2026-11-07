@@ -1,12 +1,31 @@
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 from uuid import UUID
 
 from geoalchemy2 import Geography, Geometry
-from sqlalchemy import ColumnElement, Select, cast, exists, func, null, or_, select, update
-from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import (
+    Boolean,
+    ColumnElement,
+    DateTime,
+    Float,
+    Select,
+    SmallInteger,
+    String,
+    Uuid,
+    any_,
+    cast,
+    column,
+    exists,
+    func,
+    literal,
+    null,
+    or_,
+    select,
+    update,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import defer
@@ -217,6 +236,94 @@ async def apply_state(
         return SnapshotOutcome.APPLIED, applied
     known = await db.scalar(select(exists().where(CarRow.telematics_id == telematics_id)))
     return (SnapshotOutcome.STALE if known else SnapshotOutcome.UNKNOWN_CAR), None
+
+
+@dataclass(frozen=True)
+class StatesApplied:
+    # Telematics id to car id, for the snapshots stored now.
+    applied: dict[UUID, UUID]
+    # Telematics ids no car has; the rest of the snapshots not applied were stale.
+    unknown: frozenset[UUID]
+
+
+def _array[T](values: list[T], item_type: Any) -> ColumnElement[Any]:
+    # A typed array parameter: unnest() needs the element type, and an untyped one has none.
+    return cast(literal(values, ARRAY(item_type)), ARRAY(item_type))
+
+
+async def apply_states(
+    db: AsyncSession, states: Mapping[UUID, CarState], now: datetime
+) -> StatesApplied:
+    """apply_state for many cars at once: one UPDATE, plus one SELECT if some were not applied.
+
+    One snapshot per car: with two for the same car the UPDATE would store either of them.
+    """
+    if not states:
+        return StatesApplied(applied={}, unknown=frozenset())
+    # Sorted: when the plan drives the join from unnest, two batches with the same cars lock them
+    # in the same order, and a scan of cars locks them in table order anyway. Telemetry comes from
+    # one emulator, one batch at a time, so batches rarely meet at all.
+    ordered = sorted(states.items())
+    snapshots = (
+        func.unnest(
+            _array([telematics_id for telematics_id, _ in ordered], Uuid),
+            _array([state.location.lat for _, state in ordered], Float),
+            _array([state.location.lon for _, state in ordered], Float),
+            _array([state.battery_pct for _, state in ordered], SmallInteger),
+            _array([state.doors_locked for _, state in ordered], Boolean),
+            _array([state.ignition_on for _, state in ordered], Boolean),
+            _array([state.engine_locked for _, state in ordered], Boolean),
+            _array([state.headlights_on for _, state in ordered], Boolean),
+            _array([state.gear for _, state in ordered], String),
+            _array([state.recorded_at for _, state in ordered], DateTime(timezone=True)),
+        )
+        .table_valued(
+            column("telematics_id", Uuid),
+            column("lat", Float),
+            column("lon", Float),
+            column("battery_pct", SmallInteger),
+            column("doors_locked", Boolean),
+            column("ignition_on", Boolean),
+            column("engine_locked", Boolean),
+            column("headlights_on", Boolean),
+            column("gear", String),
+            column("recorded_at", DateTime(timezone=True)),
+        )
+        .render_derived(name="s")
+    )
+    s = snapshots.c
+    # Arrays rather than VALUES rows: the statement text and its 10 parameters stay the same for
+    # any batch size, so the prepared statement is reused.
+    rows = await db.execute(
+        update(CarRow)
+        .where(
+            CarRow.telematics_id == s.telematics_id,
+            # The same freshness check as apply_state, car by car.
+            or_(CarRow.state_at.is_(None), CarRow.state_at < s.recorded_at),
+        )
+        .values(
+            location=cast(func.ST_SetSRID(func.ST_MakePoint(s.lon, s.lat), SRID_WGS84), Geography),
+            battery_pct=s.battery_pct,
+            doors_locked=s.doors_locked,
+            ignition_on=s.ignition_on,
+            engine_locked=s.engine_locked,
+            headlights_on=s.headlights_on,
+            gear=s.gear,
+            state_at=s.recorded_at,
+            updated_at=now,
+        )
+        .returning(CarRow.telematics_id, CarRow.id)
+    )
+    applied: dict[UUID, UUID] = dict(rows.all())
+    rest = [telematics_id for telematics_id, _ in ordered if telematics_id not in applied]
+    if not rest:
+        return StatesApplied(applied=applied, unknown=frozenset())
+    known = set(
+        await db.scalars(
+            select(CarRow.telematics_id).where(CarRow.telematics_id == any_(_array(rest, Uuid)))
+        )
+    )
+    return StatesApplied(applied=applied, unknown=frozenset(set(rest) - known))
 
 
 async def ensure_model(db: AsyncSession, spec: CarModelSpec, now: datetime) -> tuple[UUID, bool]:

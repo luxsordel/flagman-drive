@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from flagman.core.config import Settings
+from flagman.core.ratelimit import Limit
 from flagman.fleet.tests.conftest import FakeGateway, Staff, run_in_db
 from flagman.geo import service as geo
 from flagman.identity.domain import StaffRole
@@ -609,6 +610,38 @@ def test_the_client_pays_an_unpaid_fine_and_may_reserve_again(
     assert person.reserve(car).status_code == HTTPStatus.CREATED
 
 
+def test_fine_payments_are_rate_limited(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    rental_id = _trip(person, car)
+    declined = OperationResult(OperationStatus.DECLINED, decline_reason=DeclineReason.DECLINED)
+    original = FakeProvider.charge
+
+    async def decline(self: FakeProvider, request: OperationRequest) -> OperationResult:
+        return declined
+
+    monkeypatch.setattr(FakeProvider, "charge", decline)
+    fine = _charged(app_client, operator, rental_id)
+    monkeypatch.setattr(
+        service, "PAY_FINE_LIMIT", Limit(f"support-fine-pay-test-{uuid.uuid4()}", 1, 3600)
+    )
+    pay_url = f"/support/fines/{fine['id']}/pay"
+    assert person.client.post(pay_url, headers=person.headers).json()["status"] == "unpaid"
+    monkeypatch.setattr(FakeProvider, "charge", original)
+    operations = _operations(person.settings, fine["id"])
+
+    limited = person.client.post(pay_url, headers=person.headers)
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert _operations(person.settings, fine["id"]) == operations
+    assert [item["status"] for item in _my_fines(person, rental_id)] == ["unpaid"]
+
+
 # Cancellation
 
 
@@ -658,6 +691,50 @@ def test_cancelling_again_changes_nothing(
     assert again.status_code == HTTPStatus.OK
     assert again.json()["cancel_reason"] == first["cancel_reason"]
     assert len(_operations(integration_settings, fine["id"])) == 2
+
+
+def test_fines_share_the_money_action_limit_per_staff_member(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        payments, "STAFF_MONEY_LIMIT", Limit(f"money-actions-staff-test-{uuid.uuid4()}", 1, 60)
+    )
+    rental_id = _trip(person, car)
+    key = uuid.uuid4()
+    smoking = _fine_type_id(integration_settings, "smoking")
+    first = _charge(app_client, operator, rental_id, smoking, key=key)
+    assert first.status_code == HTTPStatus.CREATED, first.text
+    fine = first.json()
+
+    cancelled = _cancel(app_client, operator, fine["id"])
+    charged = _charge(app_client, operator, rental_id, smoking)
+    # A repeat of a request that went through is counted too, and still charges nothing.
+    repeat = _charge(app_client, operator, rental_id, smoking, key=key)
+    # One counter for every money action: a rental adjustment is refused as well.
+    adjusted = app_client.post(
+        f"/admin/rentals/{rental_id}/adjustments",
+        json={"amount": -100, "comment": "Late unlock"},
+        headers={**operator.headers, "Idempotency-Key": str(uuid.uuid4())},
+    )
+
+    for limited in (cancelled, charged, repeat, adjusted):
+        assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+        assert "Retry-After" in limited.headers
+    assert [mine["status"] for mine in _my_fines(person, rental_id)] == ["paid"]
+    assert _operations(integration_settings, fine["id"]) == [
+        ("charge", "succeeded", fine["amount"])
+    ]
+    assert audit_actions(integration_settings, fine["id"]) == ["fine.charged"]
+    # Counted per staff member: a colleague still cancels the fine and the money goes back.
+    colleague = Staff(integration_settings, StaffRole.OPERATOR)
+    refunded = _cancel(app_client, colleague, fine["id"])
+    assert refunded.status_code == HTTPStatus.OK, refunded.text
+    assert refunded.json()["refund_status"] == "succeeded"
 
 
 @pytest.mark.usefixtures("declined_charge")
@@ -893,6 +970,34 @@ def test_a_cancelled_fine_takes_no_photos(
     assert added.status_code == HTTPStatus.CONFLICT
 
 
+def test_photo_uploads_are_limited_per_staff_member(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    storage: FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fine = _charged(app_client, operator, _trip(person, car))
+    monkeypatch.setattr(
+        service,
+        "STAFF_UPLOAD_LIMIT",
+        Limit(f"support-fine-photo-upload-staff-test-{uuid.uuid4()}", 1, 3600),
+    )
+    _add_fine_photo(app_client, operator, fine["id"])
+
+    limited = app_client.post(
+        f"{STAFF_URL}/{fine['id']}/photos",
+        content=photo(2),
+        headers={**operator.headers, "Content-Type": "image/jpeg"},
+    )
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert len([key for key in storage.objects if key.startswith(f"fines/{fine['id']}/")]) == 1
+    assert audit_actions(operator.settings, fine["id"]) == ["fine.charged", "fine.photo_added"]
+
+
 # Access
 
 
@@ -932,9 +1037,51 @@ def test_another_clients_fine_is_not_found(
     assert _my_fines(other, fine["rental_id"]) == []
 
 
-@pytest.mark.parametrize("role", [StaffRole.TECHNICIAN, None])
+def _add_fine_photo(client: TestClient, staff: Staff, fine_id: str, seed: int = 1) -> str:
+    response = client.post(
+        f"{STAFF_URL}/{fine_id}/photos",
+        content=photo(seed),
+        headers={**staff.headers, "Content-Type": "image/jpeg"},
+    )
+    assert response.status_code == HTTPStatus.CREATED, response.text
+    return str(response.json()["photos"][-1]["id"])
+
+
+def test_a_photo_of_another_fine_is_not_found_under_ones_own(
+    person: Person,
+    car: str,
+    app_client: TestClient,
+    operator: Staff,
+    integration_settings: Settings,
+) -> None:
+    own = _charged(app_client, operator, _trip(person, car))["id"]
+    _add_fine_photo(app_client, operator, own)
+    other = Person(integration_settings, app_client)
+    other_car = add_priced_car(integration_settings, CAR_POINT)
+    foreign = _charged(app_client, operator, _trip(other, other_car))["id"]
+    foreign_photo = _add_fine_photo(app_client, operator, foreign, 2)
+
+    responses = [
+        person.client.get(
+            f"/support/fines/{own}/photos/{foreign_photo}/url", headers=person.headers
+        ),
+        app_client.get(f"{STAFF_URL}/{own}/photos/{foreign_photo}/url", headers=operator.headers),
+    ]
+
+    assert [response.status_code for response in responses] == [HTTPStatus.NOT_FOUND] * 2
+    assert all(problem_type(response) == "fine-photo-not-found" for response in responses)
+    assert "fine.photo_viewed" not in audit_actions(integration_settings, own)
+
+
+@pytest.mark.parametrize(
+    ("role", "expected"),
+    [(StaffRole.TECHNICIAN, HTTPStatus.FORBIDDEN), (None, HTTPStatus.UNAUTHORIZED)],
+)
 def test_technicians_and_clients_have_no_staff_fines(
-    app_client: TestClient, integration_settings: Settings, role: StaffRole | None
+    app_client: TestClient,
+    integration_settings: Settings,
+    role: StaffRole | None,
+    expected: HTTPStatus,
 ) -> None:
     if role is None:
         headers = Person(integration_settings, app_client).headers
@@ -949,10 +1096,7 @@ def test_technicians_and_clients_have_no_staff_fines(
         ),
     ]
 
-    assert all(
-        response.status_code in {HTTPStatus.FORBIDDEN, HTTPStatus.UNAUTHORIZED}
-        for response in responses
-    )
+    assert [response.status_code for response in responses] == [expected] * 3
 
 
 def test_unknown_fields_are_refused(

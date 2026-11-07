@@ -1391,6 +1391,7 @@ class StaffFineService:
         """Raises SupportRentalNotFoundError, FineRentalNotFinishedError, FineTypeNotFoundError,
         FineTypeNotManualError, IdempotencyKeyReusedError. The money is taken right after, or by
         the job; a repeat with the same key returns the fine charged the first time."""
+        await payments.limit_staff_money_actions(self.limiter, staff_id)
         request = replace(request, comment=ensure_reason(request.comment))
         rental_id = request.rental_id
         async with self.db.begin():
@@ -1451,6 +1452,7 @@ class StaffFineService:
     ) -> StaffFineOut:
         """The fine stays, cancelled, with the reason; paid money goes back. Cancelling again
         after a declined refund tries the refund once more."""
+        await payments.limit_staff_money_actions(self.limiter, staff_id)
         reason = ensure_reason(reason)
         # Saved before the provider is asked: a charge whose outcome was never recorded (a crash
         # in between) is seen here. One that starts after this read is caught by _record_charge.

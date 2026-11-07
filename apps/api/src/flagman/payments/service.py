@@ -25,6 +25,7 @@ from flagman.audit.domain import (
     RequestOrigin,
 )
 from flagman.core.config import PaymentsSettings, Settings
+from flagman.core.ratelimit import Limit, RateLimiter
 from flagman.payments import repository
 from flagman.payments.domain import (
     BINDING_TTL,
@@ -70,6 +71,22 @@ _AUDIT_ACTIONS = {
     OperationStatus.DECLINED: AuditAction.PAYMENT_DECLINED,
     OperationStatus.FAILED: AuditAction.PAYMENT_FAILED,
 }
+
+
+# An operator settles disputes one form at a time; dozens of charges and refunds a minute are a
+# stolen session or a script moving money. Shared by rental adjustments, refund retries, manual
+# fines and their cancellation, so a staff member's money actions have one counter.
+STAFF_MONEY_LIMIT = Limit("money-actions-staff", 30, 60)
+
+
+async def limit_staff_money_actions(limiter: RateLimiter, staff_id: UUID) -> None:
+    """Counts a money action of a staff member; RateLimitedError once over STAFF_MONEY_LIMIT.
+
+    Called before anything is read or written, so a refused request leaves no money operation
+    behind. A repeat with the same Idempotency-Key is counted like any request: it may move money
+    (finishing refunds a crash left unmade), and once the window passes it is answered as the
+    documented repeat of the first request."""
+    await limiter.hit(STAFF_MONEY_LIMIT, str(staff_id))
 
 
 @dataclass(frozen=True)

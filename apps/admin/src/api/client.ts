@@ -42,6 +42,9 @@ const fetchOrNetworkError = (request: Request): Promise<Response> =>
     throw new NetworkError(error);
   });
 
+/** The wait a rate-limit message names when the API sent no Retry-After. */
+export const FALLBACK_RETRY_AFTER_SECONDS = 60;
+
 /** Builds an ApiError from a failed response and the body openapi-fetch parsed from it. */
 export function toApiError(response: Response, body: unknown): ApiError {
   const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));

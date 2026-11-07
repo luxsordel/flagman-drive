@@ -88,6 +88,17 @@ Workflow собирает образы, копирует на сервер `infr
 6. перезапускает сервисы и ждёт `/ready`;
 7. дописывает тег в `/opt/flagman/deployed-tags.log` и удаляет образы старше пяти последних выкладок.
 
+API не стартует с «угадываемым» `SMS_FIXED_CODE`: меньше четырёх разных цифр (`121212`, `112233`) или подряд
+идущие (`123456`). Код, выбранный до этого правила (#162), может ему не подходить. Шаг 2 читает все настройки
+и остановит выкладку до изменений, но только если в `stand.env` задан хотя бы один `STAND_<РОЛЬ>_EMAIL`.
+Поэтому перед первой выкладкой с этим правилом проверить код на сервере:
+
+```bash
+grep '^SMS_FIXED_CODE=' /opt/flagman/stand.env | cut -d= -f2 | python3 -c "import sys; c = sys.stdin.read().strip(); print('ok' if len(set(c)) > 3 and c not in '0123456789 9876543210' else 'need a new code')"
+```
+
+Новый код — командой из комментария в `infra/stand/stand.env.example`, затем раздать его тем, кто показывает стенд.
+
 Логику скриптов проверяют тесты `infra/stand/tests/` на подставных `docker` и `pg_dump`, в CI — вместе с shellcheck.
 
 В конце workflow проверяет `https://api.<домен>/health` снаружи.
@@ -160,6 +171,7 @@ stand() { STAND_TAG="$(tail -n 1 deployed-tags.log | cut -d ' ' -f 2)" docker co
   --env-file stand.env -f infra/docker-compose.yml -f infra/stand/compose.yml "$@"; }
 stand ps                       # что запущено
 stand logs --tail 100 api      # логи; ротация — 5 файлов по 10 МБ на контейнер
+stand logs api | grep security_spike  # всплески неудачных входов и команд (ADR-0029)
 stand exec backup ls -lh /backups
 ```
 

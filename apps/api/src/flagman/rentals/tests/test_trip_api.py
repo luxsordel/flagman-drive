@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from http import HTTPStatus
 from typing import Any
 
 import pytest
@@ -12,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.ratelimit import Limit
 from flagman.fleet.domain import CarCommandRejectedError
 from flagman.fleet.tests.conftest import FakeGateway, run_in_db
 from flagman.geo import service as geo
@@ -780,6 +782,35 @@ def test_the_client_may_pay_a_debt_with_another_card(
     # Paying a paid rental again does nothing.
     assert _post(person, rental_id, "pay").json()["status"] == "paid"
     assert len(_operations(integration_settings, rental_id)) == 4
+
+
+def test_debt_payments_are_rate_limited(
+    integration_settings: Settings, person: Person, car: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    rental_id = _start(person, car)
+    _shift(integration_settings, rental_id, 120)
+    _inspect_after(person, rental_id)
+    person.bind_card(DECLINED_CARD)
+    _make_default(person, "9995")
+    assert _post(person, rental_id, "finish").json()["charge_status"] == "failed"
+    monkeypatch.setattr(
+        service, "PAY_DEBT_LIMIT", Limit(f"rental-pay-debt-test-{uuid.uuid4()}", 1, 3600)
+    )
+    assert _post(person, rental_id, "pay").json()["status"] == "payment_failed"
+    _make_default(person, "4242")
+    operations = _operations(integration_settings, rental_id)
+
+    limited = _post(person, rental_id, "pay")
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert _operations(integration_settings, rental_id) == operations
+    assert person.get(rental_id).json()["status"] == "payment_failed"
+    # Paid in a fresh window, so the charge job of the other tests finds no debt of this one.
+    monkeypatch.setattr(
+        service, "PAY_DEBT_LIMIT", Limit(f"rental-pay-debt-test-{uuid.uuid4()}", 1, 3600)
+    )
+    assert _post(person, rental_id, "pay").json()["status"] == "paid"
 
 
 @pytest.fixture

@@ -233,6 +233,32 @@ describe('fines of a rental', () => {
     expect(second?.[3]).toBe(first?.[3]);
   });
 
+  it('tells how long to wait when the staff money limit is reached, keeping the key', async () => {
+    const smoking = fineType();
+    const fines = fakeFinesApi({ types: [smoking] });
+    fines.charge.mockRejectedValueOnce(new ApiError(429, 'rate-limited', 40));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderAt('/rentals/r-1', operator, { fines, rentals: fakeRentalsApi() });
+    const user = userEvent.setup();
+    const form = await screen.findByRole('form', { name: ru.fines.chargeTitle });
+    await within(form).findByRole('option', { name: /Курение/ });
+    await user.selectOptions(within(form).getByLabelText(ru.fines.type), smoking.fine_type_id);
+    await user.type(within(form).getByLabelText(ru.fines.comment), 'Smoked');
+    const submit = within(form).getByRole('button', { name: ru.fines.chargeSubmit });
+
+    await user.click(submit);
+    expect((await within(form).findByRole('alert')).textContent).toBe(
+      ru.fines.problems.rateLimited.replace('{{seconds}}', '40'),
+    );
+    await user.click(submit);
+
+    await waitFor(() => {
+      expect(fines.charge).toHaveBeenCalledTimes(2);
+    });
+    const [first, second] = fines.charge.mock.calls;
+    expect(second?.[3]).toBe(first?.[3]);
+  });
+
   it('shows the fine the first try charged when the form changed before the retry', async () => {
     const smoking = fineType();
     const charged = fine({ comment: 'Smoked' });
@@ -330,5 +356,23 @@ describe('fines of a rental', () => {
     expect(
       await screen.findByText(ru.fines.cancelledBecause.replace('{{reason}}', 'Wrong car')),
     ).toBeDefined();
+  });
+
+  it('tells how long to wait when a cancellation meets the staff money limit', async () => {
+    const fines = fakeFinesApi({ items: [fine()] });
+    // A proxy's 429 may come without Retry-After: the shared window is a minute.
+    fines.cancel.mockRejectedValueOnce(new ApiError(429, 'rate-limited'));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    renderAt('/rentals/r-1', operator, { fines, rentals: fakeRentalsApi() });
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: ru.fines.cancel }));
+    const form = screen.getByRole('form', { name: ru.fines.cancelTitle });
+    await user.type(within(form).getByLabelText(ru.fines.reason), 'Wrong car');
+
+    await user.click(within(form).getByRole('button', { name: ru.fines.cancelSubmit }));
+
+    expect((await within(form).findByRole('alert')).textContent.trim()).toBe(
+      ru.fines.problems.rateLimited.replace('{{seconds}}', '60'),
+    );
   });
 });
