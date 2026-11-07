@@ -1,6 +1,8 @@
 import base64
+import logging
 import secrets
 from collections.abc import Iterator, MutableMapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -141,3 +143,21 @@ def alert_logs(monkeypatch: pytest.MonkeyPatch) -> list[MutableMapping[str, Any]
     )
     monkeypatch.setattr(alerts, "logger", logger)
     return capture.entries
+
+
+@dataclass(frozen=True)
+class CapturedLogs:
+    alerts: list[MutableMapping[str, Any]]
+    caplog: pytest.LogCaptureFixture
+
+    def text(self) -> str:
+        """Everything the app logged: the spike warnings and every other record."""
+        return repr(self.alerts) + self.caplog.text
+
+
+@pytest.fixture
+def captured_logs(
+    alert_logs: list[MutableMapping[str, Any]], caplog: pytest.LogCaptureFixture
+) -> CapturedLogs:
+    caplog.set_level(logging.DEBUG)
+    return CapturedLogs(alert_logs, caplog)

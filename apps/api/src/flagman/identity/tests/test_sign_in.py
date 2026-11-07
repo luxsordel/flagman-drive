@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 from redis import Redis
 from sqlalchemy import Row, text
 
+from conftest import CapturedLogs
 from flagman.core.alerts import SpikeMeter
 from flagman.core.app import create_app
 from flagman.core.config import Settings
@@ -361,8 +362,9 @@ def test_failed_sign_ins_add_up_to_a_spike_warning(
     sms: FakeSms,
     phone: str,
     monkeypatch: pytest.MonkeyPatch,
-    alert_logs: list[MutableMapping[str, Any]],
+    captured_logs: CapturedLogs,
 ) -> None:
+    alert_logs = captured_logs.alerts
     threshold = Limit(f"sign-in-failed-client-test-{secrets.token_hex(4)}", 2, 300)
     monkeypatch.setattr(service, "SIGN_IN_FAILED_CLIENT_ALERT", threshold)
     other_phone = f"+37533{secrets.randbelow(10**7):07d}"
@@ -376,8 +378,10 @@ def test_failed_sign_ins_add_up_to_a_spike_warning(
     assert quiet == []
     spikes = _spikes(alert_logs)
     assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
-    assert phone[1:] not in repr(alert_logs)
-    assert other_phone[1:] not in repr(alert_logs)
+    logged = captured_logs.text()
+    assert captured_logs.caplog.records
+    assert phone[1:] not in logged
+    assert other_phone[1:] not in logged
 
 
 def test_sign_in_works_while_the_spike_meter_is_down(

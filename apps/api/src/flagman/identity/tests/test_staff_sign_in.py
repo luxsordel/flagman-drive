@@ -2,7 +2,7 @@ import asyncio
 import io
 import secrets
 import uuid
-from collections.abc import Callable, Iterator, MutableMapping
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
@@ -16,6 +16,7 @@ from redis import Redis
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import CapturedLogs
 from flagman.core.alerts import SpikeMeter
 from flagman.core.app import create_app
 from flagman.core.config import Settings
@@ -431,8 +432,9 @@ def test_failed_passwords_and_codes_add_up_to_a_spike_warning(
     client: TestClient,
     operator: Staff,
     monkeypatch: pytest.MonkeyPatch,
-    alert_logs: list[MutableMapping[str, Any]],
+    captured_logs: CapturedLogs,
 ) -> None:
+    alert_logs = captured_logs.alerts
     threshold = Limit(f"sign-in-failed-staff-test-{secrets.token_hex(4)}", 2, 300)
     monkeypatch.setattr(service, "SIGN_IN_FAILED_STAFF_ALERT", threshold)
 
@@ -445,7 +447,9 @@ def test_failed_passwords_and_codes_add_up_to_a_spike_warning(
     spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
     assert quiet == []
     assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
-    assert operator.email not in repr(alert_logs)
+    logged = captured_logs.text()
+    assert captured_logs.caplog.records
+    assert operator.email not in logged
 
 
 def test_unknown_email_and_disabled_account_add_up_to_a_spike_warning(
@@ -453,8 +457,9 @@ def test_unknown_email_and_disabled_account_add_up_to_a_spike_warning(
     make_staff: Callable[[StaffRole], Staff],
     integration_settings: Settings,
     monkeypatch: pytest.MonkeyPatch,
-    alert_logs: list[MutableMapping[str, Any]],
+    captured_logs: CapturedLogs,
 ) -> None:
+    alert_logs = captured_logs.alerts
     threshold = Limit(f"sign-in-failed-staff-test-{secrets.token_hex(4)}", 2, 300)
     monkeypatch.setattr(service, "SIGN_IN_FAILED_STAFF_ALERT", threshold)
     disabled = make_staff(StaffRole.OPERATOR)
@@ -470,8 +475,10 @@ def test_unknown_email_and_disabled_account_add_up_to_a_spike_warning(
 
     spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
     assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
-    assert unknown_email not in repr(alert_logs)
-    assert disabled.email not in repr(alert_logs)
+    logged = captured_logs.text()
+    assert captured_logs.caplog.records
+    assert unknown_email not in logged
+    assert disabled.email not in logged
 
 
 def test_sign_in_works_while_the_spike_meter_is_down(
