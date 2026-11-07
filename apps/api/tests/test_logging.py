@@ -112,6 +112,10 @@ def test_personal_data_and_secrets_are_redacted_from_logs(
             headers={"Authorization": "Bearer at-secret", "accept": "application/json"},
             rental_id="r-1",
             code="LOW_BATTERY",
+            first_name="Anna",
+            birth_date="1990-01-01",
+            lat=53.9,
+            lon=27.56,
         )
         # Records of libraries pass through the same chain, with the bound context merged in.
         logging.getLogger("uvicorn.error").info("library record")
@@ -125,6 +129,8 @@ def test_personal_data_and_secrets_are_redacted_from_logs(
     assert signed_in["Password"] == "[redacted]"
     assert signed_in["email"] == "[redacted]"
     assert signed_in["headers"] == {"Authorization": "[redacted]", "accept": "application/json"}
+    for key in ("first_name", "birth_date", "lat", "lon"):
+        assert signed_in[key] == "[redacted]"
     assert signed_in["rental_id"] == "r-1"
     # Error and catalog codes are not secrets; the sign-in code never reaches a log in prod.
     assert signed_in["code"] == "LOW_BATTERY"
