@@ -9,6 +9,7 @@ from io import BytesIO
 from typing import TYPE_CHECKING
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import text
@@ -265,12 +266,10 @@ def test_a_photo_stored_while_the_application_was_submitted_is_rolled_back(
     prefix = f"kyc/{_application_id(kyc_settings, client.phone)}/"
     stored_before = _stored_keys(seaweedfs, prefix)
     # The app's own storage: its clients belong to the event loop the requests run in.
-    racing = SubmitFromAnotherDevice(
-        client.client.app.state.resources.storage,  # type: ignore[attr-defined]
-        kyc_settings,
-        client.phone,
-    )
-    client.client.app.dependency_overrides[get_document_storage] = lambda: racing  # type: ignore[attr-defined]
+    app = client.client.app
+    assert isinstance(app, FastAPI)
+    racing = SubmitFromAnotherDevice(app.state.resources.storage, kyc_settings, client.phone)
+    app.dependency_overrides[get_document_storage] = lambda: racing
 
     response = client.upload(DocumentKind.PASSPORT, photo("retake"))
 

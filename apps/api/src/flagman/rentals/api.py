@@ -508,7 +508,7 @@ def get_live_staff_rental_service(
     return _staff_service(staff, service, origin)
 
 
-async def limit_staff_commands(
+async def limit_commands(
     staff: LiveStaff, limiter: Annotated[RateLimiter, Depends(get_rate_limiter)]
 ) -> CurrentStaff:
     # The lock of a forced finish is a car command like any other: it shares the staff limit.
@@ -517,7 +517,7 @@ async def limit_staff_commands(
 
 
 def get_staff_car_commander(
-    staff: Annotated[CurrentStaff, Depends(limit_staff_commands)],
+    staff: Annotated[CurrentStaff, Depends(limit_commands)],
     db: Annotated[AsyncSession, Depends(get_session)],
     origin: Annotated[RequestOrigin, Depends(get_request_origin)],
     gateway: Annotated[TelematicsGateway, Depends(get_telematics_gateway)],

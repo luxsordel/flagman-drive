@@ -260,7 +260,9 @@ async def apply_states(
     """
     if not states:
         return StatesApplied(applied={}, unknown=frozenset())
-    # Sorted, so the rows go in one order whatever order the cars came in.
+    # Sorted: when the plan drives the join from unnest, two batches with the same cars lock them
+    # in the same order, and a scan of cars locks them in table order anyway. Telemetry comes from
+    # one emulator, one batch at a time, so batches rarely meet at all.
     ordered = sorted(states.items())
     snapshots = (
         func.unnest(

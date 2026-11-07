@@ -200,6 +200,8 @@ async def get_map_car(
     rules: Rules,
     point: Annotated[ClientPoint, Query()],
 ) -> MapCarOut:
+    # As for the list: the router joins pricing and fleet, so it owns the one transaction, and
+    # fleet.service reads inside it rather than opening its own.
     async with db.begin():
         tariffs = await _map_tariffs(db)
         map_query = MapQuery(area=None, near=point.point(), limit=1, models=frozenset(tariffs))

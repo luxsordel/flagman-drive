@@ -10,6 +10,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -277,7 +278,9 @@ def test_an_unknown_car_is_404(client: TestClient, headers: dict[str, str]) -> N
 @contextlib.contextmanager
 def _database_round_trips(client: TestClient) -> Iterator[Counter[str]]:
     """Counts pool checkouts, transactions and statements of the app's engine while inside."""
-    engine: AsyncEngine = client.app.state.resources.engine  # type: ignore[attr-defined]
+    app = client.app
+    assert isinstance(app, FastAPI)
+    engine: AsyncEngine = app.state.resources.engine
     counts: Counter[str] = Counter()
 
     def checkout(*_: object) -> None:
