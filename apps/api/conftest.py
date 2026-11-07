@@ -1,7 +1,9 @@
 import base64
 import logging
 import secrets
+import threading
 from collections.abc import Iterator, MutableMapping
+from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
@@ -11,6 +13,7 @@ import structlog
 from alembic import command
 from alembic.config import Config
 from redis.asyncio import Redis
+from starlette.testclient import WebSocketTestSession
 from structlog.testing import LogCapture
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
@@ -161,3 +164,21 @@ def captured_logs(
 ) -> CapturedLogs:
     caplog.set_level(logging.DEBUG)
     return CapturedLogs(alert_logs, caplog)
+
+
+def receive_json(socket: WebSocketTestSession, timeout: float) -> dict[str, Any]:
+    """The next message of a test WebSocket, or TimeoutError.
+
+    The test client has no receive timeout: a missing message would hang the whole run. A daemon
+    thread that nobody joins, because a pool would wait on leaving for that very message.
+    """
+    received: Future[dict[str, Any]] = Future()
+
+    def read() -> None:
+        try:
+            received.set_result(socket.receive_json())
+        except Exception as error:
+            received.set_exception(error)
+
+    threading.Thread(target=read, daemon=True).start()
+    return received.result(timeout)

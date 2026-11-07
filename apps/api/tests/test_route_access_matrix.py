@@ -8,11 +8,9 @@ from the code under test would approve any mistake in it. A new route fails
 import base64
 import re
 import secrets
-import threading
 import time
 import uuid
 from collections.abc import Iterator
-from concurrent.futures import Future
 from datetime import UTC, datetime
 from http import HTTPStatus
 from typing import Any
@@ -27,7 +25,7 @@ from starlette.routing import Route, WebSocketRoute
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
-from conftest import SettingsFactory
+from conftest import SettingsFactory, receive_json
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.fleet import stream
@@ -546,18 +544,7 @@ def test_a_client_route_lets_a_client_through(
 
 
 def _receive(socket: WebSocketTestSession, timeout: float = TIMEOUT_S) -> dict[str, Any]:
-    # The test client has no receive timeout: a missing message would hang the whole run. A daemon
-    # thread that nobody joins, because a pool would wait on leaving for that very message.
-    received: Future[dict[str, Any]] = Future()
-
-    def read() -> None:
-        try:
-            received.set_result(socket.receive_json())
-        except Exception as error:
-            received.set_exception(error)
-
-    threading.Thread(target=read, daemon=True).start()
-    return received.result(timeout)
+    return receive_json(socket, timeout)
 
 
 def test_a_silent_stream_fails_the_test_instead_of_hanging_the_run() -> None:

@@ -3,7 +3,6 @@ import json
 import time
 import uuid
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -13,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.testclient import WebSocketTestSession
 from starlette.websockets import WebSocketDisconnect
 
+from conftest import receive_json
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.geo import GeoPoint
@@ -62,10 +62,7 @@ def _connect(client: TestClient, origin: str | None = ORIGIN) -> Any:
 
 
 def _receive(socket: WebSocketTestSession, timeout: float = TIMEOUT_S) -> dict[str, Any]:
-    # The test client has no receive timeout: a missing message would hang the whole run.
-    with ThreadPoolExecutor(max_workers=1) as pool:
-        message: dict[str, Any] = pool.submit(socket.receive_json).result(timeout)
-    return message
+    return receive_json(socket, timeout)
 
 
 def _read_until_closed(socket: WebSocketTestSession) -> None:
