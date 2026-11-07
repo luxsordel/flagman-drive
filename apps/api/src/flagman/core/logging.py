@@ -59,19 +59,19 @@ _SHARED_PROCESSORS: list[structlog.typing.Processor] = [
 
 # uvicorn logs every WebSocket handshake as '<client ip:port> - "WebSocket <path>" <outcome>'.
 # Behind Caddy that is the real address of the client from X-Forwarded-For, and we keep no IPs
-# in logs (Caddy drops them too).
+# in logs (Caddy drops them too). The path comes with its query string, which may carry a token
+# a client put there, so only the path is kept, as RequestContextMiddleware does for HTTP.
 _WEBSOCKET_HANDSHAKE_PREFIX = '%s - "WebSocket '
 
 
 def _drop_websocket_client_address(record: logging.LogRecord) -> bool:
-    if (
-        isinstance(record.msg, str)
-        and record.msg.startswith(_WEBSOCKET_HANDSHAKE_PREFIX)
-        and isinstance(record.args, tuple)
-        and record.args
-    ):
-        record.msg = record.msg.removeprefix("%s - ")
-        record.args = record.args[1:]
+    if isinstance(record.msg, str) and record.msg.startswith(_WEBSOCKET_HANDSHAKE_PREFIX):
+        match record.args:
+            case (_, str() as path, *rest):
+                record.msg = record.msg.removeprefix("%s - ")
+                record.args = (path.partition("?")[0], *rest)
+            case _:
+                pass
     return True
 
 

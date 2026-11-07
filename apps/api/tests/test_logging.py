@@ -61,7 +61,7 @@ async def _open_socket(ws: str, path: str) -> None:
     server = uvicorn.Server(config)
     serving = asyncio.create_task(server.serve(sockets=[sock]))
     try:
-        if path == "/rejected":
+        if path.startswith("/rejected"):
             with pytest.raises(InvalidStatus) as rejected:
                 await connect(url)
             assert rejected.value.response.status_code == 403
@@ -74,9 +74,18 @@ async def _open_socket(ws: str, path: str) -> None:
 
 
 @pytest.mark.parametrize("ws", ["websockets", "websockets-sansio"])
-@pytest.mark.parametrize(("path", "outcome"), [("/stream", "[accepted]"), ("/rejected", "403")])
+@pytest.mark.parametrize(
+    ("path", "logged_path", "outcome"),
+    [
+        ("/stream", "/stream", "[accepted]"),
+        ("/rejected", "/rejected", "403"),
+        # A client may put a token in the query string; it must not reach the log.
+        ("/stream?access_token=at-secret", "/stream", "[accepted]"),
+        ("/rejected?access_token=at-secret", "/rejected", "403"),
+    ],
+)
 async def test_websocket_handshake_is_logged_without_the_client_address(
-    capsys: pytest.CaptureFixture[str], ws: str, path: str, outcome: str
+    capsys: pytest.CaptureFixture[str], ws: str, path: str, logged_path: str, outcome: str
 ) -> None:
     await _open_socket(ws, path)
 
@@ -86,7 +95,7 @@ async def test_websocket_handshake_is_logged_without_the_client_address(
         for line in lines
         if line["logger"] == "uvicorn.error" and "WebSocket" in line["event"]
     ]
-    assert handshakes == [f'"WebSocket {path}" {outcome}']
+    assert handshakes == [f'"WebSocket {logged_path}" {outcome}']
 
 
 def test_personal_data_and_secrets_are_redacted_from_logs(
