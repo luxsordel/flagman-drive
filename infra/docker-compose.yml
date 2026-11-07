@@ -113,6 +113,10 @@ services:
       # Read by uvicorn itself (the CLI takes UVICORN_* variables). Each process has its own event
       # loop, database pool and fleet stream listener (docs/adr/0017).
       UVICORN_WORKERS: ${API_WORKERS:-1}
+      # Read by uvicorn itself; its own default is 5 s. Clients reuse a connection after pauses of
+      # 5-15 s and Caddy keeps idle upstream connections for 60 s (infra/stand/web/Caddyfile): a
+      # request sent while uvicorn closes the idle socket is lost. So uvicorn must wait longer.
+      UVICORN_TIMEOUT_KEEP_ALIVE: ${API_KEEP_ALIVE_SECONDS:-75}
       POSTGRES_HOST: postgres
       POSTGRES_PORT: 5432
       POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}

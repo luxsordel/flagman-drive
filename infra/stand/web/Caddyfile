@@ -63,6 +63,18 @@
 	}
 }
 
+# The API. Caddy keeps an idle upstream connection for 2 minutes by default, uvicorn for
+# API_KEEP_ALIVE_SECONDS (75 s by default, infra/docker-compose.yml). A request Caddy sends on a
+# socket uvicorn is closing fails: Caddy retries only idempotent methods, a POST becomes a 502.
+# Caddy has to give up an idle connection first, so it waits less than uvicorn.
+(api) {
+	reverse_proxy api:8000 {
+		transport http {
+			keepalive 60s
+		}
+	}
+}
+
 # A single-page app: unknown paths get index.html; hashed assets are cached for a long time.
 (spa) {
 	@assets path /assets/* /_expo/*
@@ -77,7 +89,7 @@ admin.{$STAND_DOMAIN} {
 	import common
 	@api path /staff/* /admin/*
 	handle @api {
-		reverse_proxy api:8000
+		import api
 	}
 	handle {
 		root * /srv/admin
@@ -98,7 +110,7 @@ app.{$STAND_DOMAIN} {
 # The API for the app. It sets its own security headers (core/middleware.py).
 api.{$STAND_DOMAIN} {
 	import common
-	reverse_proxy api:8000
+	import api
 }
 
 # Signed links to document photos. The signature covers the host, so the request reaches
