@@ -251,23 +251,35 @@ async def receive_telemetry(
     counts = dict.fromkeys(SnapshotOutcome, 0)
     unknown: list[UUID] = []
     from_future = 0
-    changed: list[UUID] = []
+    timely: list[TelemetrySnapshot] = []
+    for snapshot in snapshots:
+        try:
+            check_snapshot_time(snapshot.state.recorded_at, now, max_skew)
+        except SnapshotFromFutureError:
+            from_future += 1
+            continue
+        timely.append(snapshot)
+    freshest = _freshest_per_car(timely)
     async with db.begin():
-        for snapshot in snapshots:
-            try:
-                outcome, car_id = await _apply_snapshot(
-                    db, snapshot.telematics_id, snapshot.state, now, max_skew
-                )
-            except SnapshotFromFutureError:
-                from_future += 1
-                continue
-            counts[outcome] += 1
-            if car_id is not None:
-                changed.append(car_id)
-            if outcome is SnapshotOutcome.UNKNOWN_CAR:
-                unknown.append(snapshot.telematics_id)
+        # One statement for the whole batch: the transaction holds the row locks of every car in
+        # it, and each round trip inside it kept them longer (docs/09-load-test.md).
+        stored = await repository.apply_states(
+            db, {telematics_id: snapshot.state for telematics_id, snapshot in freshest.items()}, now
+        )
         # A few notices for the whole batch rather than one per car.
-        await repository.notify(db, encode_car_changes(changed))
+        await repository.notify(db, encode_car_changes(stored.applied.values()))
+    for snapshot in timely:
+        if snapshot.telematics_id in stored.unknown:
+            counts[SnapshotOutcome.UNKNOWN_CAR] += 1
+            unknown.append(snapshot.telematics_id)
+        elif (
+            snapshot.telematics_id in stored.applied
+            and freshest[snapshot.telematics_id] is snapshot
+        ):
+            counts[SnapshotOutcome.APPLIED] += 1
+        else:
+            # Older than the stored state, or than another snapshot of the car in this batch.
+            counts[SnapshotOutcome.STALE] += 1
     report = TelemetryReport(
         applied=counts[SnapshotOutcome.APPLIED],
         stale=counts[SnapshotOutcome.STALE],
@@ -283,6 +295,16 @@ async def receive_telemetry(
             from_future=from_future,
         )
     return report
+
+
+def _freshest_per_car(snapshots: Sequence[TelemetrySnapshot]) -> dict[UUID, TelemetrySnapshot]:
+    # Of two snapshots taken at the same time the first one wins, as when they come one by one.
+    freshest: dict[UUID, TelemetrySnapshot] = {}
+    for snapshot in snapshots:
+        held = freshest.get(snapshot.telematics_id)
+        if held is None or snapshot.state.recorded_at > held.state.recorded_at:
+            freshest[snapshot.telematics_id] = snapshot
+    return freshest
 
 
 @dataclass(frozen=True)
