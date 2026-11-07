@@ -249,7 +249,8 @@ async def receive_telemetry(
     must not hold back the state of the rest of the fleet.
     """
     counts = dict.fromkeys(SnapshotOutcome, 0)
-    unknown: list[UUID] = []
+    # An ordered set: a car that sent several snapshots takes one place in the log.
+    unknown: dict[UUID, None] = {}
     from_future = 0
     timely: list[TelemetrySnapshot] = []
     for snapshot in snapshots:
@@ -271,7 +272,7 @@ async def receive_telemetry(
     for snapshot in timely:
         if snapshot.telematics_id in stored.unknown:
             counts[SnapshotOutcome.UNKNOWN_CAR] += 1
-            unknown.append(snapshot.telematics_id)
+            unknown[snapshot.telematics_id] = None
         elif (
             snapshot.telematics_id in stored.applied
             and freshest[snapshot.telematics_id] is snapshot
@@ -291,7 +292,7 @@ async def receive_telemetry(
         logger.warning(
             "telemetry_partly_rejected",
             unknown_car=report.unknown_car,
-            unknown_telematics_ids=[str(car_id) for car_id in unknown[:_LOGGED_UNKNOWN_CARS]],
+            unknown_telematics_ids=[str(car_id) for car_id in list(unknown)[:_LOGGED_UNKNOWN_CARS]],
             from_future=from_future,
         )
     return report
