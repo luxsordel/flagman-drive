@@ -148,6 +148,23 @@ def test_a_local_run_needs_at_least_one_api_process(workers: str) -> None:
         cli.main(["local", "pilot", "--api-workers", workers])
 
 
+def test_a_local_run_takes_as_many_api_processes_as_the_pool_budget_fits(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runs: list[int] = []
+
+    def record(profile: Profile, keep: bool, api_workers: int) -> bool:
+        runs.append(api_workers)
+        return True
+
+    monkeypatch.setattr(cli, "run_local", record)
+    assert cli.main(["local", "pilot", "--api-workers", "3"]) == 0
+    assert runs == [3]
+    # Four processes with the default pool can open more connections than Postgres accepts.
+    with pytest.raises(SystemExit):
+        cli.main(["local", "pilot", "--api-workers", "4"])
+
+
 def test_the_stack_gets_the_number_of_api_processes() -> None:
     assert stack.local_env(30, ["+375291000000"], "402918")["API_WORKERS"] == "1"
     assert stack.local_env(30, ["+375291000000"], "402918", 2)["API_WORKERS"] == "2"
