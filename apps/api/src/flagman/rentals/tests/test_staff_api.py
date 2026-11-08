@@ -4,6 +4,7 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
@@ -11,6 +12,9 @@ from sqlalchemy.exc import DBAPIError
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
+from flagman.core.ratelimit import Limit
+from flagman.fleet import api as fleet_api
+from flagman.fleet import service as fleet_service
 from flagman.fleet.domain import TelematicsTimeoutError
 from flagman.fleet.tests.conftest import FakeGateway, Staff, run_in_db
 from flagman.geo import service as geo
@@ -19,6 +23,7 @@ from flagman.payments import service as payments_service
 from flagman.payments.domain import IdempotencyKeyReusedError
 from flagman.payments.fake_provider import FakeProvider
 from flagman.payments.ports import OperationRequest, OperationResult, PaymentProviderError
+from flagman.rentals import service as rentals_service
 from flagman.rentals.service import StaffRentalService
 from flagman.rentals.tests.conftest import (
     CAR_POINT,
@@ -287,6 +292,82 @@ def test_money_needs_a_live_session(
     assert _operations(integration_settings, rental_id)[-1].kind == "capture"
 
 
+def test_a_refund_retry_needs_a_live_session(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    before = _operations(integration_settings, rental_id)
+    operator.revoke_session()
+
+    response = app_client.post(
+        f"/admin/rentals/{rental_id}/refunds/retry", headers=operator.headers
+    )
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert _operations(integration_settings, rental_id) == before
+
+
+def test_a_forced_finish_needs_a_live_session(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    gateway: FakeGateway,
+) -> None:
+    rental_id = _start(person, car)
+    calls = list(gateway.calls)
+    operator.revoke_session()
+
+    response = _force(app_client, operator, rental_id)
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+    assert gateway.calls == calls
+    assert car_status(integration_settings, car) == "in_rental"
+    assert not _audited(integration_settings, rental_id, "rental.force_finished")
+
+
+def test_a_forced_finish_counts_against_the_staff_command_limit(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        fleet_service, "COMMAND_LIMIT", Limit(f"car-commands-test-{uuid.uuid4()}", 1, 60)
+    )
+    app = app_client.app
+    assert isinstance(app, FastAPI)
+    app.dependency_overrides[fleet_api.get_telematics_gateway] = lambda: gateway
+    rental_id = _start(person, car)
+    other_car = add_priced_car(integration_settings, CAR_POINT)
+    sent = app_client.post(
+        f"/admin/fleet/cars/{other_car}/commands",
+        json={"command": "open", "comment": "Checking the car before it goes out"},
+        headers=operator.headers,
+    )
+    assert sent.status_code == HTTPStatus.OK, sent.text
+    calls = list(gateway.calls)
+
+    limited = _force(app_client, operator, rental_id)
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    assert gateway.calls == calls
+    assert person.get(rental_id).json()["status"] == "in_trip"
+    assert not _audited(integration_settings, rental_id, "rental.force_finished")
+    # Counted per staff member: a colleague still ends the trip.
+    colleague = Staff(integration_settings, StaffRole.OPERATOR)
+    assert _force(app_client, colleague, rental_id).status_code == HTTPStatus.OK
+
+
 # The list and the card
 
 
@@ -375,6 +456,39 @@ def test_a_photo_link_for_staff_is_in_the_audit_log(  # noqa: PLR0913, PLR0917 -
     ]
     assert event.actor_id == operator.id
     assert event.details["photo_id"] == photo_id
+
+
+def test_photo_links_are_limited_per_staff_member(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    storage: FakeStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        rentals_service,
+        "STAFF_PHOTO_URL_LIMIT",
+        Limit(f"rental-photo-url-staff-test-{uuid.uuid4()}", 1, 3600),
+    )
+    rental_id = _paid_trip(integration_settings, person, car)
+    [before, _] = _card(app_client, operator, rental_id).json()["inspections"]
+    url = f"/admin/rentals/{rental_id}/inspections/before/photos/{before['photos'][0]['id']}/url"
+
+    assert app_client.get(url, headers=operator.headers).status_code == HTTPStatus.OK
+    limited = app_client.get(url, headers=operator.headers)
+
+    assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+    assert "Retry-After" in limited.headers
+    # Counted per staff member: a colleague still opens the photos.
+    colleague = Staff(integration_settings, StaffRole.OPERATOR)
+    assert app_client.get(url, headers=colleague.headers).status_code == HTTPStatus.OK
+    # Only the links handed out are in the audit log.
+    viewed = [
+        e for e in _audit(integration_settings, rental_id) if e.action == "rental.photo_viewed"
+    ]
+    assert len(viewed) == 2
 
 
 # The forced finish
@@ -637,6 +751,29 @@ def test_an_adjustment_is_checked(  # noqa: PLR0913, PLR0917 - the case and the 
     assert _card(app_client, operator, rental_id).json()["adjustments"] == []
 
 
+def test_an_adjustment_needs_an_idempotency_key(
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+) -> None:
+    rental_id = _paid_trip(integration_settings, person, car)
+    operations = _operations(integration_settings, rental_id)
+
+    # Without a key a retried request could refund or charge the client twice.
+    response = app_client.post(
+        f"/admin/rentals/{rental_id}/adjustments",
+        json={"amount": -100, "comment": "Waited for the unlock"},
+        headers=operator.headers,
+    )
+
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY, response.text
+    assert _card(app_client, operator, rental_id).json()["adjustments"] == []
+    assert _operations(integration_settings, rental_id) == operations
+    assert _audited(integration_settings, rental_id, "rental.adjusted") == []
+
+
 def test_a_rental_on_the_road_is_not_adjusted(
     integration_settings: Settings,
     person: Person,
@@ -725,6 +862,45 @@ def test_a_repeat_with_the_same_key_moves_no_money_again(
     assert problem_type(other) == "idempotency-key-reused"
     refunds = [op for op in _operations(integration_settings, rental_id) if op.kind == "refund"]
     assert [op.amount for op in refunds] == [100]
+
+
+def test_money_actions_are_limited_per_staff_member(  # noqa: PLR0913, PLR0917 - the fixtures of the test
+    integration_settings: Settings,
+    person: Person,
+    car: str,
+    operator: Staff,
+    app_client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        payments_service,
+        "STAFF_MONEY_LIMIT",
+        Limit(f"money-actions-staff-test-{uuid.uuid4()}", 1, 60),
+    )
+    rental_id = _paid_trip(integration_settings, person, car)
+    key = uuid.uuid4()
+    first = _adjust(app_client, operator, rental_id, -100, "Late unlock", key)
+    assert first.status_code == HTTPStatus.CREATED, first.text
+    operations = _operations(integration_settings, rental_id)
+    audit_log = _audit(integration_settings, rental_id)
+
+    lowered = _adjust(app_client, operator, rental_id, -50, "Goodwill")
+    retried = app_client.post(f"/admin/rentals/{rental_id}/refunds/retry", headers=operator.headers)
+    # A repeat of a request that went through is counted too, and still changes nothing.
+    repeat = _adjust(app_client, operator, rental_id, -100, "Late unlock", key)
+
+    for limited in (lowered, retried, repeat):
+        assert limited.status_code == HTTPStatus.TOO_MANY_REQUESTS, limited.text
+        assert "Retry-After" in limited.headers
+    assert _operations(integration_settings, rental_id) == operations
+    assert _audit(integration_settings, rental_id) == audit_log
+    card = _card(app_client, operator, rental_id).json()
+    assert [adjustment["amount"] for adjustment in card["adjustments"]] == [-100]
+    # Counted per staff member: a colleague still lowers the total.
+    colleague = Staff(integration_settings, StaffRole.OPERATOR)
+    assert _adjust(app_client, colleague, rental_id, -50, "Goodwill").status_code == (
+        HTTPStatus.CREATED
+    )
 
 
 def test_each_decrease_refunds_its_own_share_over_several_payments(

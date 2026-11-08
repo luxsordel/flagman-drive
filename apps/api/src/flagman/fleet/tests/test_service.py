@@ -1,12 +1,15 @@
 import random
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
+import structlog
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from structlog.testing import LogCapture
 
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
@@ -22,6 +25,8 @@ from flagman.fleet.domain import (
     Gear,
     SnapshotFromFutureError,
     SnapshotOutcome,
+    TelemetryReport,
+    TelemetrySnapshot,
     emulator_car_id,
 )
 from flagman.fleet.seed import DEMO_MODELS
@@ -163,6 +168,107 @@ async def test_snapshot_from_the_future_is_refused(db: AsyncSession) -> None:
 async def test_snapshot_needs_the_callers_transaction(db: AsyncSession) -> None:
     with pytest.raises(RuntimeError, match="transaction"):
         await service.apply_state_snapshot(db, uuid.uuid4(), _state(), NOW, MAX_CLOCK_SKEW)
+
+
+async def _receive(db: AsyncSession, *snapshots: TelemetrySnapshot) -> TelemetryReport:
+    return await service.receive_telemetry(db, snapshots, NOW, MAX_CLOCK_SKEW)
+
+
+async def _stored(db: AsyncSession, telematics_id: uuid.UUID) -> CarState | None:
+    return (await service.get_car(db, await _car_id(db, telematics_id))).state
+
+
+async def test_batch_applies_each_car_and_counts_the_rest(db: AsyncSession) -> None:
+    fresh, told, stale, ahead = [await _add_car(db) for _ in range(4)]
+    await _apply(db, stale, _state(at=NOW))
+    unknown = uuid.uuid4()
+    # Each car keeps its own values: a batch must not mix up rows.
+    fresh_state = _state(at=NOW - timedelta(seconds=1), battery_pct=55)
+    told_state = replace(
+        _state(battery_pct=66, point=GeoPoint(lat=53.85, lon=27.45)),
+        headlights_on=True,
+        gear=Gear.DRIVE,
+    )
+
+    report = await _receive(
+        db,
+        TelemetrySnapshot(stale, _state(at=NOW - timedelta(seconds=5), battery_pct=10)),
+        TelemetrySnapshot(fresh, fresh_state),
+        TelemetrySnapshot(unknown, _state()),
+        TelemetrySnapshot(ahead, _state(at=NOW + MAX_CLOCK_SKEW + timedelta(seconds=1))),
+        TelemetrySnapshot(told, told_state),
+    )
+
+    assert report == TelemetryReport(applied=2, stale=1, unknown_car=1, from_future=1)
+    assert await _stored(db, fresh) == fresh_state
+    assert await _stored(db, told) == told_state
+    assert await _stored(db, stale) == _state(at=NOW)
+    assert await _stored(db, ahead) is None
+
+
+async def test_batch_stores_the_freshest_snapshot_of_a_car(db: AsyncSession) -> None:
+    telematics_id = await _add_car(db)
+    unknown = uuid.uuid4()
+    newest = _state(at=NOW, battery_pct=70)
+
+    report = await _receive(
+        db,
+        TelemetrySnapshot(telematics_id, _state(at=NOW - timedelta(seconds=10), battery_pct=72)),
+        TelemetrySnapshot(telematics_id, newest),
+        TelemetrySnapshot(telematics_id, _state(at=NOW - timedelta(seconds=5), battery_pct=71)),
+        # A repeat of the newest one counts as stale, as when it comes in the next batch.
+        TelemetrySnapshot(telematics_id, replace(newest, battery_pct=1)),
+        TelemetrySnapshot(unknown, _state()),
+        TelemetrySnapshot(unknown, _state(at=NOW - timedelta(seconds=5))),
+    )
+
+    assert report == TelemetryReport(applied=1, stale=3, unknown_car=2)
+    assert await _stored(db, telematics_id) == newest
+
+
+async def test_batch_logs_each_unknown_car_once(
+    db: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    capture = LogCapture()
+    monkeypatch.setattr(
+        service,
+        "logger",
+        structlog.wrap_logger(
+            structlog.ReturnLogger(), processors=[capture], wrapper_class=structlog.BoundLogger
+        ),
+    )
+    first, second = uuid.uuid4(), uuid.uuid4()
+
+    report = await _receive(
+        db,
+        TelemetrySnapshot(first, _state(at=NOW - timedelta(seconds=10))),
+        TelemetrySnapshot(second, _state()),
+        TelemetrySnapshot(first, _state()),
+    )
+
+    assert report == TelemetryReport(applied=0, stale=0, unknown_car=3)
+    (rejected,) = [e for e in capture.entries if e["event"] == "telemetry_partly_rejected"]
+    # The count stays per snapshot, the ids name each car once.
+    assert rejected["unknown_car"] == 3
+    assert rejected["unknown_telematics_ids"] == [str(first), str(second)]
+
+
+async def test_batch_older_than_the_stored_state_changes_nothing(db: AsyncSession) -> None:
+    telematics_id = await _add_car(db)
+    await _apply(db, telematics_id, _state(at=NOW))
+
+    report = await _receive(
+        db,
+        TelemetrySnapshot(telematics_id, _state(at=NOW - timedelta(seconds=10), battery_pct=10)),
+        TelemetrySnapshot(telematics_id, _state(at=NOW, battery_pct=20)),
+    )
+
+    assert report == TelemetryReport(stale=2)
+    assert await _stored(db, telematics_id) == _state(at=NOW)
+
+
+async def test_empty_batch_is_fine(db: AsyncSession) -> None:
+    assert await _receive(db) == TelemetryReport()
 
 
 async def test_change_status_follows_the_status_machine(db: AsyncSession) -> None:

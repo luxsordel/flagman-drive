@@ -9,6 +9,7 @@ from io import BytesIO
 from typing import TYPE_CHECKING
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import text
@@ -18,10 +19,11 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.photos import MAX_UPLOAD_BYTES
 from flagman.core.ratelimit import Limit
+from flagman.core.storage import open_object_storage
 from flagman.kyc import service
 from flagman.kyc.api import get_document_storage
 from flagman.kyc.domain import REQUIRED_DOCUMENTS, DocumentKind, KycStatus
-from flagman.kyc.ports import DocumentStorage, create_document_storage
+from flagman.kyc.ports import DocumentStorage
 from flagman.kyc.tests.conftest import (
     Person,
     S3Endpoint,
@@ -178,9 +180,13 @@ def test_a_signed_link_stops_working_after_its_ttl(
     client = person()
     client.upload(DocumentKind.PASSPORT)
     key = _keys(kyc_settings, client.phone)[DocumentKind.PASSPORT]
-    storage = create_document_storage(kyc_settings)
 
-    url = asyncio.run(storage.signed_get_url(key, timedelta(seconds=1)))
+    async def sign() -> str:
+        async with open_object_storage(kyc_settings) as storage:
+            assert storage is not None
+            return await storage.signed_get_url(key, timedelta(seconds=1))
+
+    url = asyncio.run(sign())
     time.sleep(3)
 
     assert open_url(url).status == HTTPStatus.FORBIDDEN
@@ -259,10 +265,11 @@ def test_a_photo_stored_while_the_application_was_submitted_is_rolled_back(
     keys_before = _keys(kyc_settings, client.phone)
     prefix = f"kyc/{_application_id(kyc_settings, client.phone)}/"
     stored_before = _stored_keys(seaweedfs, prefix)
-    racing = SubmitFromAnotherDevice(
-        create_document_storage(kyc_settings), kyc_settings, client.phone
-    )
-    client.client.app.dependency_overrides[get_document_storage] = lambda: racing  # type: ignore[attr-defined]
+    # The app's own storage: its clients belong to the event loop the requests run in.
+    app = client.client.app
+    assert isinstance(app, FastAPI)
+    racing = SubmitFromAnotherDevice(app.state.resources.storage, kyc_settings, client.phone)
+    app.dependency_overrides[get_document_storage] = lambda: racing
 
     response = client.upload(DocumentKind.PASSPORT, photo("retake"))
 

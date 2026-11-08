@@ -180,6 +180,8 @@ def test_guessable_codes_the_api_refuses_are_recognised() -> None:
     assert pools.is_guessable_code("111111")
     assert pools.is_guessable_code("123456")
     assert pools.is_guessable_code("654321")
+    assert pools.is_guessable_code("121212")
+    assert pools.is_guessable_code("112233")
     assert not pools.is_guessable_code("402918")
 
 

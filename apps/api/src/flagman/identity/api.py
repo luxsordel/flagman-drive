@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
 from flagman.audit.domain import RequestOrigin
+from flagman.core.alerts import SpikeMeter
 from flagman.core.db import get_session
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.ratelimit import RateLimiter, get_rate_limiter
@@ -91,7 +92,9 @@ def get_sign_in_service(
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
     resources: Annotated[Resources, Depends(get_resources)],
 ) -> SignInService:
-    return SignInService(db=db, limiter=limiter, settings=resources.settings)
+    return SignInService(
+        db=db, limiter=limiter, alerts=SpikeMeter(resources.redis), settings=resources.settings
+    )
 
 
 Service = Annotated[SignInService, Depends(get_sign_in_service)]
@@ -228,7 +231,9 @@ def get_staff_sign_in_service(
     limiter: Annotated[RateLimiter, Depends(get_rate_limiter)],
     resources: Annotated[Resources, Depends(get_resources)],
 ) -> StaffSignInService:
-    return StaffSignInService(db=db, limiter=limiter, settings=resources.settings)
+    return StaffSignInService(
+        db=db, limiter=limiter, alerts=SpikeMeter(resources.redis), settings=resources.settings
+    )
 
 
 StaffService = Annotated[StaffSignInService, Depends(get_staff_sign_in_service)]

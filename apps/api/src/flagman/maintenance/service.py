@@ -397,7 +397,17 @@ class TaskWork:
                 ensure_own_task_in_progress(locked, worker)
                 if await repository.count_photos(self.db, task.id) >= MAX_TASK_PHOTOS:
                     raise TaskPhotoLimitError
-                await repository.add_photo(self.db, task.id, key, len(photo), now)
+                photo_id = await repository.add_photo(self.db, task.id, key, len(photo), now)
+                await audit.record(
+                    self.db,
+                    AuditEntry(
+                        Actor(ActorType.STAFF, worker.staff_id),
+                        AuditAction.MAINTENANCE_TASK_PHOTO_ADDED,
+                        self.origin,
+                        AuditTarget(AuditTargetType.MAINTENANCE_TASK, task.id),
+                        details={"photo_id": photo_id},
+                    ),
+                )
                 photos = await repository.list_photos(self.db, task.id)
         except Exception:
             await _delete_quietly(storage, key)

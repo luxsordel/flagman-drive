@@ -23,12 +23,14 @@ from flagman.rentals.domain import (
     InspectionStage,
     Rental,
     RentalBusyError,
+    RentalCommand,
     RentalStatus,
     RentalTransition,
     RentalTransitionNotAllowedError,
     ReservationTerms,
     TooFarFromCarError,
     apply_transition,
+    blocked_client_may_command,
     ensure_command_allowed,
     ensure_near_car,
     minutes_left,
@@ -259,6 +261,17 @@ def test_a_command_needs_an_active_rental_a_free_one_and_the_inspection() -> Non
         ensure_command_allowed(_rental(command_until=NOW + timedelta(seconds=1)), True, NOW)
     with pytest.raises(InspectionRequiredError):
         ensure_command_allowed(_rental(), inspection_submitted=False, now=NOW)
+
+
+@pytest.mark.parametrize("status", [RentalStatus.IN_TRIP, RentalStatus.PARKED])
+def test_a_blocked_client_may_only_close_the_car_of_a_trip_under_way(status: RentalStatus) -> None:
+    assert blocked_client_may_command(_rental(status=status), RentalCommand.CLOSE)
+    assert not blocked_client_may_command(_rental(status=status), RentalCommand.OPEN)
+
+
+@pytest.mark.parametrize("command", list(RentalCommand))
+def test_a_blocked_client_may_not_command_a_reserved_car(command: RentalCommand) -> None:
+    assert not blocked_client_may_command(_rental(status=RentalStatus.RESERVED), command)
 
 
 RULES = CommandRules(max_distance_m=50.0, max_state_age=timedelta(minutes=5))

@@ -235,7 +235,7 @@ async def test_log_sms_sender_never_logs_the_full_phone() -> None:
     assert logs == [
         {
             "event": "otp_sms_stub",
-            "phone": "+375 29 *** ** 67",
+            "masked_phone": "+375 29 *** ** 67",
             "code": "123456",
             "log_level": "info",
         }

@@ -123,11 +123,15 @@ def opened_state(point: GeoPoint = CAR_POINT) -> CarState:
 
 
 @pytest.fixture(autouse=True)
-def demo_tariffs(integration_settings: Settings) -> None:
+def demo_tariffs(request: pytest.FixtureRequest) -> None:
     """Every demo model has the demo tariff: cars without one are not rented out.
 
-    Seeding again changes nothing, so every test may run it.
+    Seeding again changes nothing, so every test may run it. Unit tests have no database, and
+    asking for the settings here would start the containers for them too.
     """
+    if request.node.get_closest_marker("integration") is None:
+        return
+    integration_settings: Settings = request.getfixturevalue("integration_settings")
 
     async def seed(db: AsyncSession) -> None:
         async with db.begin():

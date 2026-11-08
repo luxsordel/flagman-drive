@@ -1,14 +1,19 @@
 import asyncio
+import contextlib
 import itertools
 import json
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from typing import Any
 
 import pytest
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from flagman.core.app import create_app
 from flagman.core.config import Settings
@@ -268,6 +273,55 @@ def test_an_unknown_car_is_404(client: TestClient, headers: dict[str, str]) -> N
     response = client.get(f"{URL}/{uuid.uuid4()}", headers=headers)
 
     assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+@contextlib.contextmanager
+def _database_round_trips(client: TestClient) -> Iterator[Counter[str]]:
+    """Counts pool checkouts, transactions and statements of the app's engine while inside."""
+    app = client.app
+    assert isinstance(app, FastAPI)
+    engine: AsyncEngine = app.state.resources.engine
+    counts: Counter[str] = Counter()
+
+    def checkout(*_: object) -> None:
+        counts["checkout"] += 1
+
+    def begin(*_: object) -> None:
+        counts["begin"] += 1
+
+    def statement(*_: object) -> None:
+        counts["statement"] += 1
+
+    listeners = [
+        (engine.sync_engine.pool, "checkout", checkout),
+        (engine.sync_engine, "begin", begin),
+        (engine.sync_engine, "before_cursor_execute", statement),
+    ]
+    for target, name, listener in listeners:
+        event.listen(target, name, listener)
+    try:
+        yield counts
+    finally:
+        for target, name, listener in listeners:
+            event.remove(target, name, listener)
+
+
+def test_the_map_reads_tariffs_and_cars_in_one_transaction(
+    client: TestClient, headers: dict[str, str], integration_settings: Settings, spot: GeoPoint
+) -> None:
+    # The map is the most frequent request: every pool checkout and transaction is a round trip.
+    car_id = add_car(integration_settings, spot)
+    point = {"lat": spot.lat, "lon": spot.lon}
+
+    with _database_round_trips(client) as listed:
+        assert _ids(client.get(URL, params=_area(spot), headers=headers)) == [car_id]
+    with _database_round_trips(client) as card:
+        response = client.get(f"{URL}/{car_id}", params=point, headers=headers)
+        assert response.status_code == HTTPStatus.OK
+
+    one_transaction = Counter(checkout=1, begin=1, statement=2)
+    assert listed == one_transaction
+    assert card == one_transaction
 
 
 @pytest.mark.parametrize(

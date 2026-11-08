@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
 from flagman.audit.domain import RequestOrigin
+from flagman.core.alerts import SpikeMeter
 from flagman.core.db import get_session
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.photos import PhotoTooLargeError, photo_request_body, read_photo_body
 from flagman.core.ratelimit import RateLimiter, get_rate_limiter
 from flagman.core.resources import Resources, get_resources
-from flagman.core.storage import ObjectStorage, object_storage_from_settings
+from flagman.core.storage import ObjectStorage
 from flagman.fleet import service as fleet
 from flagman.fleet.ports import TelematicsGateway
 from flagman.identity.dependencies import (
@@ -98,7 +99,7 @@ def get_rental_service(
 
 
 def get_photo_storage(resources: Annotated[Resources, Depends(get_resources)]) -> ObjectStorage:
-    storage = object_storage_from_settings(resources.settings)
+    storage = resources.storage
     if storage is None:
         raise PhotoStorageUnavailableError("No photo storage is configured.")
     return storage
@@ -119,6 +120,7 @@ def get_rental_car_commander(
     return fleet.RentalCarCommander(
         db=db,
         gateway=gateway,
+        alerts=SpikeMeter(resources.redis),
         origin=origin,
         max_skew=fleet.telemetry_clock_skew(resources.settings),
     )
@@ -506,8 +508,16 @@ def get_live_staff_rental_service(
     return _staff_service(staff, service, origin)
 
 
+async def limit_commands(
+    staff: LiveStaff, limiter: Annotated[RateLimiter, Depends(get_rate_limiter)]
+) -> CurrentStaff:
+    # The lock of a forced finish is a car command like any other: it shares the staff limit.
+    await fleet.limit_staff_commands(limiter, staff.staff_id)
+    return staff
+
+
 def get_staff_car_commander(
-    staff: LiveStaff,
+    staff: Annotated[CurrentStaff, Depends(limit_commands)],
     db: Annotated[AsyncSession, Depends(get_session)],
     origin: Annotated[RequestOrigin, Depends(get_request_origin)],
     gateway: Annotated[TelematicsGateway, Depends(get_telematics_gateway)],
@@ -516,6 +526,7 @@ def get_staff_car_commander(
     return fleet.CarCommander(
         db=db,
         gateway=gateway,
+        alerts=SpikeMeter(resources.redis),
         staff_id=staff.staff_id,
         origin=origin,
         max_skew=fleet.telemetry_clock_skew(resources.settings),
@@ -556,6 +567,7 @@ async def get_staff_rental(staff: Staff, rental_id: UUID, service: StaffService)
         HTTPStatus.NOT_FOUND: _problem(
             "`urn:flagman:problem:rental-not-found`, `inspection-photo-not-found`."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
         HTTPStatus.SERVICE_UNAVAILABLE: _STORAGE_UNAVAILABLE,
     },
 )
@@ -584,6 +596,7 @@ async def get_staff_inspection_photo_url(  # noqa: PLR0913 - the path names the 
             "`urn:flagman:problem:rental-transition-not-allowed`: not a trip; "
             "`rental-command-in-progress`: the car is answering another command."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
 async def force_finish(
@@ -609,6 +622,7 @@ async def force_finish(
     ),
     responses={
         HTTPStatus.CONFLICT: _MONEY_CONFLICT,
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
         HTTPStatus.SERVICE_UNAVAILABLE: _problem("`urn:flagman:problem:payments-unavailable`."),
     },
 )
@@ -638,6 +652,7 @@ async def adjust_rental(
             "`urn:flagman:problem:rental-transition-not-allowed`: nothing was lowered; "
             "`rental-settlement-pending`."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
         HTTPStatus.SERVICE_UNAVAILABLE: _problem("`urn:flagman:problem:payments-unavailable`."),
     },
 )

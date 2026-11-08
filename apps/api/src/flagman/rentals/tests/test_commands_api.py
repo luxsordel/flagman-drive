@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+from collections.abc import MutableMapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -14,9 +15,11 @@ from structlog.testing import capture_logs
 
 from flagman.audit import service as audit
 from flagman.audit.domain import ActorType, AuditAction, AuditEventFilter
+from flagman.core.alerts import SpikeMeter
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
+from flagman.core.ratelimit import Limit
 from flagman.fleet.domain import (
     CarCommand,
     CarCommandDuplicateError,
@@ -286,8 +289,53 @@ def test_a_blocked_client_cannot_open(person: Person, inspected: str, gateway: F
     assert gateway.calls == []
 
 
+def test_a_client_blocked_during_the_trip_can_close_the_car(
+    integration_settings: Settings, person: Person, inspected: str, gateway: FakeGateway
+) -> None:
+    person.command(inspected, "open")
+    person.block()
+
+    response = person.command(inspected, "close")
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["status"] == "in_trip"
+    assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
+    closed = [
+        e
+        for e in _client_events(integration_settings, person.id)
+        if e.details["command"] == "close"
+    ]
+    assert [e.details["outcome"] for e in closed] == ["done"]
+
+
+def test_a_client_blocked_during_the_trip_cannot_open_again(
+    person: Person, inspected: str, gateway: FakeGateway
+) -> None:
+    person.command(inspected, "open")
+    person.command(inspected, "close")
+    person.block()
+
+    response = person.command(inspected, "open")
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert problem_type(response) == "client-blocked"
+    assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
+
+
+def test_a_client_blocked_before_the_trip_cannot_close_either(
+    person: Person, inspected: str, gateway: FakeGateway
+) -> None:
+    person.block()
+
+    response = person.command(inspected, "close")
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert problem_type(response) == "client-blocked"
+    assert gateway.calls == []
+
+
 def test_a_client_whose_documents_were_revoked_cannot_open(
-    integration_settings: Settings, person: Person, inspected: str
+    integration_settings: Settings, person: Person, inspected: str, gateway: FakeGateway
 ) -> None:
     execute(
         integration_settings,
@@ -299,6 +347,7 @@ def test_a_client_whose_documents_were_revoked_cannot_open(
 
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert problem_type(response) == "kyc-not-approved"
+    assert gateway.calls == []
 
 
 def test_a_cancelled_rental_takes_no_commands(
@@ -345,6 +394,64 @@ def test_commands_are_rate_limited(person: Person, inspected: str) -> None:
 
     assert responses[-1].status_code == HTTPStatus.TOO_MANY_REQUESTS
     assert "Retry-After" in responses[-1].headers
+
+
+def test_client_commands_add_up_to_a_spike_warning(
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+    alert_logs: list[MutableMapping[str, Any]],
+) -> None:
+    threshold = Limit(f"car-commands-all-clients-test-{uuid.uuid4()}", 2, 60)
+    monkeypatch.setattr("flagman.fleet.service.CLIENT_COMMANDS_ALERT", threshold)
+
+    person.command(inspected, "open")
+    gateway.outcome = CarCommandRejectedError("ignition_on")
+    person.command(inspected, "close")
+
+    spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
+    assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
+
+
+class AuditDown:
+    @staticmethod
+    async def record(*_: object) -> None:
+        raise RuntimeError("audit is down")
+
+
+def test_a_client_command_the_car_got_counts_even_if_recording_it_fails(
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+    alert_logs: list[MutableMapping[str, Any]],
+) -> None:
+    threshold = Limit(f"car-commands-all-clients-test-{uuid.uuid4()}", 1, 60)
+    monkeypatch.setattr("flagman.fleet.service.CLIENT_COMMANDS_ALERT", threshold)
+    monkeypatch.setattr("flagman.fleet.service.audit", AuditDown)
+
+    failed = person.command(inspected, "open")
+
+    assert failed.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    assert gateway.calls[-1][2] is CarCommand.OPEN
+    spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
+    assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 1)]
+
+
+def test_client_commands_work_while_the_spike_meter_is_down(
+    person: Person,
+    inspected: str,
+    broken_spike_meter: SpikeMeter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "SpikeMeter", lambda _: broken_spike_meter)
+
+    response = person.command(inspected, "open")
+
+    assert response.status_code == HTTPStatus.OK, response.text
+    assert response.json()["status"] == "in_trip"
 
 
 @dataclass

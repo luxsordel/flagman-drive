@@ -25,8 +25,10 @@ from flagman.audit.domain import (
     AuditTargetType,
     RequestOrigin,
 )
+from flagman.core.alerts import SpikeMeter
 from flagman.core.config import Settings
 from flagman.core.errors import AppError
+from flagman.core.ratelimit import Limit, RateLimiter
 from flagman.fleet import domain, repository
 from flagman.fleet.changes import CommandNotice, encode_car_changes, encode_command
 from flagman.fleet.domain import (
@@ -247,25 +249,38 @@ async def receive_telemetry(
     must not hold back the state of the rest of the fleet.
     """
     counts = dict.fromkeys(SnapshotOutcome, 0)
-    unknown: list[UUID] = []
+    # An ordered set: a car that sent several snapshots takes one place in the log.
+    unknown: dict[UUID, None] = {}
     from_future = 0
-    changed: list[UUID] = []
+    timely: list[TelemetrySnapshot] = []
+    for snapshot in snapshots:
+        try:
+            check_snapshot_time(snapshot.state.recorded_at, now, max_skew)
+        except SnapshotFromFutureError:
+            from_future += 1
+            continue
+        timely.append(snapshot)
+    freshest = _freshest_per_car(timely)
     async with db.begin():
-        for snapshot in snapshots:
-            try:
-                outcome, car_id = await _apply_snapshot(
-                    db, snapshot.telematics_id, snapshot.state, now, max_skew
-                )
-            except SnapshotFromFutureError:
-                from_future += 1
-                continue
-            counts[outcome] += 1
-            if car_id is not None:
-                changed.append(car_id)
-            if outcome is SnapshotOutcome.UNKNOWN_CAR:
-                unknown.append(snapshot.telematics_id)
+        # One statement for the whole batch: the transaction holds the row locks of every car in
+        # it, and each round trip inside it kept them longer (docs/09-load-test.md).
+        stored = await repository.apply_states(
+            db, {telematics_id: snapshot.state for telematics_id, snapshot in freshest.items()}, now
+        )
         # A few notices for the whole batch rather than one per car.
-        await repository.notify(db, encode_car_changes(changed))
+        await repository.notify(db, encode_car_changes(stored.applied.values()))
+    for snapshot in timely:
+        if snapshot.telematics_id in stored.unknown:
+            counts[SnapshotOutcome.UNKNOWN_CAR] += 1
+            unknown[snapshot.telematics_id] = None
+        elif (
+            snapshot.telematics_id in stored.applied
+            and freshest[snapshot.telematics_id] is snapshot
+        ):
+            counts[SnapshotOutcome.APPLIED] += 1
+        else:
+            # Older than the stored state, or than another snapshot of the car in this batch.
+            counts[SnapshotOutcome.STALE] += 1
     report = TelemetryReport(
         applied=counts[SnapshotOutcome.APPLIED],
         stale=counts[SnapshotOutcome.STALE],
@@ -277,10 +292,20 @@ async def receive_telemetry(
         logger.warning(
             "telemetry_partly_rejected",
             unknown_car=report.unknown_car,
-            unknown_telematics_ids=[str(car_id) for car_id in unknown[:_LOGGED_UNKNOWN_CARS]],
+            unknown_telematics_ids=[str(car_id) for car_id in list(unknown)[:_LOGGED_UNKNOWN_CARS]],
             from_future=from_future,
         )
     return report
+
+
+def _freshest_per_car(snapshots: Sequence[TelemetrySnapshot]) -> dict[UUID, TelemetrySnapshot]:
+    # Of two snapshots taken at the same time the first one wins, as when they come one by one.
+    freshest: dict[UUID, TelemetrySnapshot] = {}
+    for snapshot in snapshots:
+        held = freshest.get(snapshot.telematics_id)
+        if held is None or snapshot.state.recorded_at > held.state.recorded_at:
+            freshest[snapshot.telematics_id] = snapshot
+    return freshest
 
 
 @dataclass(frozen=True)
@@ -331,6 +356,24 @@ class CarCommandRequest:
     maintenance_task_id: UUID | None = None
 
 
+# A command per car is a matter of seconds of thought; dozens a minute are a script or a mistake.
+# Shared by the fleet command route and rental force finish; maintenance task commands keep their
+# own counter (maintenance.service.COMMAND_LIMIT), so a new car-command path needs its own check.
+COMMAND_LIMIT = Limit("car-commands-staff", 20, 60)
+
+# Commands that reached telematics, of all staff and of all clients together: a warning in the
+# log when many people send far more than usual, each below their own limit (docs/adr/0029).
+# Staff ones include technicians and forced finishes; failed commands count too. The names differ
+# from the per-person limits on purpose: the scope differs.
+STAFF_COMMANDS_ALERT = Limit("car-commands-all-staff", 40, 300)
+CLIENT_COMMANDS_ALERT = Limit("car-commands-all-clients", 120, 60)
+
+
+async def limit_staff_commands(limiter: RateLimiter, staff_id: UUID) -> None:
+    """Counts a car command of a staff member; RateLimitedError once over COMMAND_LIMIT."""
+    await limiter.hit(COMMAND_LIMIT, str(staff_id))
+
+
 @dataclass(frozen=True)
 class CarCommandResult:
     command_id: UUID
@@ -348,6 +391,7 @@ class CarCommander:
 
     db: AsyncSession
     gateway: TelematicsGateway
+    alerts: SpikeMeter
     staff_id: UUID
     origin: RequestOrigin
     max_skew: timedelta
@@ -370,11 +414,15 @@ class CarCommander:
             staff_id=self.staff_id,
             at=now,
         )
-        async with self.db.begin():
-            if sent.state is not None:
-                await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
-            await audit.record(self.db, self._entry(car, request, notice, during_rental))
-            await repository.notify(self.db, [encode_command(notice)])
+        try:
+            async with self.db.begin():
+                if sent.state is not None:
+                    await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
+                await audit.record(self.db, self._entry(car, request, notice, during_rental))
+                await repository.notify(self.db, [encode_command(notice)])
+        finally:
+            # The car has the command already: a failed record must not hide it from the warning.
+            await self.alerts.count(STAFF_COMMANDS_ALERT)
         logger.info(
             "car_command_sent",
             car_id=str(car.id),
@@ -434,6 +482,7 @@ class RentalCarCommander:
 
     db: AsyncSession
     gateway: TelematicsGateway
+    alerts: SpikeMeter
     origin: RequestOrigin
     max_skew: timedelta
 
@@ -446,26 +495,30 @@ class RentalCarCommander:
             raise ValueError(f"clients do not send {command}")
         car = await get_car(self.db, request.car_id)
         sent = await _send(self.gateway, car, command)
-        async with self.db.begin():
-            if sent.state is not None:
-                await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
-            await audit.record(
-                self.db,
-                AuditEntry(
-                    Actor(ActorType.CLIENT, request.client_id),
-                    AuditAction.CAR_COMMAND_SENT,
-                    self.origin,
-                    AuditTarget(AuditTargetType.CAR, car.id),
-                    details={
-                        "command": command.value,
-                        "outcome": sent.outcome.value,
-                        "reason": sent.reason,
-                        "command_id": sent.command_id,
-                        "car_status": car.status.value,
-                        "rental_id": request.rental_id,
-                    },
-                ),
-            )
+        try:
+            async with self.db.begin():
+                if sent.state is not None:
+                    await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
+                await audit.record(
+                    self.db,
+                    AuditEntry(
+                        Actor(ActorType.CLIENT, request.client_id),
+                        AuditAction.CAR_COMMAND_SENT,
+                        self.origin,
+                        AuditTarget(AuditTargetType.CAR, car.id),
+                        details={
+                            "command": command.value,
+                            "outcome": sent.outcome.value,
+                            "reason": sent.reason,
+                            "command_id": sent.command_id,
+                            "car_status": car.status.value,
+                            "rental_id": request.rental_id,
+                        },
+                    ),
+                )
+        finally:
+            # The car has the command already: a failed record must not hide it from the warning.
+            await self.alerts.count(CLIENT_COMMANDS_ALERT)
         logger.info(
             "car_command_sent",
             car_id=str(car.id),

@@ -23,6 +23,7 @@ jobs:
       node: ${{ steps.detect.outputs.node }}
       api-client: ${{ steps.detect.outputs.api-client }}
       load-smoke: ${{ steps.detect.outputs.load-smoke }}
+      caddy: ${{ steps.detect.outputs.caddy }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -68,10 +69,17 @@ jobs:
             load_smoke=true
           fi
 
+          # The stand's edge config and the check that runs it.
+          caddy=false
+          if has '^(infra/stand/web/(Caddyfile|Dockerfile)|scripts/check-caddy\.mjs)$'; then
+            caddy=true
+          fi
+
           echo "python=$python" >> "$GITHUB_OUTPUT"
           echo "node=$node" >> "$GITHUB_OUTPUT"
           echo "api-client=$api_client" >> "$GITHUB_OUTPUT"
           echo "load-smoke=$load_smoke" >> "$GITHUB_OUTPUT"
+          echo "caddy=$caddy" >> "$GITHUB_OUTPUT"
 
   python-quality:
     name: Python quality (${{ matrix.dir }})
@@ -101,6 +109,28 @@ jobs:
       - name: Tests
         # Integration tests start Postgres/PostGIS and Redis through testcontainers (Docker is on the runner).
         run: uv run pytest -q
+
+  # Its own job so the unit tests it reruns under tracing add no time to python-quality.
+  domain-coverage:
+    name: Domain coverage (apps/api)
+    needs: changes
+    if: contains(fromJSON(needs.changes.outputs.python), 'apps/api')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+          cache-dependency-glob: apps/api/uv.lock
+      - run: uv sync --locked
+      - name: Domain coverage
+        # Unit tests only: domain code is tested without a database (tools/container_guard.py
+        # fails an unmarked test that starts a container), and tracing would slow the integration
+        # run. Fails below fail_under in pyproject.toml.
+        run: uv run pytest -q -m "not integration" --cov --cov-report=term
 
   python-audit:
     name: Python dependency audit (${{ matrix.dir }})
@@ -202,6 +232,20 @@ jobs:
           cat tests/load/reports/*/locust_exceptions.csv || true
           tail -n 100 tests/load/reports/*/stack.log || true
 
+  # The stand's Caddyfile in its pinned image: paths reach the logs, query strings and IPs do not.
+  caddy:
+    name: Stand edge config
+    needs: changes
+    if: needs.changes.outputs.caddy == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      - run: node scripts/check-caddy.mjs
+
   semgrep:
     name: Semgrep (SAST)
     runs-on: ubuntu-latest
@@ -226,7 +270,7 @@ jobs:
   gate:
     name: CI gate
     if: always()
-    needs: [changes, python-quality, python-audit, node-quality, api-client-fresh, load-smoke, semgrep]
+    needs: [changes, python-quality, domain-coverage, python-audit, node-quality, api-client-fresh, load-smoke, caddy, semgrep]
     runs-on: ubuntu-latest
     steps:
       - name: Require no failed or cancelled jobs

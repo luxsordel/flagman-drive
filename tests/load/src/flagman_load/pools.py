@@ -4,6 +4,7 @@ import secrets
 
 _PHONE_BASE = 1_000_000
 _RUNS = "0123456789" + "9876543210"
+_MIN_DISTINCT_DIGITS = 4
 
 
 def phones(count: int) -> list[str]:
@@ -16,7 +17,7 @@ def client_ip(index: int) -> str:
 
 def is_guessable_code(code: str) -> bool:
     """The API refuses these for SMS_BACKEND=fixed."""
-    return len(set(code)) == 1 or code in _RUNS
+    return len(set(code)) < _MIN_DISTINCT_DIGITS or code in _RUNS
 
 
 def new_otp_code() -> str:

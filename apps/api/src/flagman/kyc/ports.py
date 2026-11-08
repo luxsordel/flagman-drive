@@ -1,8 +1,7 @@
 from http import HTTPStatus
 
-from flagman.core.config import Settings
 from flagman.core.errors import AppError
-from flagman.core.storage import ObjectStorage, object_storage_from_settings
+from flagman.core.storage import ObjectStorage
 
 # Document photos live in the shared private storage under `kyc/` (docs/adr/0012).
 DocumentStorage = ObjectStorage
@@ -14,8 +13,7 @@ class DocumentStorageUnavailableError(AppError):
     title = "Document storage is unavailable"
 
 
-def create_document_storage(settings: Settings) -> DocumentStorage:
-    storage = object_storage_from_settings(settings)
+def require_document_storage(storage: ObjectStorage | None) -> DocumentStorage:
     if storage is None:
         raise DocumentStorageUnavailableError("No document storage is configured.")
     return storage

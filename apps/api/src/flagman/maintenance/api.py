@@ -8,12 +8,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from flagman.audit.dependencies import get_request_origin
 from flagman.audit.domain import RequestOrigin
+from flagman.core.alerts import SpikeMeter
 from flagman.core.db import get_session
 from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.photos import PhotoTooLargeError, photo_request_body, read_photo_body
 from flagman.core.ratelimit import RateLimiter, get_rate_limiter
 from flagman.core.resources import Resources, get_resources
-from flagman.core.storage import ObjectStorage, object_storage_from_settings
+from flagman.core.storage import ObjectStorage
 from flagman.fleet import service as fleet
 from flagman.fleet.ports import TelematicsGateway
 from flagman.identity.dependencies import (
@@ -70,7 +71,8 @@ TASK_PLANNERS = (StaffRole.OPERATOR, StaffRole.ADMIN)
 
 AnyWorker = Annotated[CurrentStaff, Depends(require_staff_role(*TASK_WORKERS))]
 Planner = Annotated[CurrentStaff, Depends(require_staff_role(*TASK_PLANNERS))]
-# Commands to cars wait for no token expiry after a sign-out, as the fleet's do.
+# Commands to cars, and taking a car off the client map, wait for no token expiry after a
+# sign-out, as the fleet's do.
 LiveWorker = Annotated[CurrentStaff, Depends(require_live_staff_session(*TASK_WORKERS))]
 Db = Annotated[AsyncSession, Depends(get_session)]
 
@@ -99,7 +101,7 @@ def get_task_work(
 
 
 def get_photo_storage(resources: Annotated[Resources, Depends(get_resources)]) -> ObjectStorage:
-    storage = object_storage_from_settings(resources.settings)
+    storage = resources.storage
     if storage is None:
         raise PhotoStorageUnavailableError("No photo storage is configured.")
     return storage
@@ -121,6 +123,7 @@ def get_car_commander(
     return fleet.CarCommander(
         db=db,
         gateway=gateway,
+        alerts=SpikeMeter(resources.redis),
         staff_id=staff.staff_id,
         origin=origin,
         max_skew=fleet.telemetry_clock_skew(resources.settings),
@@ -240,7 +243,7 @@ async def assign_task(task_id: UUID, staff: Planner, body: AssignIn, service: Se
         ),
     },
 )
-async def start_task(task_id: UUID, staff: AnyWorker, service: Service) -> TaskOut:
+async def start_task(task_id: UUID, staff: LiveWorker, service: Service) -> TaskOut:
     await service.start(_worker(staff), task_id, datetime.now(UTC))
     return await _details(service, staff, task_id)
 

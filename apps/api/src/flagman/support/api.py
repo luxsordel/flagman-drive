@@ -19,7 +19,7 @@ from flagman.core.errors import RATE_LIMITED_RESPONSE, Problem
 from flagman.core.photos import PhotoTooLargeError, photo_request_body, read_photo_body
 from flagman.core.ratelimit import RateLimiter, get_rate_limiter
 from flagman.core.resources import Resources, get_resources
-from flagman.core.storage import ObjectStorage, object_storage_from_settings
+from flagman.core.storage import ObjectStorage
 from flagman.identity.dependencies import (
     CurrentClient,
     CurrentStaff,
@@ -130,7 +130,7 @@ def get_staff_support_service(
 
 
 def get_photo_storage(resources: Annotated[Resources, Depends(get_resources)]) -> ObjectStorage:
-    storage = object_storage_from_settings(resources.settings)
+    storage = resources.storage
     if storage is None:
         raise SupportPhotoStorageUnavailableError("No photo storage is configured.")
     return storage
@@ -663,6 +663,7 @@ async def list_fines(
         HTTPStatus.UNPROCESSABLE_ENTITY: _problem(
             "`urn:flagman:problem:fine-type-not-manual`: the system charges that one itself."
         ),
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
     },
 )
 async def charge_fine(
@@ -697,7 +698,10 @@ async def get_fine(staff: Staff, fine_id: UUID, service: StaffFines) -> StaffFin
         "The fine stays in the list as `cancelled`, with the reason. Cancelling a cancelled fine "
         "whose refund was declined tries the refund again; otherwise it changes nothing."
     ),
-    responses={HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND},
+    responses={
+        HTTPStatus.NOT_FOUND: _FINE_NOT_FOUND,
+        HTTPStatus.TOO_MANY_REQUESTS: RATE_LIMITED_RESPONSE,
+    },
 )
 async def cancel_fine(
     staff: LiveStaff, fine_id: UUID, body: FineCancelIn, service: StaffFines

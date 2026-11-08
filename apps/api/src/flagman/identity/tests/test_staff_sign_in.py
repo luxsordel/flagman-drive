@@ -16,10 +16,13 @@ from redis import Redis
 from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conftest import CapturedLogs
+from flagman.core.alerts import SpikeMeter
 from flagman.core.app import create_app
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
-from flagman.identity import cli, repository, service
+from flagman.core.ratelimit import Limit
+from flagman.identity import api, cli, repository, service
 from flagman.identity.domain import (
     REFRESH_REUSE_GRACE,
     TOTP_INTERVAL_SECONDS,
@@ -383,6 +386,114 @@ def test_totp_guessing_is_rate_limited(client: TestClient, operator: Staff) -> N
     response = _totp(client, challenge, _code(secret, steps_ahead=1))
 
     assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS
+
+
+def test_passwords_from_one_address_are_limited_across_emails(
+    client: TestClient, operator: Staff, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The per-email limit alone would let one address try a password on every account in turn.
+    limit = Limit(f"staff-password-ip-test-{secrets.token_hex(4)}", 2, 3600)
+    monkeypatch.setattr(service, "STAFF_PASSWORD_IP_LIMIT", limit)
+    for _ in range(2):
+        _password(client, f"nobody-{secrets.token_hex(6)}@flagman.by")
+
+    response = _password(client, operator.email)
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS, response.text
+    assert int(response.headers["retry-after"]) > 0
+
+
+def test_codes_from_one_address_are_limited_across_staff(
+    client: TestClient,
+    make_staff: Callable[[StaffRole], Staff],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    owner = make_staff(StaffRole.OPERATOR)
+    secret, _ = _first_sign_in(client, owner)
+    others = [_challenge(client, make_staff(StaffRole.OPERATOR)) for _ in range(2)]
+    challenge = _challenge(client, owner)["challenge_token"]
+    # Patched only now: the sign-ins above went through the real limit.
+    limit = Limit(f"staff-totp-ip-test-{secrets.token_hex(4)}", 2, 3600)
+    monkeypatch.setattr(service, "STAFF_TOTP_IP_LIMIT", limit)
+    for other in others:
+        _totp(client, other["challenge_token"], "000000")
+
+    response = _totp(client, challenge, _code(secret, steps_ahead=1))
+
+    assert response.status_code == HTTPStatus.TOO_MANY_REQUESTS, response.text
+    assert int(response.headers["retry-after"]) > 0
+
+
+def _wrong_code(secret: str, steps_ahead: int = 0) -> str:
+    return "000000" if _code(secret, steps_ahead) != "000000" else "111111"
+
+
+def test_failed_passwords_and_codes_add_up_to_a_spike_warning(
+    client: TestClient,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+    captured_logs: CapturedLogs,
+) -> None:
+    alert_logs = captured_logs.alerts
+    threshold = Limit(f"sign-in-failed-staff-test-{secrets.token_hex(4)}", 2, 300)
+    monkeypatch.setattr(service, "SIGN_IN_FAILED_STAFF_ALERT", threshold)
+
+    secret, _ = _first_sign_in(client, operator)  # successes do not count
+    challenge = _challenge(client, operator)["challenge_token"]
+    quiet = list(alert_logs)
+    _password(client, operator.email, "wrong password, long enough")
+    _totp(client, challenge, _wrong_code(secret, 1))
+
+    spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
+    assert quiet == []
+    assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
+    logged = captured_logs.text()
+    assert captured_logs.caplog.records
+    assert operator.email not in logged
+
+
+def test_unknown_email_and_disabled_account_add_up_to_a_spike_warning(
+    client: TestClient,
+    make_staff: Callable[[StaffRole], Staff],
+    integration_settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+    captured_logs: CapturedLogs,
+) -> None:
+    alert_logs = captured_logs.alerts
+    threshold = Limit(f"sign-in-failed-staff-test-{secrets.token_hex(4)}", 2, 300)
+    monkeypatch.setattr(service, "SIGN_IN_FAILED_STAFF_ALERT", threshold)
+    disabled = make_staff(StaffRole.OPERATOR)
+    _query(
+        integration_settings,
+        "UPDATE staff_members SET disabled_at = now() WHERE id = :id",
+        id=disabled.id,
+    )
+    unknown_email = f"nobody-{secrets.token_hex(6)}@flagman.by"
+
+    _password(client, unknown_email)
+    _password(client, disabled.email)  # the right password of a disabled account
+
+    spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
+    assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
+    logged = captured_logs.text()
+    assert captured_logs.caplog.records
+    assert unknown_email not in logged
+    assert disabled.email not in logged
+
+
+def test_sign_in_works_while_the_spike_meter_is_down(
+    client: TestClient,
+    operator: Staff,
+    broken_spike_meter: SpikeMeter,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "SpikeMeter", lambda _: broken_spike_meter)
+
+    wrong = _password(client, operator.email, "wrong password, long enough")
+
+    assert wrong.status_code == HTTPStatus.UNAUTHORIZED
+    assert _problem(wrong) == "staff-credentials-invalid"
+    _first_sign_in(client, operator)
 
 
 @pytest.mark.parametrize("token", ["garbage", "a" * 2048])

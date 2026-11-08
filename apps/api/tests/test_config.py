@@ -3,9 +3,11 @@ from typing import Any
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy.pool import QueuePool
 
 from conftest import SettingsFactory
 from flagman.core.config import WorkerSettings
+from flagman.core.db import create_engine
 
 
 def test_cors_origins_are_parsed_from_a_comma_separated_env_var(
@@ -51,6 +53,36 @@ def test_database_url_escapes_the_password(make_settings: SettingsFactory) -> No
     assert url.render_as_string(hide_password=False).startswith(
         "postgresql+asyncpg://test:p%40ss%3Aw%2Frd@db:6543/"
     )
+
+
+def test_the_engine_pool_is_sized_by_the_settings(make_settings: SettingsFactory) -> None:
+    pool = create_engine(make_settings(db_pool_size=7, db_max_overflow=3)).pool
+
+    assert isinstance(pool, QueuePool)
+    assert pool.size() == 7
+    assert pool._max_overflow == 3
+
+
+def test_the_pool_defaults_keep_ten_connections_and_ten_for_a_burst(
+    monkeypatch: pytest.MonkeyPatch, make_settings: SettingsFactory
+) -> None:
+    # Compose passes DB_POOL_SIZE through even when .env leaves it empty. Five, SQLAlchemy's own
+    # default, made the load test reopen two connections per second (#162).
+    monkeypatch.setenv("DB_POOL_SIZE", "")
+    settings = make_settings()
+
+    assert (settings.db_pool_size, settings.db_max_overflow) == (10, 10)
+    assert (_worker_settings().db_pool_size, _worker_settings().db_max_overflow) == (10, 10)
+
+
+@pytest.mark.parametrize(
+    "overrides", [{"db_pool_size": 0}, {"db_pool_size": 51}, {"db_max_overflow": -1}]
+)
+def test_pool_settings_out_of_range_are_refused(
+    make_settings: SettingsFactory, overrides: dict[str, int]
+) -> None:
+    with pytest.raises(ValidationError):
+        make_settings(**overrides)
 
 
 def test_secrets_are_not_shown_in_repr(make_settings: SettingsFactory) -> None:
@@ -109,7 +141,23 @@ def test_fixed_sms_needs_a_six_digit_code(make_settings: SettingsFactory, code: 
 
 
 @pytest.mark.parametrize(
-    "code", ["000000", "111111", "999999", "012345", "123456", "456789", "987654", "543210"]
+    "code",
+    [
+        "000000",
+        "111111",
+        "999999",
+        "012345",
+        "123456",
+        "456789",
+        "987654",
+        "543210",
+        "121212",
+        "112233",
+        "123123",
+        "000001",
+        "101010",
+        "111222",
+    ],
 )
 def test_fixed_sms_refuses_guessable_codes(make_settings: SettingsFactory, code: str) -> None:
     with pytest.raises(ValidationError, match="too easy to guess"):

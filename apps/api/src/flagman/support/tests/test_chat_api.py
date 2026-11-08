@@ -199,6 +199,24 @@ def test_a_photo_goes_to_storage_and_comes_back_by_a_short_link(
     assert audit_actions(integration_settings, conversation) == ["support.photo_viewed"]
 
 
+def test_a_photo_of_another_conversation_is_not_found_under_this_one(
+    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+) -> None:
+    send_photo(person, photo())
+    other = Person(integration_settings, app_client)
+    foreign = send_photo(other, photo(1)).json()
+    conversation = _conversation_id(person)
+
+    response = app_client.get(
+        f"/admin/support/conversations/{conversation}/messages/{foreign['id']}/photo-url",
+        headers=operator.headers,
+    )
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert problem_type(response) == "message-not-found"
+    assert audit_actions(integration_settings, conversation) == []
+
+
 def test_a_file_that_is_not_a_photo_is_refused(person: Person, storage: FakeStorage) -> None:
     response = send_photo(person, b"%PDF-1.7 not an image")
 
