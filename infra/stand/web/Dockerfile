@@ -3,7 +3,7 @@
 # Built from the repository root, where the npm workspaces are:
 #   docker build -f infra/stand/web/Dockerfile --build-arg STAND_DOMAIN=example.com .
 
-FROM node:22.21.1-bookworm-slim AS build
+FROM node:22.23.3-bookworm-slim AS build
 
 WORKDIR /src
 
