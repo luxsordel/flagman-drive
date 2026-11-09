@@ -311,6 +311,7 @@ def _freshest_per_car(snapshots: Sequence[TelemetrySnapshot]) -> dict[UUID, Tele
 @dataclass(frozen=True)
 class _Sent:
     command_id: UUID
+    command: CarCommand
     outcome: CommandOutcome
     state: CarState | None
     failure: AppError | None
@@ -322,14 +323,14 @@ async def _send(gateway: TelematicsGateway, car: Car, command: CarCommand) -> _S
     try:
         state = await gateway.send(car.telematics_id, command_id, command)
     except CarCommandRejectedError as error:
-        return _Sent(command_id, CommandOutcome.REJECTED, None, error, error.reason)
+        return _Sent(command_id, command, CommandOutcome.REJECTED, None, error, error.reason)
     except CarCommandDuplicateError as error:
-        return _Sent(command_id, CommandOutcome.DUPLICATE, None, error, None)
+        return _Sent(command_id, command, CommandOutcome.DUPLICATE, None, error, None)
     except TelematicsUnavailableError as error:
-        return _Sent(command_id, CommandOutcome.UNAVAILABLE, None, error, None)
+        return _Sent(command_id, command, CommandOutcome.UNAVAILABLE, None, error, None)
     except TelematicsTimeoutError as error:
-        return _Sent(command_id, CommandOutcome.TIMED_OUT, None, error, None)
-    return _Sent(command_id, CommandOutcome.DONE, state, None, None)
+        return _Sent(command_id, command, CommandOutcome.TIMED_OUT, None, error, None)
+    return _Sent(command_id, command, CommandOutcome.DONE, state, None, None)
 
 
 async def _apply_command_state(
@@ -343,6 +344,86 @@ async def _apply_command_state(
         return
     if changed is not None:
         await repository.notify(db, encode_car_changes([changed]))
+
+
+@dataclass(frozen=True)
+class _SentRecord:
+    """What a command that reached telematics leaves in the database."""
+
+    car: Car
+    sent: _Sent
+    entry: AuditEntry
+    # Staff command stream notices; empty for clients.
+    notices: Sequence[str]
+
+
+async def _record_command(
+    db: AsyncSession, record: _SentRecord, now: datetime, max_skew: timedelta
+) -> None:
+    """Stores what the car reported, the audit event and the notices of a sent command.
+
+    The car has the command already and there is no two-phase commit with it, so a failed
+    transaction must not take the event along (docs/adr/0030): the event is recorded once more
+    on its own, and the original error is raised after that. The log line is written whatever
+    happens to either transaction.
+    """
+    sent = record.sent
+    try:
+        async with db.begin():
+            if sent.state is not None:
+                await _apply_command_state(db, record.car, sent.state, now, max_skew)
+            await audit.record(db, record.entry)
+            if record.notices:
+                await repository.notify(db, list(record.notices))
+    except Exception:
+        await _record_command_alone(db, record)
+        raise
+    finally:
+        _log_sent(record)
+
+
+async def _record_command_alone(db: AsyncSession, record: _SentRecord) -> None:
+    """The audit event and the notices without the car's state, which the next telemetry brings.
+
+    Never raises: the caller re-raises the error that brought it here, and a database that is
+    down for this transaction too leaves the error log line as the only trace.
+    """
+    entry = record.entry
+    # Only a command the car answered with its state has something left unrecorded; for a refusal
+    # or a timeout the flag would send whoever reads the log looking for a state that never was.
+    alone = (
+        replace(entry, details={**entry.details, "state_recorded": False})
+        if record.sent.state is not None
+        else entry
+    )
+    try:
+        async with db.begin():
+            await audit.record(db, alone)
+            if record.notices:
+                await repository.notify(db, list(record.notices))
+    except Exception:
+        logger.exception(
+            "car_command_audit_failed",
+            car_id=str(record.car.id),
+            command_id=str(record.sent.command_id),
+            command=record.sent.command,
+            outcome=record.sent.outcome,
+            by=entry.actor.type,
+        )
+
+
+def _log_sent(record: _SentRecord) -> None:
+    # command_id ties the line to the audit event, or stands in for it if that was lost.
+    sent = record.sent
+    logger.info(
+        "car_command_sent",
+        car_id=str(record.car.id),
+        command_id=str(sent.command_id),
+        command=sent.command,
+        outcome=sent.outcome,
+        reason=sent.reason,
+        by=record.entry.actor.type,
+    )
 
 
 @dataclass(frozen=True)
@@ -414,22 +495,13 @@ class CarCommander:
             staff_id=self.staff_id,
             at=now,
         )
+        entry = self._entry(car, request, notice, during_rental)
+        record = _SentRecord(car, sent, entry, [encode_command(notice)])
         try:
-            async with self.db.begin():
-                if sent.state is not None:
-                    await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
-                await audit.record(self.db, self._entry(car, request, notice, during_rental))
-                await repository.notify(self.db, [encode_command(notice)])
+            await _record_command(self.db, record, now, self.max_skew)
         finally:
             # The car has the command already: a failed record must not hide it from the warning.
             await self.alerts.count(STAFF_COMMANDS_ALERT)
-        logger.info(
-            "car_command_sent",
-            car_id=str(car.id),
-            command=request.command,
-            outcome=sent.outcome,
-            reason=sent.reason,
-        )
         if sent.failure is not None:
             raise sent.failure
         return CarCommandResult(command_id=sent.command_id, car=await get_car(self.db, car.id))
@@ -495,38 +567,25 @@ class RentalCarCommander:
             raise ValueError(f"clients do not send {command}")
         car = await get_car(self.db, request.car_id)
         sent = await _send(self.gateway, car, command)
+        entry = AuditEntry(
+            Actor(ActorType.CLIENT, request.client_id),
+            AuditAction.CAR_COMMAND_SENT,
+            self.origin,
+            AuditTarget(AuditTargetType.CAR, car.id),
+            details={
+                "command": command.value,
+                "outcome": sent.outcome.value,
+                "reason": sent.reason,
+                "command_id": sent.command_id,
+                "car_status": car.status.value,
+                "rental_id": request.rental_id,
+            },
+        )
         try:
-            async with self.db.begin():
-                if sent.state is not None:
-                    await _apply_command_state(self.db, car, sent.state, now, self.max_skew)
-                await audit.record(
-                    self.db,
-                    AuditEntry(
-                        Actor(ActorType.CLIENT, request.client_id),
-                        AuditAction.CAR_COMMAND_SENT,
-                        self.origin,
-                        AuditTarget(AuditTargetType.CAR, car.id),
-                        details={
-                            "command": command.value,
-                            "outcome": sent.outcome.value,
-                            "reason": sent.reason,
-                            "command_id": sent.command_id,
-                            "car_status": car.status.value,
-                            "rental_id": request.rental_id,
-                        },
-                    ),
-                )
+            await _record_command(self.db, _SentRecord(car, sent, entry, []), now, self.max_skew)
         finally:
             # The car has the command already: a failed record must not hide it from the warning.
             await self.alerts.count(CLIENT_COMMANDS_ALERT)
-        logger.info(
-            "car_command_sent",
-            car_id=str(car.id),
-            command=command,
-            outcome=sent.outcome,
-            reason=sent.reason,
-            by="client",
-        )
         if sent.failure is not None:
             raise sent.failure
         return await get_car(self.db, car.id)

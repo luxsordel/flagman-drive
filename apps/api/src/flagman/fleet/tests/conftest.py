@@ -8,6 +8,8 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from flagman.audit import service as audit
+from flagman.audit.domain import AuditEntry
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
@@ -183,3 +185,36 @@ class FakeGateway:
         if isinstance(self.outcome, Exception):
             raise self.outcome
         return self.outcome
+
+
+class AuditDown:
+    """Stands in for the audit module of the fleet service: no event goes through."""
+
+    @staticmethod
+    async def record(*_: object) -> None:
+        raise RuntimeError("audit is down")
+
+
+class DatabaseGone:
+    """Every record loses the connection mid-transaction, as when the database goes away: the
+    insert after it fails in SQLAlchemy itself, not in a stand-in."""
+
+    @staticmethod
+    async def record(db: AsyncSession, entry: AuditEntry) -> None:
+        connection = await db.connection()
+        await connection.invalidate()
+        await audit.record(db, entry)
+
+
+@dataclass
+class AuditFailsOnce:
+    """Fails the command's own transaction with a real database error, as a broken statement would;
+    the event recorded on its own afterwards goes through on the same session."""
+
+    failed: bool = False
+
+    async def record(self, db: AsyncSession, entry: AuditEntry) -> None:
+        if not self.failed:
+            self.failed = True
+            await db.execute(text("SELECT 1 / 0"))
+        await audit.record(db, entry)

@@ -6,6 +6,7 @@ from collections.abc import Iterator, MutableMapping
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
+from types import ModuleType
 from typing import Any, Protocol
 
 import pytest
@@ -134,9 +135,10 @@ def broken_spike_meter(integration_settings: Settings) -> SpikeMeter:
     return SpikeMeter(redis)
 
 
-@pytest.fixture
-def alert_logs(monkeypatch: pytest.MonkeyPatch) -> list[MutableMapping[str, Any]]:
-    """What SpikeMeter logs, as capture_logs would show it.
+def capture_logs_of(
+    monkeypatch: pytest.MonkeyPatch, module: ModuleType
+) -> list[MutableMapping[str, Any]]:
+    """What the module's `logger` logs, as capture_logs would show it.
 
     capture_logs misses loggers that were used before it: the app caches them on first use.
     """
@@ -144,8 +146,14 @@ def alert_logs(monkeypatch: pytest.MonkeyPatch) -> list[MutableMapping[str, Any]
     logger = structlog.wrap_logger(
         structlog.ReturnLogger(), processors=[capture], wrapper_class=structlog.BoundLogger
     )
-    monkeypatch.setattr(alerts, "logger", logger)
+    monkeypatch.setattr(module, "logger", logger)
     return capture.entries
+
+
+@pytest.fixture
+def alert_logs(monkeypatch: pytest.MonkeyPatch) -> list[MutableMapping[str, Any]]:
+    """What SpikeMeter logs."""
+    return capture_logs_of(monkeypatch, alerts)
 
 
 @dataclass(frozen=True)
