@@ -30,12 +30,12 @@ from flagman.rentals.domain import (
     ReservationTerms,
     TooFarFromCarError,
     apply_transition,
-    blocked_client_may_command,
     ensure_command_allowed,
     ensure_near_car,
     minutes_left,
     normalize_damage_comment,
     reservation_deadlines,
+    unadmitted_client_may_command,
 )
 
 NOW = datetime(2026, 10, 26, 12, 0, tzinfo=UTC)
@@ -264,14 +264,14 @@ def test_a_command_needs_an_active_rental_a_free_one_and_the_inspection() -> Non
 
 
 @pytest.mark.parametrize("status", [RentalStatus.IN_TRIP, RentalStatus.PARKED])
-def test_a_blocked_client_may_only_close_the_car_of_a_trip_under_way(status: RentalStatus) -> None:
-    assert blocked_client_may_command(_rental(status=status), RentalCommand.CLOSE)
-    assert not blocked_client_may_command(_rental(status=status), RentalCommand.OPEN)
+def test_an_unadmitted_client_may_only_close_the_car_of_a_trip(status: RentalStatus) -> None:
+    assert unadmitted_client_may_command(_rental(status=status), RentalCommand.CLOSE)
+    assert not unadmitted_client_may_command(_rental(status=status), RentalCommand.OPEN)
 
 
 @pytest.mark.parametrize("command", list(RentalCommand))
-def test_a_blocked_client_may_not_command_a_reserved_car(command: RentalCommand) -> None:
-    assert not blocked_client_may_command(_rental(status=RentalStatus.RESERVED), command)
+def test_an_unadmitted_client_may_not_command_a_reserved_car(command: RentalCommand) -> None:
+    assert not unadmitted_client_may_command(_rental(status=RentalStatus.RESERVED), command)
 
 
 RULES = CommandRules(max_distance_m=50.0, max_state_age=timedelta(minutes=5))

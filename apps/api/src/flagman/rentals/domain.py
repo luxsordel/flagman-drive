@@ -385,9 +385,10 @@ class RentalCommand(StrEnum):
     CLOSE = "close"
 
 
-def blocked_client_may_command(rental: Rental, command: RentalCommand) -> bool:
-    """A client blocked in the middle of a trip may still lock the car they leave behind:
-    closing gives no way into the car. Opening, and any command added later, stays refused."""
+def unadmitted_client_may_command(rental: Rental, command: RentalCommand) -> bool:
+    """A client who loses admission in the middle of a trip (blocked, or documents no longer
+    approved) may still lock the car they leave behind: closing gives no way into the car.
+    Opening, and any command added later, stays refused."""
     return command is RentalCommand.CLOSE and rental.status in (
         RentalStatus.IN_TRIP,
         RentalStatus.PARKED,
