@@ -344,15 +344,56 @@ def test_a_client_blocked_before_the_trip_cannot_close_either(
 
 
 def test_a_client_whose_documents_were_revoked_cannot_open(
-    integration_settings: Settings, person: Person, inspected: str, gateway: FakeGateway
+    person: Person, inspected: str, gateway: FakeGateway
 ) -> None:
-    execute(
-        integration_settings,
-        "UPDATE kyc_applications SET status = 'pending' WHERE user_id = :id",
-        id=person.id,
-    )
+    person.revoke_kyc()
 
     response = person.command(inspected, "open")
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert problem_type(response) == "kyc-not-approved"
+    assert gateway.calls == []
+
+
+def test_a_client_whose_documents_were_revoked_during_the_trip_can_close_the_car(
+    integration_settings: Settings, person: Person, inspected: str, gateway: FakeGateway
+) -> None:
+    person.command(inspected, "open")
+    person.revoke_kyc()
+
+    response = person.command(inspected, "close")
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json()["status"] == "in_trip"
+    assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
+    closed = [
+        e
+        for e in _client_events(integration_settings, person.id)
+        if e.details["command"] == "close"
+    ]
+    assert [e.details["outcome"] for e in closed] == ["done"]
+
+
+def test_a_client_whose_documents_were_revoked_during_the_trip_cannot_open_again(
+    person: Person, inspected: str, gateway: FakeGateway
+) -> None:
+    person.command(inspected, "open")
+    person.command(inspected, "close")
+    person.revoke_kyc()
+
+    response = person.command(inspected, "open")
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert problem_type(response) == "kyc-not-approved"
+    assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
+
+
+def test_a_client_whose_documents_were_revoked_before_the_trip_cannot_close_either(
+    person: Person, inspected: str, gateway: FakeGateway
+) -> None:
+    person.revoke_kyc()
+
+    response = person.command(inspected, "close")
 
     assert response.status_code == HTTPStatus.FORBIDDEN
     assert problem_type(response) == "kyc-not-approved"
