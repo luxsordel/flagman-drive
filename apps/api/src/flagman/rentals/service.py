@@ -784,10 +784,7 @@ class RentalService:
             raise PaymentsUnavailableError
         return self.gateway
 
-    async def _ensure_admitted(self, user_id: UUID, *, close_in_trip: bool = False) -> None:
-        # Locking the car left behind needs no admission (ADR-0026), whatever was lost.
-        if close_in_trip:
-            return
+    async def _ensure_admitted(self, user_id: UUID) -> None:
         if await kyc.get_admission_status(self.db, user_id) is not KycStatus.APPROVED:
             raise KycNotApprovedError
         if await identity.is_client_blocked(self.db, user_id):
@@ -1042,9 +1039,9 @@ class RentalService:
         async with self.db.begin():
             rental = await self._lock(user_id, rental_id, now)
             if not _was_expired(rental):
-                await self._ensure_admitted(
-                    user_id, close_in_trip=unadmitted_client_may_command(rental, request.command)
-                )
+                # Locking the car left behind needs no admission (ADR-0026), whatever was lost.
+                if not unadmitted_client_may_command(rental, request.command):
+                    await self._ensure_admitted(user_id)
                 before = await repository.get_inspection(self.db, rental.id, InspectionStage.BEFORE)
                 ensure_command_allowed(
                     rental, before is not None and before.inspection.is_submitted, now

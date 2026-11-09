@@ -1,6 +1,6 @@
 import asyncio
 import uuid
-from collections.abc import MutableMapping
+from collections.abc import Callable, MutableMapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from http import HTTPStatus
@@ -288,21 +288,59 @@ def test_a_command_holds_the_reservation_while_the_car_thinks(
     assert response.json()["status"] == "in_trip"
 
 
-def test_a_blocked_client_cannot_open(person: Person, inspected: str, gateway: FakeGateway) -> None:
-    person.block()
+# Every way a client can lose admission, with the problem a refused command reports.
+LOSSES_OF_ADMISSION = [
+    pytest.param(Person.block, "client-blocked", id="blocked"),
+    pytest.param(Person.revoke_kyc, "kyc-not-approved", id="documents-revoked"),
+]
+
+
+@pytest.mark.parametrize(("lose_admission", "problem"), LOSSES_OF_ADMISSION)
+def test_a_client_without_admission_before_the_trip_cannot_open(
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    lose_admission: Callable[[Person], None],
+    problem: str,
+) -> None:
+    lose_admission(person)
 
     response = person.command(inspected, "open")
 
     assert response.status_code == HTTPStatus.FORBIDDEN
-    assert problem_type(response) == "client-blocked"
+    assert problem_type(response) == problem
     assert gateway.calls == []
 
 
-def test_a_client_blocked_during_the_trip_can_close_the_car(
-    integration_settings: Settings, person: Person, inspected: str, gateway: FakeGateway
+@pytest.mark.parametrize(("lose_admission", "problem"), LOSSES_OF_ADMISSION)
+def test_a_client_without_admission_before_the_trip_cannot_close_either(
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    lose_admission: Callable[[Person], None],
+    problem: str,
+) -> None:
+    lose_admission(person)
+
+    response = person.command(inspected, "close")
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert problem_type(response) == problem
+    assert gateway.calls == []
+
+
+@pytest.mark.parametrize(
+    "lose_admission", [Person.block, Person.revoke_kyc], ids=["blocked", "documents-revoked"]
+)
+def test_a_client_who_lost_admission_during_the_trip_can_close_the_car(
+    integration_settings: Settings,
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    lose_admission: Callable[[Person], None],
 ) -> None:
     person.command(inspected, "open")
-    person.block()
+    lose_admission(person)
 
     response = person.command(inspected, "close")
 
@@ -317,87 +355,62 @@ def test_a_client_blocked_during_the_trip_can_close_the_car(
     assert [e.details["outcome"] for e in closed] == ["done"]
 
 
-def test_a_client_blocked_during_the_trip_cannot_open_again(
-    person: Person, inspected: str, gateway: FakeGateway
+@pytest.mark.parametrize(("lose_admission", "problem"), LOSSES_OF_ADMISSION)
+def test_a_client_who_lost_admission_during_the_trip_cannot_open_again(
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    lose_admission: Callable[[Person], None],
+    problem: str,
 ) -> None:
     person.command(inspected, "open")
     person.command(inspected, "close")
-    person.block()
+    lose_admission(person)
 
     response = person.command(inspected, "open")
 
     assert response.status_code == HTTPStatus.FORBIDDEN
-    assert problem_type(response) == "client-blocked"
+    assert problem_type(response) == problem
     assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
 
 
-def test_a_client_blocked_before_the_trip_cannot_close_either(
+def test_a_client_who_lost_all_admission_during_the_trip_can_still_only_close(
     person: Person, inspected: str, gateway: FakeGateway
 ) -> None:
+    # Both checks are skipped for closing, not just the one that failed first.
+    person.command(inspected, "open")
     person.block()
-
-    response = person.command(inspected, "close")
-
-    assert response.status_code == HTTPStatus.FORBIDDEN
-    assert problem_type(response) == "client-blocked"
-    assert gateway.calls == []
-
-
-def test_a_client_whose_documents_were_revoked_cannot_open(
-    person: Person, inspected: str, gateway: FakeGateway
-) -> None:
     person.revoke_kyc()
 
-    response = person.command(inspected, "open")
+    closed = person.command(inspected, "close")
+    opened = person.command(inspected, "open")
 
-    assert response.status_code == HTTPStatus.FORBIDDEN
-    assert problem_type(response) == "kyc-not-approved"
-    assert gateway.calls == []
+    assert closed.status_code == HTTPStatus.OK
+    assert opened.status_code == HTTPStatus.FORBIDDEN
+    assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
 
 
-def test_a_client_whose_documents_were_revoked_during_the_trip_can_close_the_car(
-    integration_settings: Settings, person: Person, inspected: str, gateway: FakeGateway
+@pytest.mark.parametrize(("lose_admission", "problem"), LOSSES_OF_ADMISSION)
+def test_a_client_who_lost_admission_while_parked_can_close_the_car(
+    person: Person,
+    inspected: str,
+    gateway: FakeGateway,
+    lose_admission: Callable[[Person], None],
+    problem: str,
 ) -> None:
     person.command(inspected, "open")
-    person.revoke_kyc()
+    parked = person.client.post(f"/rentals/{inspected}/park", headers=person.headers)
+    assert parked.json()["status"] == "parked", parked.text
+    lose_admission(person)
 
-    response = person.command(inspected, "close")
+    closed = person.command(inspected, "close")
+    opened = person.command(inspected, "open")
 
-    assert response.status_code == HTTPStatus.OK
-    assert response.json()["status"] == "in_trip"
+    assert closed.status_code == HTTPStatus.OK
+    assert closed.json()["status"] == "parked"
+    assert opened.status_code == HTTPStatus.FORBIDDEN
+    assert problem_type(opened) == problem
     assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
-    closed = [
-        e
-        for e in _client_events(integration_settings, person.id)
-        if e.details["command"] == "close"
-    ]
-    assert [e.details["outcome"] for e in closed] == ["done"]
-
-
-def test_a_client_whose_documents_were_revoked_during_the_trip_cannot_open_again(
-    person: Person, inspected: str, gateway: FakeGateway
-) -> None:
-    person.command(inspected, "open")
-    person.command(inspected, "close")
-    person.revoke_kyc()
-
-    response = person.command(inspected, "open")
-
-    assert response.status_code == HTTPStatus.FORBIDDEN
-    assert problem_type(response) == "kyc-not-approved"
-    assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
-
-
-def test_a_client_whose_documents_were_revoked_before_the_trip_cannot_close_either(
-    person: Person, inspected: str, gateway: FakeGateway
-) -> None:
-    person.revoke_kyc()
-
-    response = person.command(inspected, "close")
-
-    assert response.status_code == HTTPStatus.FORBIDDEN
-    assert problem_type(response) == "kyc-not-approved"
-    assert gateway.calls == []
 
 
 def test_a_cancelled_rental_takes_no_commands(
