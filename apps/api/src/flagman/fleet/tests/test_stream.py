@@ -19,6 +19,7 @@ from flagman.core.geo import GeoPoint
 from flagman.fleet import api, service, stream
 from flagman.fleet.domain import CarState, CarTransition, TelemetrySnapshot
 from flagman.fleet.tests.conftest import (
+    AuditFailsOnce,
     FakeGateway,
     Staff,
     add_car,
@@ -219,6 +220,34 @@ def test_a_command_reaches_every_staff_member(
             "at": command["command"]["at"],
         },
     }
+
+
+def test_a_command_whose_transaction_fails_still_reaches_staff(
+    client: TestClient, settings: Settings, staff: Staff, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    car_id = add_car(settings, POINT)
+    gateway = FakeGateway(CarState(POINT, 70, False, False, False, datetime.now(UTC)))
+    client.app.dependency_overrides[api.get_telematics_gateway] = lambda: gateway  # type: ignore[attr-defined]
+    monkeypatch.setattr(service, "audit", AuditFailsOnce())
+    sender = Staff(settings, StaffRole.ADMIN)
+
+    with _connect(client) as socket:
+        _sign_in(socket, staff.token())
+        response = client.post(
+            f"/admin/fleet/cars/{car_id}/commands",
+            json={"command": "open", "comment": "Opening for a cleaning"},
+            headers={"Authorization": f"Bearer {sender.token()}"},
+        )
+        assert response.status_code == 500, response.text
+        # No car notice comes first: the state the car reported was rolled back.
+        message = _receive(socket)
+
+    [(_, command_id, _)] = gateway.calls
+    assert message["type"] == "command"
+    assert (message["command"]["command_id"], message["command"]["outcome"]) == (
+        str(command_id),
+        "done",
+    )
 
 
 @pytest.mark.parametrize("origin", [None, "https://evil.example"], ids=["missing", "foreign"])

@@ -18,7 +18,9 @@ async def record(db: AsyncSession, entry: AuditEntry) -> None:
 
     Committed together with the action itself: a rolled back action leaves no event, and an
     action never commits without its event. To keep the event of a refused action, record it,
-    let the transaction commit and raise only after it (docs/adr/0010).
+    let the transaction commit and raise only after it (docs/adr/0010). A module that must keep the
+    event of an action it could not roll back records it again in a transaction of its own, as the
+    fleet does for a command the car got already (docs/adr/0030).
     """
     if not db.in_transaction():
         raise RuntimeError("audit.service.record must run inside the caller's transaction")

@@ -9,6 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from conftest import capture_logs_of
 from flagman.audit import service as audit
 from flagman.audit.domain import AuditAction, AuditEventFilter
 from flagman.core.alerts import SpikeMeter
@@ -27,7 +28,16 @@ from flagman.fleet.domain import (
     TelematicsTimeoutError,
     TelematicsUnavailableError,
 )
-from flagman.fleet.tests.conftest import FakeGateway, Staff, add_car, bearer, client_token
+from flagman.fleet.tests.conftest import (
+    AuditDown,
+    AuditFailsOnce,
+    DatabaseGone,
+    FakeGateway,
+    Staff,
+    add_car,
+    bearer,
+    client_token,
+)
 from flagman.identity.domain import StaffRole
 
 pytestmark = pytest.mark.integration
@@ -383,12 +393,6 @@ def test_done_and_failed_commands_add_up_to_a_spike_warning(
     assert [(entry["metric"], entry["count"]) for entry in warned] == [(spikes.threshold.name, 2)]
 
 
-class AuditDown:
-    @staticmethod
-    async def record(*_: object) -> None:
-        raise RuntimeError("audit is down")
-
-
 @pytest.fixture
 def audit_down(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(service, "audit", AuditDown)
@@ -413,6 +417,83 @@ def test_commands_the_car_got_count_even_if_recording_them_fails(
     assert [command for _, _, command in gateway.calls] == [CarCommand.OPEN, CarCommand.CLOSE]
     warned = [entry for entry in spikes.logs if entry["event"] == "security_spike"]
     assert [(entry["metric"], entry["count"]) for entry in warned] == [(spikes.threshold.name, 2)]
+
+
+def test_a_command_whose_transaction_fails_is_audited_on_its_own(
+    client: TestClient,
+    integration_settings: Settings,
+    gateway: FakeGateway,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service, "audit", AuditFailsOnce())
+    logs = capture_logs_of(monkeypatch, service)
+    car_id = add_car(integration_settings, POINT)
+
+    response = client.post(_url(car_id), json=_body(), headers=operator.headers)
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    # The car reported open doors, but that state went with the failed transaction.
+    car = client.get(f"/admin/fleet/cars/{car_id}", headers=operator.headers).json()
+    assert car["state"]["doors_locked"] is True
+    [(_, command_id, _)] = gateway.calls
+    [event] = _events(integration_settings, operator.id)
+    assert event.details["command_id"] == str(command_id)
+    assert event.details["outcome"] == "done"
+    assert event.details["state_recorded"] is False
+    [sent] = [entry for entry in logs if entry["event"] == "car_command_sent"]
+    assert sent["command_id"] == str(command_id)
+    assert sent["by"] == "staff"
+    assert not [entry for entry in logs if entry["event"] == "car_command_audit_failed"]
+
+
+def test_a_command_leaves_its_id_in_the_log_when_no_record_goes_through(
+    client: TestClient,
+    integration_settings: Settings,
+    gateway: FakeGateway,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service, "audit", DatabaseGone)
+    logs = capture_logs_of(monkeypatch, service)
+    car_id = add_car(integration_settings, POINT)
+
+    response = client.post(_url(car_id), json=_body(), headers=operator.headers)
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    [(_, command_id, _)] = gateway.calls
+    assert _events(integration_settings, operator.id) == []
+    [sent] = [entry for entry in logs if entry["event"] == "car_command_sent"]
+    assert sent["command_id"] == str(command_id)
+    [failed] = [entry for entry in logs if entry["event"] == "car_command_audit_failed"]
+    assert failed["log_level"] == "error"
+    assert (failed["command_id"], failed["car_id"], failed["command"]) == (
+        str(command_id),
+        car_id,
+        "open",
+    )
+    assert (failed["outcome"], failed["by"]) == ("done", "staff")
+
+
+def test_a_refused_command_is_audited_on_its_own_without_a_lost_state(
+    client: TestClient,
+    integration_settings: Settings,
+    gateway: FakeGateway,
+    operator: Staff,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(service, "audit", AuditFailsOnce())
+    gateway.outcome = CarCommandRejectedError("ignition_on")
+    car_id = add_car(integration_settings, POINT)
+
+    response = client.post(_url(car_id), json=_body(command="close"), headers=operator.headers)
+
+    # The failed transaction wins over the refusal: the client sees the error of the record.
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    [event] = _events(integration_settings, operator.id)
+    assert event.details["outcome"] == "rejected"
+    # The car reported no state, so nothing of it is missing.
+    assert "state_recorded" not in event.details
 
 
 def test_commands_work_while_the_spike_meter_is_down(

@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from structlog.testing import capture_logs
 
+from conftest import capture_logs_of
 from flagman.audit import service as audit
 from flagman.audit.domain import ActorType, AuditAction, AuditEventFilter
 from flagman.core.alerts import SpikeMeter
@@ -20,6 +21,7 @@ from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
 from flagman.core.ratelimit import Limit
+from flagman.fleet import service as fleet
 from flagman.fleet.domain import (
     CarCommand,
     CarCommandDuplicateError,
@@ -29,7 +31,14 @@ from flagman.fleet.domain import (
     TelematicsTimeoutError,
     TelematicsUnavailableError,
 )
-from flagman.fleet.tests.conftest import FakeGateway, add_car, run_in_db
+from flagman.fleet.tests.conftest import (
+    AuditDown,
+    AuditFailsOnce,
+    DatabaseGone,
+    FakeGateway,
+    add_car,
+    run_in_db,
+)
 from flagman.geo import service as geo
 from flagman.rentals import api, service
 from flagman.rentals.tests.conftest import (
@@ -414,12 +423,6 @@ def test_client_commands_add_up_to_a_spike_warning(
     assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 2)]
 
 
-class AuditDown:
-    @staticmethod
-    async def record(*_: object) -> None:
-        raise RuntimeError("audit is down")
-
-
 def test_a_client_command_the_car_got_counts_even_if_recording_it_fails(
     person: Person,
     inspected: str,
@@ -438,6 +441,53 @@ def test_a_client_command_the_car_got_counts_even_if_recording_it_fails(
     assert gateway.calls[-1][2] is CarCommand.OPEN
     spikes = [entry for entry in alert_logs if entry["event"] == "security_spike"]
     assert [(spike["metric"], spike["count"]) for spike in spikes] == [(threshold.name, 1)]
+
+
+def test_a_client_command_whose_transaction_fails_is_audited_on_its_own(
+    person: Person,
+    inspected: str,
+    car: str,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("flagman.fleet.service.audit", AuditFailsOnce())
+    logs = capture_logs_of(monkeypatch, fleet)
+
+    response = person.command(inspected, "open")
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    # The car reported open doors, but that state went with the failed transaction.
+    assert person.get(inspected).json()["car"]["doors_locked"] is True
+    command_id = gateway.calls[-1][1]
+    [event] = _client_events(person.settings, person.id)
+    assert event.target.id == uuid.UUID(car)
+    assert event.details["command_id"] == str(command_id)
+    assert event.details["rental_id"] == inspected
+    assert event.details["state_recorded"] is False
+    [sent] = [entry for entry in logs if entry["event"] == "car_command_sent"]
+    assert (sent["command_id"], sent["by"]) == (str(command_id), "client")
+
+
+def test_a_client_command_leaves_its_id_in_the_log_when_no_record_goes_through(
+    person: Person,
+    inspected: str,
+    car: str,
+    gateway: FakeGateway,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("flagman.fleet.service.audit", DatabaseGone)
+    logs = capture_logs_of(monkeypatch, fleet)
+
+    response = person.command(inspected, "open")
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    command_id = str(gateway.calls[-1][1])
+    assert _client_events(person.settings, person.id) == []
+    [sent] = [entry for entry in logs if entry["event"] == "car_command_sent"]
+    assert (sent["command_id"], sent["by"]) == (command_id, "client")
+    [audit_failed] = [entry for entry in logs if entry["event"] == "car_command_audit_failed"]
+    assert (audit_failed["log_level"], audit_failed["command_id"]) == ("error", command_id)
+    assert (audit_failed["car_id"], audit_failed["by"]) == (car, "client")
 
 
 def test_client_commands_work_while_the_spike_meter_is_down(
