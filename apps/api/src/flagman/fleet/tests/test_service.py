@@ -5,12 +5,11 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
-import structlog
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from structlog.testing import LogCapture
 
+from conftest import capture_logs_of
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
 from flagman.core.geo import GeoPoint
@@ -229,14 +228,7 @@ async def test_batch_stores_the_freshest_snapshot_of_a_car(db: AsyncSession) -> 
 async def test_batch_logs_each_unknown_car_once(
     db: AsyncSession, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    capture = LogCapture()
-    monkeypatch.setattr(
-        service,
-        "logger",
-        structlog.wrap_logger(
-            structlog.ReturnLogger(), processors=[capture], wrapper_class=structlog.BoundLogger
-        ),
-    )
+    logs = capture_logs_of(monkeypatch, service)
     first, second = uuid.uuid4(), uuid.uuid4()
 
     report = await _receive(
@@ -247,7 +239,7 @@ async def test_batch_logs_each_unknown_car_once(
     )
 
     assert report == TelemetryReport(applied=0, stale=0, unknown_car=3)
-    (rejected,) = [e for e in capture.entries if e["event"] == "telemetry_partly_rejected"]
+    (rejected,) = [e for e in logs if e["event"] == "telemetry_partly_rejected"]
     # The count stays per snapshot, the ids name each car once.
     assert rejected["unknown_car"] == 3
     assert rejected["unknown_telematics_ids"] == [str(first), str(second)]
