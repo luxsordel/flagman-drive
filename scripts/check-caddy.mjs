@@ -48,6 +48,14 @@ const cases = [
   { host: 'app.localhost', path: '/cards/bind', status: 404, csp: pageCsp },
 ];
 
+// Body-size checks: the API's photo limit is 10 MiB (core/photos.py), so a 10 MiB POST must reach
+// the upstream (status 200 from the stub). One byte over the Caddy ceiling (12 MiB + 1) must be
+// rejected at the edge before it hits the upstream (status 413).
+const bodyCases = [
+  { size: 10 * 1024 * 1024, status: 200 },
+  { size: 12582912 + 1, status: 413 },
+];
+
 function docker(args, { check = true } = {}) {
   const result = spawnSync('docker', args, { encoding: 'utf8' });
   if (result.error !== undefined) fail(`Cannot run docker: ${result.error.message}`);
@@ -63,23 +71,48 @@ function fail(message) {
   throw new Error(message);
 }
 
-function get(port, ca, host, path) {
+function req(port, ca, host, path, { method = 'GET', body } = {}) {
   return new Promise((resolve, reject) => {
-    const req = request(
-      { host: '127.0.0.1', port, path, servername: host, headers: { host }, ca, timeout: 5000 },
+    const headers = { host };
+    if (body !== undefined) headers['content-length'] = String(body.byteLength);
+    const r = request(
+      { method, host: '127.0.0.1', port, path, servername: host, headers, ca, timeout: 10000 },
       (res) => {
         res.resume();
         res.on('end', () => resolve(res));
       },
     );
-    req.on('timeout', () => req.destroy(new Error('timeout')));
-    req.on('error', reject);
-    req.end();
+    r.on('timeout', () => r.destroy(new Error('timeout')));
+    r.on('error', reject);
+    if (body !== undefined) r.write(body);
+    r.end();
   });
+}
+
+function get(port, ca, host, path) {
+  return req(port, ca, host, path);
 }
 
 async function run() {
   docker(['network', 'create', name]);
+  // Use a Node.js stub rather than `caddy respond` so the server actually reads (drains) the request
+  // body. Caddy's request_body max_size limit is only enforced when the upstream consumes the body;
+  // `caddy respond` ignores it entirely, so the 413 case would never fire.
+  const stubScript =
+    "require('http').createServer((req,res)=>{" +
+    "req.resume();" +
+    "req.on('end',()=>{" +
+    "res.writeHead(200,{" +
+    // The edge must drop this header (-Server in the Caddyfile), even when the API sends one.
+    "'Server':'upstream'," +
+    // The API sets these itself (core/middleware.py): the edge must replace them, not add a copy.
+    "'Strict-Transport-Security':'max-age=63072000; includeSubDomains'," +
+    "'X-Content-Type-Options':'nosniff'," +
+    "'Referrer-Policy':'no-referrer'" +
+    "});" +
+    "res.end('ok')" +
+    "});" +
+    "}).listen(8000)";
   docker([
     'run',
     '--detach',
@@ -89,22 +122,10 @@ async function run() {
     name,
     '--network-alias',
     'api',
-    image,
-    'caddy',
-    'respond',
-    '--listen',
-    ':8000',
-    // The edge must drop this header (-Server in the Caddyfile), even when the API sends one.
-    '--header',
-    'Server: upstream',
-    // The API sets these itself (core/middleware.py): the edge must replace them, not add a copy.
-    '--header',
-    'Strict-Transport-Security: max-age=63072000; includeSubDomains',
-    '--header',
-    'X-Content-Type-Options: nosniff',
-    '--header',
-    'Referrer-Policy: no-referrer',
-    'ok',
+    'node:lts-alpine',
+    'node',
+    '-e',
+    stubScript,
   ]);
   docker([
     'run',
@@ -226,9 +247,17 @@ async function run() {
     if (respHeaders !== undefined) problems.push(`${where}: resp_headers are logged`);
   }
 
+  for (const { size, status } of bodyCases) {
+    const body = Buffer.alloc(size);
+    const res = await req(port, ca, 'api.localhost', '/rentals/current', { method: 'POST', body });
+    if (res.statusCode !== status) {
+      problems.push(`body ${size} bytes: status ${res.statusCode}, expected ${status}`);
+    }
+  }
+
   if (problems.length > 0) fail(`${problems.join('\n      ')}`);
   console.log(
-    `ok    ${image}: ${cases.length} requests, headers on errors too, paths logged, query strings dropped, every log filtered`,
+    `ok    ${image}: ${cases.length} requests, headers on errors too, paths logged, query strings dropped, every log filtered, ${bodyCases.length} body-size checks`,
   );
 }
 
