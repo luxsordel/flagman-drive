@@ -1,0 +1,40 @@
+name: scheduled-scans
+
+# A new advisory for a dependency nobody touches would otherwise surface only with the next PR that
+# happens to change that part. Runs the same scans as ci.yml over every part of main, weekly.
+on:
+  schedule:
+    # Mondays 04:00 UTC (07:00 in Minsk), so a failure is waiting at the start of the week.
+    - cron: "0 4 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-scans
+  cancel-in-progress: false
+
+jobs:
+  scans:
+    name: Scans
+    uses: ./.github/workflows/dependency-scans.yml
+
+  # A scheduled run belongs to nobody's PR, so its result goes to an issue the team sees.
+  report:
+    name: Report the result in an issue
+    needs: scans
+    if: always()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Open, update or close the scan issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.scans.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/scan-status-issue.sh "$RESULT" "$RUN_URL"
