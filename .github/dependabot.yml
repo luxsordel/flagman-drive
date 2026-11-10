@@ -100,9 +100,9 @@ updates:
       - dependency-name: node
         update-types: [version-update:semver-major]
   # Third-party images of the local and stand compose files; the stand's own images come from GHCR
-  # and are built from the Dockerfiles above. A new Postgres major needs a dump and restore of the
-  # volume, and the stand runs the same versions as a future production, so majors of the data stores
-  # are decisions made by hand.
+  # and are built from the Dockerfiles above. Majors of the data stores are decisions made by hand:
+  # a new Postgres major needs a dump and restore of the volume, and SeaweedFS keeps the KYC photos
+  # on a pinned version (docs/adr/0005).
   - package-ecosystem: docker-compose
     directories:
       - /infra
@@ -118,4 +118,6 @@ updates:
       - dependency-name: postgis/postgis
         update-types: [version-update:semver-major]
       - dependency-name: redis
+        update-types: [version-update:semver-major]
+      - dependency-name: chrislusf/seaweedfs
         update-types: [version-update:semver-major]
