@@ -158,7 +158,7 @@ docs/03 сам откладывает; **пробел** — не выполне�
 |---|---|---|---|
 | Входные схемы с `extra="forbid"` | исправлено в ветке | Тесты. Разовый обход скриптом нашёл 52 модели тела и query, включая вложенные, — все `forbid`. Теперь это проверяет мета-тест (`0d2fa40`): новая модель без `forbid` роняет его. Скалярные query-параметры лишние ключи не отвергают; docs/03 теперь ограничивает правило телами и query-моделями (`301d7ee`) | `apps/api/tests/test_input_schemas.py::test_every_input_model_forbids_unknown_fields`, `A/identity/tests/test_validation.py::test_unknown_fields_are_rejected`, `docs/03-security.md:53-55` |
 | То же для входов вне маршрутов | выполнено | Ревью кода: первое сообщение WebSocket, телеметрия, вебхук — строгие схемы | `A/fleet/schemas.py:62`, `A/fleet/schemas.py:315`, `A/payments/fake_provider.py:93` |
-| SQL только с параметрами | выполнено | Настройка: правило ruff `S608` и Semgrep с `--error`. Все `text()` статичны, подавлений нет | `apps/api/pyproject.toml:61-62`, `.github/workflows/ci.yml:249-266` |
+| SQL только с параметрами | выполнено | Настройка: правило ruff `S608` и Semgrep с `--error`. Все `text()` статичны, подавлений нет | `apps/api/pyproject.toml:61-62`, `.github/workflows/dependency-scans.yml:54-71` |
 | Фото документов — приватный бакет | выполнено | Тест: прямая ссылка без подписи — 403 | `A/kyc/tests/test_documents.py::test_the_bucket_is_private`, `infra/docker-compose.yml:47-50` |
 | Подписанные ссылки — не дольше 5 минут | выполнено | Тест: `expires_in` равен 300, после срока ссылка не работает | `A/kyc/domain.py:11`, `A/kyc/tests/test_documents.py::test_a_signed_link_stops_working_after_its_ttl` |
 | Документы видят владелец и операторы KYC | выполнено | Тесты. Отдельной роли нет: это operator и admin, техник отсечён. Каждая ссылка сотруднику — в аудите | `A/kyc/tests/test_review.py::test_technicians_do_not_see_the_queue`, `::test_a_document_link_opens_the_photo_and_is_audited` |
@@ -208,12 +208,12 @@ docs/03 сам откладывает; **пробел** — не выполне�
 
 | Правило | Статус | Как проверено | Где |
 |---|---|---|---|
-| Dependabot для pip, npm и Actions | выполнено | Настройка: еженедельно, плюс docker. Образ стенда `infra/stand/web` (Node и Caddy) добавлен в `73af880`. Не покрыты образы из docker-compose (Postgres, Redis, SeaweedFS). Dependabot alerts выключены | `.github/dependabot.yml:93-101` |
-| `pip-audit` в CI | выполнено | Ручной запуск той же командой во всех трёх Python-каталогах на итоговом коде ветки: уязвимостей нет. В CI ветки ещё не запускался | `.github/workflows/ci.yml:135-153` |
-| `npm audit` (high и critical) | выполнено | Ручной запуск `npm run audit` на итоговом коде ветки, уже с проверкой allowlist из `a97e5ff`: неодобренных high и critical нет, allowlist пуст. В CI ветки ещё не запускался | `scripts/npm-audit.mjs`, `.github/workflows/ci.yml:178-181` |
+| Dependabot для pip, npm и Actions | выполнено | Настройка: еженедельно, плюс docker. Образ стенда `infra/stand/web` (Node и Caddy) добавлен в `73af880`. Образы из docker-compose (Postgres, Redis, SeaweedFS) добавлены в #168. Dependabot alerts включает админ (#168) | `.github/dependabot.yml:93-121` |
+| `pip-audit` в CI | выполнено | Ручной запуск той же командой во всех трёх Python-каталогах на итоговом коде ветки: уязвимостей нет. В CI ветки ещё не запускался | `.github/workflows/dependency-scans.yml:21-38` |
+| `npm audit` (high и critical) | выполнено | Ручной запуск `npm run audit` на итоговом коде ветки, уже с проверкой allowlist из `a97e5ff`: неодобренных high и critical нет, allowlist пуст. В CI ветки ещё не запускался | `scripts/npm-audit.mjs`, `.github/workflows/dependency-scans.yml:40-52` |
 | Исключения `npm audit` | исправлено в ветке | Тест скрипта. Две устаревшие записи удалены, устаревшая запись роняет CI (`b42257b`). `a97e5ff`: запись без id вида `GHSA-*`, пакета или причины, с неверной датой или со сроком `reviewBy` дальше 92 дней роняет CI, даже пока её уязвимость не выдаётся | `scripts/npm-audit.mjs:18-67`, `scripts/tests/npm-audit.test.sh`, `.github/npm-audit-allowlist.json` |
 | PR с исключением `npm audit` — отдельный пункт для ревьюера | исправлено в ветке | В шаблоне PR не было такого пункта, правило держалось на памяти автора. Пункт добавлен в чек-лист шаблона (`e4918c1`). Сейчас allowlist пуст, и эта ветка исключений не добавляет | `docs/03-security.md:92`, `.github/pull_request_template.md:18` |
-| Semgrep в CI | выполнено | Ручной запуск той же версии и теми же наборами правил на рабочем дереве с правками после ревью: 646 файлов, 0 находок; исходники нагрузочного теста отдельно, как в CI: 18 файлов, 0 находок. В CI ветки ещё не запускался | `.github/workflows/ci.yml:249-266` |
+| Semgrep в CI | выполнено | Ручной запуск той же версии и теми же наборами правил на рабочем дереве с правками после ревью: 646 файлов, 0 находок; исходники нагрузочного теста отдельно, как в CI: 18 файлов, 0 находок. В CI ветки ещё не запускался | `.github/workflows/dependency-scans.yml:54-71` |
 | gitleaks в CI | выполнено | См. «Секреты» | `.github/workflows/repo-checks.yml:12-22` |
 | Зафиксированные версии | выполнено | Настройка: `uv sync --locked`, `npm ci`, actions закреплены по SHA | `apps/api/uv.lock`, `package-lock.json`, `.github/workflows/ci.yml:102` |
 
@@ -335,6 +335,7 @@ SMS, `.gitignore`, мета-тест, тесты на 429, проверка allo
 - **Образы docker-compose вне Dependabot.** Записи `docker` читают только Dockerfile. `postgis/postgis:16-3.6`,
   `redis:7.4.11-alpine`, `chrislusf/seaweedfs:4.48` (`infra/docker-compose.yml:9`, `:28`, `:46`, `:74`) и PostGIS
   стенда (`infra/stand/compose.yml:96`) никто не обновляет. Это не мелкая правка, а часть #168.
+  **Исправлено в #168:** запись `docker-compose` в `.github/dependabot.yml`, мажоры Postgres и Redis — вручную.
 
 ### Наблюдения о процессе
 
@@ -377,6 +378,8 @@ SMS, `.gitignore`, мета-тест, тесты на 429, проверка allo
 - **Нет сканов по расписанию, Dependabot alerts выключены (#168).** Ни в одном workflow нет `schedule`. Новая уязвимость
   в зависимостях, которые никто не трогает, всплывёт только при следующем push. Dependabot alerts включает админ
   репозитория в настройках, в коде это не исправить.
+  **Исправлено в #168:** `.github/workflows/scheduled-scans.yml` по понедельникам гоняет те же сканы
+  (`dependency-scans.yml`) по всему `main`, падение открывает issue с меткой `security`. Alerts включает админ.
 - **ZAP с авторизацией (#169).** Скан без входа не видит админку за паролем и TOTP. Права и чужие объекты сейчас
   закрывают тесты, а не ZAP. Настройки ZAP в репозитории нет вообще.
 - **Лимит тела запроса в Caddy (#170).** `request_body` в Caddyfile нет. Размер ограничен только у фото и телеметрии, у

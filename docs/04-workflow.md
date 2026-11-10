@@ -50,7 +50,10 @@ Workflow `.github/workflows/ci.yml` запускается на каждый PR 
 | весь репозиторий | Semgrep (SAST), gitleaks и проверка заголовка PR (`repo-checks.yml`) |
 
 - Проверяются только изменённые части; части, которых ещё нет в репозитории, пропускаются.
-  Правка самого `ci.yml` запускает все проверки.
+  Правка самого `ci.yml` или `dependency-scans.yml` запускает все проверки.
+- `pip-audit`, `npm run audit` и Semgrep вынесены в `dependency-scans.yml`, в списке проверок PR они называются
+  `Scans / …`. Тот же workflow раз в неделю гоняет `scheduled-scans.yml` по всему `main` и сообщает о падении в issue
+  с меткой `security` ([docs/03-security.md](03-security.md), «Зависимости и CI»).
 - В `package.json` каждой JS-части обязательны скрипты `lint`, `typecheck`, `test`.
 - Обязательный для `main` статус — `CI gate`: он есть всегда и зелёный, если все запущенные проверки прошли.
   Список обязательных проверок задаётся в `scripts/setup-github.ps1`.

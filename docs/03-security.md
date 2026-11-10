@@ -84,8 +84,14 @@
 - В CI — сканер утечек секретов (gitleaks).
 
 ### Зависимости и CI
-- Dependabot для pip, npm и GitHub Actions.
+- Dependabot для pip, npm, GitHub Actions, Dockerfile-образов и сторонних образов docker-compose
+  (`infra/docker-compose.yml`, `infra/stand/compose.yml`). Мажорные версии Postgres и Redis обновляются вручную.
+- Dependabot alerts и security updates включены в настройках репозитория (включает администратор).
 - В CI: `pip-audit`, `npm audit` (high и critical, `scripts/npm-audit.mjs`), **Semgrep** (SAST), **gitleaks**.
+  Первые три живут в `.github/workflows/dependency-scans.yml`: его вызывает `ci.yml` на PR и `scheduled-scans.yml`
+  по понедельникам в 04:00 UTC по всему `main`, чтобы новая уязвимость в нетронутой зависимости не ждала следующего PR.
+  Упавший плановый скан открывает issue «Weekly dependency scan failed» с меткой `security` (или пишет в уже открытую),
+  следующий успешный — закрывает её. Вручную: Actions → scheduled-scans → Run workflow.
 - Исключение из `npm audit` — только когда исправленной версии нет: запись в `.github/npm-audit-allowlist.json`
   с идентификатором GHSA, причиной (почему не эксплуатируется у нас) и датой `reviewBy` (не дальше 3 месяцев).
   После этой даты CI снова падает. Запись, которую `npm audit` больше не сообщает, тоже роняет CI: её надо удалить.
