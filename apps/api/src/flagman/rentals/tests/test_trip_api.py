@@ -968,7 +968,7 @@ def test_the_finish_is_refused_by_a_car_that_does_not_lock(
     assert len(_operations(integration_settings, trip.rental_id)) == 1
 
 
-def test_a_receipt_never_changes(integration_settings: Settings, person: Person, car: str) -> None:
+def test_a_receipt_never_changes(owner_settings: Settings, person: Person, car: str) -> None:
     rental_id = _start(person, car)
     _inspect_after(person, rental_id)
     _post(person, rental_id, "finish")
@@ -976,9 +976,10 @@ def test_a_receipt_never_changes(integration_settings: Settings, person: Person,
     receipt = person.client.get(f"/rentals/{rental_id}/receipt", headers=person.headers)
 
     assert receipt.status_code == 200
+    # As the owner: the app role is refused before the trigger (tests/test_db_roles.py).
     with pytest.raises(DBAPIError, match="append-only"):
         execute(
-            integration_settings,
+            owner_settings,
             "UPDATE rental_receipts SET total = 0 WHERE rental_id = :id",
             id=uuid.UUID(rental_id),
         )

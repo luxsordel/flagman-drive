@@ -1142,16 +1142,17 @@ def test_an_increase_during_a_debt_try_stays_owed(  # noqa: PLR0913, PLR0917 - t
 
 
 def test_the_block_history_never_changes(
-    integration_settings: Settings, person: Person, operator: Staff, app_client: TestClient
+    owner_settings: Settings, person: Person, operator: Staff, app_client: TestClient
 ) -> None:
     blocked = app_client.post(
         f"/admin/clients/{person.id}/block", json={"reason": "Fraud"}, headers=operator.headers
     )
     assert blocked.status_code == HTTPStatus.OK, blocked.text
 
+    # As the owner: the app role is refused before the trigger (tests/test_db_roles.py).
     with pytest.raises(DBAPIError, match="append-only"):
         execute(
-            integration_settings,
+            owner_settings,
             "UPDATE client_block_events SET reason = 'nothing' WHERE user_id = :id",
             id=person.id,
         )
@@ -1174,13 +1175,14 @@ def test_a_running_trip_is_not_shown_as_a_debt(
 
 
 def test_an_adjustment_never_changes(
-    integration_settings: Settings,
+    owner_settings: Settings,
     person: Person,
     car: str,
     operator: Staff,
     app_client: TestClient,
 ) -> None:
-    rental_id = _paid_trip(integration_settings, person, car)
+    # As the owner throughout: the app role is refused before the trigger (tests/test_db_roles.py).
+    rental_id = _paid_trip(owner_settings, person, car)
     _adjust(app_client, operator, rental_id, -100, "Late unlock")
 
     for sql in (
@@ -1188,7 +1190,7 @@ def test_an_adjustment_never_changes(
         "DELETE FROM rental_adjustments WHERE rental_id = :id",
     ):
         with pytest.raises(DBAPIError, match="append-only"):
-            execute(integration_settings, sql, id=uuid.UUID(rental_id))
+            execute(owner_settings, sql, id=uuid.UUID(rental_id))
 
 
 def test_the_client_card_tells_the_debt(
