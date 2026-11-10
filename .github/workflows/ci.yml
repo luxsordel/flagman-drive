@@ -39,7 +39,7 @@ jobs:
             changed="__all__"
           fi
           # Editing CI itself re-checks everything.
-          if echo "$changed" | grep -Eq '^(__all__|\.github/workflows/ci\.yml)$'; then all=1; else all=0; fi
+          if echo "$changed" | grep -Eq '^(__all__|\.github/workflows/(ci|dependency-scans)\.yml)$'; then all=1; else all=0; fi
 
           has() { [ "$all" = 1 ] || echo "$changed" | grep -Eq "$1"; }
 
@@ -132,25 +132,14 @@ jobs:
         # run. Fails below fail_under in pyproject.toml.
         run: uv run pytest -q -m "not integration" --cov --cov-report=term
 
-  python-audit:
-    name: Python dependency audit (${{ matrix.dir }})
+  # Dependency audits and SAST live in their own workflow, which also runs weekly (scheduled-scans.yml).
+  scans:
+    name: Scans
     needs: changes
-    if: needs.changes.outputs.python != '[]'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dir: ${{ fromJSON(needs.changes.outputs.python) }}
-    defaults:
-      run:
-        working-directory: ${{ matrix.dir }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      - name: Audit locked dependencies
-        run: |
-          uv export --frozen --no-emit-project -o "$RUNNER_TEMP/requirements.txt" > /dev/null
-          uvx pip-audit==2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
+    uses: ./.github/workflows/dependency-scans.yml
+    with:
+      python-dirs: ${{ needs.changes.outputs.python }}
+      node: ${{ needs.changes.outputs.node == 'true' }}
 
   node-quality:
     name: Node quality (workspaces)
@@ -175,10 +164,6 @@ jobs:
         run: npm run check:deps --workspaces --if-present
       - name: Bundle for every platform
         run: npm run check:bundle --workspaces --if-present
-      # Same threshold as `npm audit --audit-level=high`, minus advisories with no fix yet that are
-      # listed with a reason and an expiry date in .github/npm-audit-allowlist.json.
-      - name: Dependency audit (high and above)
-        run: npm run audit
 
   api-client-fresh:
     name: Generated API client is up to date
@@ -246,31 +231,12 @@ jobs:
           node-version: 22
       - run: node scripts/check-caddy.mjs
 
-  semgrep:
-    name: Semgrep (SAST)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      - name: Run Semgrep
-        run: |
-          uvx semgrep==1.182.1 scan --error --metrics=off \
-            --config p/default --config p/python --config p/typescript --config p/security-audit
-      - name: Run Semgrep on the load test
-        # Semgrep skips every tests/ folder of a git repository, wherever inside it the scan starts,
-        # and reports success for 0 files. So these sources are scanned from outside the repository.
-        run: |
-          cp -r tests/load/src "$RUNNER_TEMP/load-test"
-          cd "$RUNNER_TEMP/load-test"
-          uvx semgrep==1.182.1 scan --error --metrics=off \
-            --config p/default --config p/python --config p/security-audit
-
   # The only check added to branch protection (besides repo-checks): it always reports,
   # and passes when every job succeeded or was skipped by change detection.
   gate:
     name: CI gate
     if: always()
-    needs: [changes, python-quality, domain-coverage, python-audit, node-quality, api-client-fresh, load-smoke, caddy, semgrep]
+    needs: [changes, python-quality, domain-coverage, scans, node-quality, api-client-fresh, load-smoke, caddy]
     runs-on: ubuntu-latest
     steps:
       - name: Require no failed or cancelled jobs
