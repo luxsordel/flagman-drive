@@ -81,6 +81,17 @@ class DatabaseSettings(BaseSettings):
         )
 
 
+class MigrationSettings(DatabaseSettings):
+    """Alembic's connection: the schema owner of docs/adr/0031, not the role the API runs as.
+
+    Own variable names, so the owner's password is never in the API's or the worker's
+    environment, and a .env with both roles still sends each process its own.
+    """
+
+    postgres_user: str = Field(validation_alias="POSTGRES_OWNER_USER")
+    postgres_password: SecretStr = Field(validation_alias="POSTGRES_OWNER_PASSWORD")
+
+
 class PaymentsSettings(DatabaseSettings):
     """Card payments, for the API and for the worker that retries a declined charge
     (docs/adr/0019, docs/adr/0024)."""
@@ -448,3 +459,7 @@ def load_settings() -> Settings:
 
 def load_worker_settings() -> WorkerSettings:
     return WorkerSettings()
+
+
+def load_migration_settings() -> MigrationSettings:
+    return MigrationSettings()
