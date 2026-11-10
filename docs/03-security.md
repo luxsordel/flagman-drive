@@ -86,13 +86,14 @@
 ### Зависимости и CI
 - Dependabot для pip, npm, GitHub Actions, Dockerfile-образов и сторонних образов docker-compose
   (`infra/docker-compose.yml`, `infra/stand/compose.yml`). Мажорные версии Postgres, Redis и SeaweedFS обновляются
-  вручную. Тесты API берут образы из `infra/docker-compose.yml` (`apps/api/tools/compose_images.py`), а правка
-  compose-файлов запускает их в CI, так что обновление образа проверяется тестами.
+  вручную. Тесты API стартуют контейнеры из образов `infra/docker-compose.yml` (`apps/api/tools/compose_images.py`),
+  и правка этого файла запускает их в CI, так что обновление образа проверяется тестами. Из `infra/stand/compose.yml`
+  тесты проверяют только, что образ `backup` совпадает с образом Postgres: `pg_dump` должен совпадать с сервером.
 - Dependabot alerts и security updates должны быть включены в настройках репозитория. Включает только
   администратор (Settings → Code security), в коде это не настроить.
 - В CI: `pip-audit`, `npm audit` (high и critical, `scripts/npm-audit.mjs`), **Semgrep** (SAST), **gitleaks**.
   Первые три живут в `.github/workflows/security-scans.yml`: его вызывает `ci.yml` на PR и push в `main` и `scheduled-scans.yml`
-  по понедельникам в 04:00 UTC по всему `main`, чтобы новая уязвимость в нетронутой зависимости не ждала следующего PR.
+  по понедельникам около 04:17 UTC по всему `main`, чтобы новая уязвимость в нетронутой зависимости не ждала следующего PR.
   Упавший плановый скан открывает issue «Weekly security scan failed» с меткой `security` (или пишет в уже открытую),
   следующий успешный — закрывает её. Вручную: Actions → scheduled-scans → Run workflow на ветке `main`; запуск на другой
   ветке issue не трогает.

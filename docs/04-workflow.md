@@ -51,7 +51,8 @@ Workflow `.github/workflows/ci.yml` запускается на каждый PR 
 
 - Проверяются только изменённые части; части, которых ещё нет в репозитории, пропускаются.
   Правка самого `ci.yml` или `security-scans.yml` запускает все проверки. Правка `infra/docker-compose.yml`
-  или `infra/stand/compose.yml` запускает проверки `apps/api`: его тесты стартуют образы из этих файлов.
+  или `infra/stand/compose.yml` запускает проверки `apps/api`: его тесты стартуют образы первого файла и сверяют
+  с ним образ `backup` второго.
 - `pip-audit`, `npm run audit` и Semgrep вынесены в `security-scans.yml`, в списке проверок PR они называются
   `Scans / …`. Тот же workflow раз в неделю гоняет `scheduled-scans.yml` по всему `main` и сообщает о падении в issue
   с меткой `security` ([docs/03-security.md](03-security.md), «Зависимости и CI»).
