@@ -3,7 +3,8 @@
 # Usage: bash infra/stand/tests/deploy.test.sh
 # The fake reads its answers from files next to it: db-revision is what `alembic current` prints,
 # revs-<tag> are the migrations of an image, the last one its head, images is `docker image ls`,
-# bad-env makes `flagman-staff ensure --check` fail. Every call goes to calls as "<STAND_TAG> <args>".
+# bad-env makes `flagman-staff ensure --check` fail, current-fails-<tag> makes `alembic current`
+# with that image fail. Every call goes to calls as "<STAND_TAG> <args>".
 set -euo pipefail
 
 bin="$(cd "$(dirname "$0")/../bin" && pwd)"
@@ -30,7 +31,9 @@ case "$args" in
     cat >/dev/null
     [[ "$args" == *" --check "* && -f "$d/bad-env" ]] && { echo "error: weak password" >&2; exit 1; }
     exit 0 ;;
-  *" alembic current "*) [ -s "$d/db-revision" ] && echo "$(cat "$d/db-revision") (head)"; exit 0 ;;
+  *" alembic current "*)
+    [ -f "$d/current-fails-${STAND_TAG:-}" ] && { echo "ValidationError" >&2; exit 1; }
+    [ -s "$d/db-revision" ] && echo "$(cat "$d/db-revision") (head)"; exit 0 ;;
   *" --entrypoint alembic "*)
     revs="$d/revs-${5##*:}"
     case "$6" in
@@ -49,7 +52,7 @@ out=""
 
 # scenario <db revision> <deployed tags...>: a fresh fake with the stand at that state.
 scenario() {
-  rm -f "$shims/calls" "$shims/bad-env" "$root/deployed-tags.log"
+  rm -f "$shims/calls" "$shims/bad-env" "$shims"/current-fails-* "$root/deployed-tags.log"
   echo "$1" >"$shims/db-revision"
   shift
   : >"$shims/images"
@@ -101,6 +104,15 @@ scenario aaaa01 old
 deploy new
 expect "an upgrade succeeds" test "$code" -eq 0
 expect "an upgrade does not downgrade" test "$(calls "alembic downgrade")" -eq 0
+
+# The first deploy of #167 over an older image: its env.py cannot start in the migrate service.
+scenario aaaa01 old
+touch "$shims/current-fails-old"
+deploy new
+expect "a deploy over an image without the migrate service succeeds" test "$code" -eq 0
+expect "a deploy over an image without the migrate service does not downgrade"   test "$(calls "alembic downgrade")" -eq 0
+expect "a deploy over an image without the migrate service migrates"   test "$(calls "new $compose run --rm -T migrate alembic upgrade head")" -eq 1
+expect "a deploy over an image without the migrate service is logged" test "$(last_tag)" = new
 
 scenario bbbb02 old new
 deploy old

@@ -51,7 +51,10 @@ Argument: what to show — `admin`, `mobile`, `phone` (`phone go`, `phone androi
    `.env` in this checkout or, in a worktree, `.env` of the main checkout (the first path in
    `git worktree list`). Check existence only with `test -f`; never read, print or copy `.env`.
    - `docker compose --env-file <env> -f infra/docker-compose.yml up -d --build`
-   - `docker compose --env-file <env> -f infra/docker-compose.yml run --rm api alembic upgrade head`
+   - `docker compose --env-file <env> -f infra/docker-compose.yml run --rm migrate` (migrations run as the
+     schema owner, docs/adr/0031). If it fails because the roles are missing, the database volume predates
+     #167: run `docker compose --env-file <env> -f infra/docker-compose.yml exec postgres flagman-bootstrap-roles`
+     and retry; if `.env` lacks `POSTGRES_OWNER_*`, point the user to docs/06-onboarding.md, step about #167.
    - open Swagger http://127.0.0.1:8000/docs and the emulator health http://127.0.0.1:8100/health.
      The Compose project is shared by all checkouts: this replaces containers started from another branch —
      warn the user first if `docker compose -f infra/docker-compose.yml ps` shows them running.

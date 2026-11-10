@@ -79,7 +79,7 @@ WHERE NOT EXISTS (
 -- Only these roles connect; PUBLIC loses the default CONNECT and TEMPORARY.
 SELECT format('REVOKE ALL ON DATABASE %I FROM PUBLIC', :'db')
 \gexec
-SELECT format('GRANT CONNECT, TEMPORARY ON DATABASE %I TO %I', :'db', :'owner')
+SELECT format('GRANT CONNECT ON DATABASE %I TO %I', :'db', :'owner')
 \gexec
 SELECT format('GRANT CONNECT ON DATABASE %I TO flagman_app', :'db')
 \gexec

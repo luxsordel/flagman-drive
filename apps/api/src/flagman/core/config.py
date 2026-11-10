@@ -84,8 +84,9 @@ class DatabaseSettings(BaseSettings):
 class MigrationSettings(DatabaseSettings):
     """Alembic's connection: the schema owner of docs/adr/0031, not the role the API runs as.
 
-    Own variable names, so the owner's password is never in the API's or the worker's
-    environment, and a .env with both roles still sends each process its own.
+    Own variable names, so Compose never passes the owner's password to the API's or the
+    worker's container, and a .env with both roles still sends each process its own. Locally
+    `uv run` reads that whole .env; only the containers separate the two.
     """
 
     postgres_user: str = Field(validation_alias="POSTGRES_OWNER_USER")

@@ -42,7 +42,8 @@ STAND_TAG="$new_tag" stand_compose pull --quiet
 "$(dirname "$0")/seed.sh" "$new_tag" --check
 
 # The roles of docs/adr/0031 before anything connects as them: on the first deploy with them
-# they do not exist yet, and a password changed in stand.env reaches the database here.
+# they do not exist yet, and a changed password of the owner or the app reaches the database here
+# (the superuser's is set only when the volume is created).
 STAND_TAG="$new_tag" stand_compose up -d --wait postgres
 STAND_TAG="$new_tag" stand_compose exec -T postgres flagman-bootstrap-roles
 
@@ -50,8 +51,9 @@ STAND_TAG="$new_tag" stand_compose exec -T postgres flagman-bootstrap-roles
 # to undo them, so it takes the schema down to the old image's head before the switch.
 # Read with the deployed image: an older one cannot name a revision it does not have. An image
 # from before the migrate service (#167) fails here and reads as no revision: it is never newer.
-db_revision="$(STAND_TAG="${old_tag:-$new_tag}" stand_compose run --rm -T migrate alembic current 2>/dev/null \
-  | revision_ids | tail -n 1)"
+# The `|| true` keeps that failure from stopping the deploy under pipefail.
+db_revision="$({ STAND_TAG="${old_tag:-$new_tag}" stand_compose run --rm -T migrate alembic current \
+  2>/dev/null || true; } | revision_ids | tail -n 1)"
 if [[ -n "$db_revision" ]] && ! alembic_in "$new_tag" show "$db_revision" >/dev/null 2>&1; then
   if [[ -z "$old_tag" ]]; then
     echo "error: the schema is at $db_revision, unknown to $new_tag, and there is no previous tag" >&2

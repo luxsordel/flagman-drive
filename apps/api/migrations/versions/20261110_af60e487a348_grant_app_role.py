@@ -79,7 +79,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Back to the single role from before #167: the API then logs in as the superuser again, which
-    # needs stand.env changed by hand (docs/08-demo-stand.md, «Откат»).
+    # needs stand.env changed by hand (docs/08-demo-stand.md, «Откат», the rollback to before #167).
     op.execute(
         "ALTER DEFAULT PRIVILEGES IN SCHEMA public "
         "REVOKE SELECT, INSERT, UPDATE, DELETE ON TABLES FROM flagman_app"

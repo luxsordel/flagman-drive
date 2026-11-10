@@ -32,7 +32,7 @@ API, воркер, миграции, сиды и тесты ходили в Post
   - задаёт default privileges владельца, так что таблицы следующих миграций открыты приложению без своих `GRANT`;
   - отзывает `UPDATE, DELETE, TRUNCATE` на журналах (`audit_events`, `rental_receipts`, `rental_receipt_lines`,
     `rental_adjustments`, `client_block_events`) и всё на `alembic_version`.
-  
+
   Триггеры журналов остаются вторым рубежом и защищают от владельца.
 - **Отдельный сервис `migrate`** (тот же образ, профиль `tools`) получает только настройки БД и пароль
   владельца. `migrations/env.py` читает `POSTGRES_OWNER_USER` и `POSTGRES_OWNER_PASSWORD` (`MigrationSettings`) и

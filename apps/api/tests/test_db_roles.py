@@ -152,9 +152,20 @@ async def test_the_app_cannot_move_the_schema_version(app_db: AsyncConnection) -
         await app_db.execute(text("UPDATE alembic_version SET version_num = version_num"))
 
 
-async def test_the_app_cannot_change_the_schema(app_db: AsyncConnection) -> None:
-    with pytest.raises(DBAPIError, match="permission denied"):
-        await app_db.execute(text("CREATE TABLE intruder (id int)"))
+@pytest.mark.parametrize(
+    "statement",
+    [
+        # The threat of docs/adr/0010: take the trigger off a journal, then rewrite it.
+        "DROP TRIGGER audit_events_no_update_delete ON audit_events",
+        "ALTER TABLE audit_events DISABLE TRIGGER audit_events_no_update_delete",
+        "DROP TABLE audit_events",
+        "CREATE TABLE intruder (id int)",
+        "CREATE TEMP TABLE intruder (id int)",
+    ],
+)
+async def test_the_app_cannot_change_the_schema(app_db: AsyncConnection, statement: str) -> None:
+    with pytest.raises(DBAPIError, match=r"permission denied|must be owner"):
+        await app_db.execute(text(statement))
 
 
 async def test_a_table_of_a_later_migration_is_open_to_the_app(owner_db: AsyncConnection) -> None:
@@ -172,7 +183,7 @@ async def test_a_table_of_a_later_migration_is_open_to_the_app(owner_db: AsyncCo
 @pytest.mark.parametrize(
     ("role", "member_of_app"), [(POSTGRES_OWNER_USER, False), (POSTGRES_APP_USER, True)]
 )
-async def test_no_login_role_is_privileged(
+async def test_the_login_roles_are_not_privileged(
     owner_db: AsyncConnection, role: str, member_of_app: bool
 ) -> None:
     row = (
@@ -246,22 +257,49 @@ async def _app_may_select_cars(settings: Settings) -> bool:
         await engine.dispose()
 
 
-async def test_bootstrap_again_takes_back_a_restored_table(
+async def test_bootstrap_again_takes_back_restored_objects(
     superuser_db: AsyncConnection, owner_db: AsyncConnection, postgres_container: PostgresContainer
 ) -> None:
-    # What `pg_restore --no-owner` as the superuser leaves: a table the owner does not own.
+    # What `pg_restore --no-owner` as the superuser leaves, and what the stand has before #167:
+    # every kind of object a migration creates, owned by the superuser.
     async with superuser_db.begin():
-        await superuser_db.execute(text("CREATE TABLE restored_table (id int)"))
+        await superuser_db.execute(text("CREATE TABLE restored_table (id serial PRIMARY KEY)"))
+        await superuser_db.execute(text("CREATE SEQUENCE restored_sequence"))
+        await superuser_db.execute(text("CREATE TYPE restored_enum AS ENUM ('a', 'b')"))
+        await superuser_db.execute(
+            text(
+                "CREATE FUNCTION restored_function() RETURNS trigger LANGUAGE plpgsql "
+                "AS $$ BEGIN RETURN NULL; END $$"
+            )
+        )
     try:
         exit_code, output = postgres_container.get_wrapped_container().exec_run(
             ["bash", BOOTSTRAP_ROLES_IN_CONTAINER]
         )
         assert exit_code == 0, output.decode()
 
-        owner = await owner_db.scalar(
-            text("SELECT tableowner FROM pg_tables WHERE tablename = 'restored_table'")
+        rows = await owner_db.execute(
+            text(
+                "SELECT c.relname, pg_get_userbyid(c.relowner) FROM pg_class c "
+                "WHERE c.relname IN "
+                "('restored_table', 'restored_table_id_seq', 'restored_sequence') "
+                "UNION ALL SELECT t.typname, pg_get_userbyid(t.typowner) FROM pg_type t "
+                "WHERE t.typname = 'restored_enum' "
+                "UNION ALL SELECT p.proname, pg_get_userbyid(p.proowner) FROM pg_proc p "
+                "WHERE p.proname = 'restored_function'"
+            )
         )
-        assert owner == POSTGRES_OWNER_USER
+        owners = {row[0]: row[1] for row in rows}
+        assert owners == {
+            "restored_table": POSTGRES_OWNER_USER,
+            "restored_table_id_seq": POSTGRES_OWNER_USER,
+            "restored_sequence": POSTGRES_OWNER_USER,
+            "restored_enum": POSTGRES_OWNER_USER,
+            "restored_function": POSTGRES_OWNER_USER,
+        }
     finally:
         async with superuser_db.begin():
             await superuser_db.execute(text("DROP TABLE IF EXISTS restored_table"))
+            await superuser_db.execute(text("DROP SEQUENCE IF EXISTS restored_sequence"))
+            await superuser_db.execute(text("DROP TYPE IF EXISTS restored_enum"))
+            await superuser_db.execute(text("DROP FUNCTION IF EXISTS restored_function()"))
