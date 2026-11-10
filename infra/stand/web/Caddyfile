@@ -68,6 +68,12 @@
 # socket uvicorn is closing fails: Caddy retries only idempotent methods, a POST becomes a 502.
 # Caddy has to give up an idle connection first, so it waits less than uvicorn.
 (api) {
+	# Hard ceiling at the edge: the API's own photo limit is 10 MiB (core/photos.py). 12 MiB gives
+	# it room to reject an oversized upload with its own error, while clearly malformed payloads are
+	# stopped here before they hit the upstream at all.
+	request_body {
+		max_size 12582912
+	}
 	reverse_proxy api:8000 {
 		transport http {
 			keepalive 60s
