@@ -41,10 +41,16 @@ STAND_TAG="$new_tag" stand_compose pull --quiet
 # Before anything changes: a broken stand.env must stop the deploy while the old version runs.
 "$(dirname "$0")/seed.sh" "$new_tag" --check
 
+# The roles of docs/adr/0031 before anything connects as them: on the first deploy with them
+# they do not exist yet, and a password changed in stand.env reaches the database here.
+STAND_TAG="$new_tag" stand_compose up -d --wait postgres
+STAND_TAG="$new_tag" stand_compose exec -T postgres flagman-bootstrap-roles
+
 # A rollback to an image with fewer migrations: the newer image is the only one that knows how
 # to undo them, so it takes the schema down to the old image's head before the switch.
-# Read with the deployed image: an older one cannot name a revision it does not have.
-db_revision="$(STAND_TAG="${old_tag:-$new_tag}" stand_compose run --rm -T api alembic current 2>/dev/null \
+# Read with the deployed image: an older one cannot name a revision it does not have. An image
+# from before the migrate service (#167) fails here and reads as no revision: it is never newer.
+db_revision="$(STAND_TAG="${old_tag:-$new_tag}" stand_compose run --rm -T migrate alembic current 2>/dev/null \
   | revision_ids | tail -n 1)"
 if [[ -n "$db_revision" ]] && ! alembic_in "$new_tag" show "$db_revision" >/dev/null 2>&1; then
   if [[ -z "$old_tag" ]]; then
@@ -53,11 +59,11 @@ if [[ -n "$db_revision" ]] && ! alembic_in "$new_tag" show "$db_revision" >/dev/
   fi
   target="$(alembic_in "$new_tag" heads | revision_ids)"
   echo "deploy: schema $db_revision is newer than $new_tag, downgrading to $target with $old_tag"
-  STAND_TAG="$old_tag" stand_compose run --rm -T api alembic downgrade "$target"
+  STAND_TAG="$old_tag" stand_compose run --rm -T migrate alembic downgrade "$target"
 fi
 
 # Before the new API starts: it expects the schema it was built with.
-STAND_TAG="$new_tag" stand_compose run --rm -T api alembic upgrade head
+STAND_TAG="$new_tag" stand_compose run --rm -T migrate alembic upgrade head
 "$(dirname "$0")/seed.sh" "$new_tag"
 STAND_TAG="$new_tag" stand_compose up -d --remove-orphans
 
