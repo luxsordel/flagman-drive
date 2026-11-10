@@ -1056,6 +1056,13 @@ class RentalService:
                 ensure_near_car(
                     state.recorded_at if state else None, distance, self.rules.commands, now
                 )
+                # Read with the checks, under the rental's lock: a transaction of their own each
+                # would be a checkout each (docs/09-load-test.md).
+                payment = (
+                    await self._hold_to_take(rental)
+                    if request.command is RentalCommand.OPEN
+                    else None
+                )
                 # Holds the rental while the car thinks: the timeout and a cancel wait for it.
                 hold_until = now + self.rules.command_hold
                 await repository.set_command_until(self.db, rental.id, hold_until, now)
@@ -1069,9 +1076,9 @@ class RentalService:
             rental_id=rental.id,
         )
         try:
-            if request.command is RentalCommand.OPEN:
-                await self._hold(rental, now)
-            await commander.send(car_request, now)
+            if payment is not None:
+                car = await self._hold(rental, payment, now)
+            await commander.send(car_request, now, car)
         except Exception:
             async with self.db.begin():
                 await repository.release_command(self.db, rental.id, hold_until, self.clock())
@@ -1108,27 +1115,30 @@ class RentalService:
             rental = await repository.get_rental(self.db, rental.id, user_id) or rental
             return await self._view(rental, done_at)
 
-    async def _hold(self, rental: Rental, now: datetime) -> None:
-        """Holds the trip's money before the car opens; raises when it is not held.
+    async def _hold_to_take(self, rental: Rental) -> payments.Payment | None:
+        """The hold the opening is to take, or None when an opening that then failed has taken it
+        already and it is kept for this one. In the caller's transaction.
 
         A declined hold is final for its key, so a retry after the client changed the card takes
-        the next key; an unknown outcome is retried with the same one. A hold already taken by
-        an opening that then failed is kept for the next one.
+        the next key; an unknown outcome is retried with the same one.
         """
         if rental.hold_id is not None:
             taken = await payments.get_operation(self.db, rental.hold_id)
             if taken.status is OperationStatus.SUCCEEDED:
-                return
-        gw = self._gateway()
+                return None
         tariff = await pricing.get_version(self.db, rental.tariff_version_id)
         attempt = 1
         while (
             previous := await payments.find_operation(self.db, hold_key(rental.id, attempt))
         ) is not None and previous.status is OperationStatus.DECLINED:
             attempt += 1
-        payment = payments.Payment(tariff.prices.hold_amount, hold_key(rental.id, attempt))
+        return payments.Payment(tariff.prices.hold_amount, hold_key(rental.id, attempt))
+
+    async def _hold(self, rental: Rental, payment: payments.Payment, now: datetime) -> Car:
+        """Holds the trip's money before the car opens; raises when it is not held. Returns the
+        car as it is after the hold, which the command then goes to."""
         try:
-            operation = await payments.hold(self.db, gw, rental.user_id, payment, now)
+            operation = await payments.hold(self.db, self._gateway(), rental.user_id, payment, now)
         except NoUsableCardError as error:
             raise CardRequiredError from error
         if operation.status is OperationStatus.DECLINED:
@@ -1137,9 +1147,13 @@ class RentalService:
             # Kept while unknown too: a cancel or the expiry then settles it, and releases a hold
             # the provider did make.
             await repository.set_hold(self.db, rental.id, operation.id, self.clock())
+            # The provider may have taken its time: the command must not go to the car as it was
+            # before the hold.
+            car = await fleet.get_car(self.db, rental.car_id)
         if operation.status is not OperationStatus.SUCCEEDED:
             raise PaymentOutcomeUnknownError
         logger.info("rental_hold_taken", rental_id=str(rental.id))
+        return car
 
     async def park(self, user_id: UUID, rental_id: UUID, now: datetime) -> RentalView:
         return await self._toggle(user_id, rental_id, RentalTransition.PARK, now)
