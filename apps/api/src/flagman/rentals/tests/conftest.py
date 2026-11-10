@@ -220,6 +220,14 @@ class Person:
             id=self.id,
         )
 
+    def revoke_kyc(self) -> None:
+        # The product has no transition out of APPROVED yet, so only the database can do it.
+        execute(
+            self.settings,
+            "UPDATE kyc_applications SET status = 'pending' WHERE user_id = :id",
+            id=self.id,
+        )
+
     def reserve(self, car_id: str) -> Any:
         return self.client.post("/rentals", json={"car_id": car_id}, headers=self.headers)
 
