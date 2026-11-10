@@ -48,6 +48,32 @@ bootstrap_roles() (
 
 BEGIN;
 
+-- The passwords below are in the statement text: a failing ALTER ROLE would otherwise write it
+-- to the server log.
+SET LOCAL log_statement = 'none';
+SET LOCAL log_min_error_statement = 'panic';
+SET LOCAL log_min_duration_statement = -1;
+
+SELECT set_config('flagman.owner', :'owner', true) AS owner_setting
+\gset
+
+-- The migrations' default privileges belong to the owner by name. Handing the schema to a renamed
+-- owner would leave every table of a later migration closed to the app, so refuse instead.
+DO $$
+DECLARE
+  schema_owner text;
+BEGIN
+  SELECT r.rolname INTO schema_owner
+  FROM pg_namespace n
+  JOIN pg_roles r ON r.oid = n.nspowner
+  WHERE n.nspname = 'public' AND NOT r.rolsuper AND r.rolname <> 'pg_database_owner';
+  IF schema_owner IS NOT NULL AND schema_owner <> current_setting('flagman.owner') THEN
+    RAISE EXCEPTION 'the schema belongs to %, but POSTGRES_OWNER_USER is %: the owner cannot be renamed',
+      schema_owner, current_setting('flagman.owner');
+  END IF;
+END
+$$;
+
 SELECT 'CREATE ROLE flagman_app NOLOGIN'
 WHERE NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'flagman_app')
 \gexec
@@ -91,8 +117,6 @@ GRANT USAGE ON SCHEMA public TO flagman_app;
 
 -- Objects made before the roles existed, or restored with --no-owner, belong to the superuser.
 -- Those of extensions (PostGIS) stay where they are. Table rights are the migrations' job.
-SELECT set_config('flagman.owner', :'owner', true) AS owner_setting
-\gset
 DO $$
 DECLARE
   owner_name text := current_setting('flagman.owner');

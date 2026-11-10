@@ -82,6 +82,7 @@ expect() {
 # How many calls contain the text; the first line with it.
 calls() { grep -cF -- "$1" "$shims/calls" || true; }
 line_of() { grep -nF -- "$1" "$shims/calls" | head -n 1 | cut -d: -f1; }
+in_out() { grep -cF -- "$1" <<<"$out" || true; }
 last_tag() { tail -n 1 "$root/deployed-tags.log" | cut -d ' ' -f 2; }
 
 compose="compose --env-file $root/stand.env -f $root/infra/docker-compose.yml -f $root/infra/stand/compose.yml"
@@ -113,6 +114,8 @@ expect "a deploy over an image without the migrate service succeeds" test "$code
 expect "a deploy over an image without the migrate service does not downgrade"   test "$(calls "alembic downgrade")" -eq 0
 expect "a deploy over an image without the migrate service migrates"   test "$(calls "new $compose run --rm -T migrate alembic upgrade head")" -eq 1
 expect "a deploy over an image without the migrate service is logged" test "$(last_tag)" = new
+expect "a deploy over an image without the migrate service warns"   grep -qF "warning: cannot read the schema revision with old" <<<"$out"
+expect "the warning does not show the error itself" test "$(in_out ValidationError)" -eq 0
 
 scenario bbbb02 old new
 deploy old

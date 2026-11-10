@@ -51,9 +51,15 @@ STAND_TAG="$new_tag" stand_compose exec -T postgres flagman-bootstrap-roles
 # to undo them, so it takes the schema down to the old image's head before the switch.
 # Read with the deployed image: an older one cannot name a revision it does not have. An image
 # from before the migrate service (#167) fails here and reads as no revision: it is never newer.
-# The `|| true` keeps that failure from stopping the deploy under pipefail.
-db_revision="$({ STAND_TAG="${old_tag:-$new_tag}" stand_compose run --rm -T migrate alembic current \
-  2>/dev/null || true; } | revision_ids | tail -n 1)"
+# Its stderr stays hidden: a settings ValidationError can print the values of the environment,
+# passwords included, into the workflow log.
+if ! current="$(STAND_TAG="${old_tag:-$new_tag}" stand_compose run --rm -T migrate alembic current \
+  2>/dev/null)"; then
+  echo "deploy: warning: cannot read the schema revision with ${old_tag:-$new_tag}; taken as none." \
+    "Why: on the server, docker compose ... run --rm migrate alembic current" >&2
+  current=""
+fi
+db_revision="$(revision_ids <<<"$current" | tail -n 1)"
 if [[ -n "$db_revision" ]] && ! alembic_in "$new_tag" show "$db_revision" >/dev/null 2>&1; then
   if [[ -z "$old_tag" ]]; then
     echo "error: the schema is at $db_revision, unknown to $new_tag, and there is no previous tag" >&2

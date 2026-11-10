@@ -240,19 +240,28 @@ def test_the_downgrade_takes_the_rights_back(
 
         command.downgrade(config, "f2b9a6d4c871")
         try:
-            may_select = asyncio.run(_app_may_select_cars(owner_settings))
+            may_select, default_acls = asyncio.run(_app_rights_after_downgrade(owner_settings))
         finally:
             # The rest of the session runs on the head schema.
             command.upgrade(config, "head")
 
     assert may_select is False
+    # Otherwise a table created after the downgrade would still open to the app.
+    assert default_acls == 0
 
 
-async def _app_may_select_cars(settings: Settings) -> bool:
+async def _app_rights_after_downgrade(settings: Settings) -> tuple[bool, int]:
     engine = create_engine(settings)
     try:
         async with engine.connect() as connection:
-            return await _app_may(connection, "cars", "SELECT")
+            may_select = await _app_may(connection, "cars", "SELECT")
+            default_acls = await connection.scalar(
+                text(
+                    "SELECT count(*) FROM pg_default_acl d, aclexplode(d.defaclacl) a "
+                    "WHERE a.grantee = 'flagman_app'::regrole"
+                )
+            )
+            return may_select, int(default_acls or 0)
     finally:
         await engine.dispose()
 
@@ -303,3 +312,28 @@ async def test_bootstrap_again_takes_back_restored_objects(
             await superuser_db.execute(text("DROP SEQUENCE IF EXISTS restored_sequence"))
             await superuser_db.execute(text("DROP TYPE IF EXISTS restored_enum"))
             await superuser_db.execute(text("DROP FUNCTION IF EXISTS restored_function()"))
+
+
+def test_bootstrap_refuses_a_renamed_owner(postgres_container: PostgresContainer) -> None:
+    # The default privileges stay with the old owner: a new one would leave the next migration's
+    # tables closed to the app.
+    exit_code, output = postgres_container.get_wrapped_container().exec_run(
+        ["bash", BOOTSTRAP_ROLES_IN_CONTAINER],
+        environment={"FLAGMAN_OWNER_USER": "flagman_owner_renamed"},
+    )
+
+    assert exit_code != 0
+    assert b"the owner cannot be renamed" in output
+    roles = postgres_container.get_wrapped_container().exec_run(
+        [
+            "psql",
+            "--username",
+            POSTGRES_SUPERUSER,
+            "--dbname",
+            postgres_container.dbname,
+            "--tuples-only",
+            "--command",
+            "SELECT count(*) FROM pg_roles WHERE rolname = 'flagman_owner_renamed'",
+        ]
+    )
+    assert roles.output.strip() == b"0"
