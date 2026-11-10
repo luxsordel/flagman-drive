@@ -85,13 +85,17 @@
 
 ### Зависимости и CI
 - Dependabot для pip, npm, GitHub Actions, Dockerfile-образов и сторонних образов docker-compose
-  (`infra/docker-compose.yml`, `infra/stand/compose.yml`). Мажорные версии Postgres и Redis обновляются вручную.
-- Dependabot alerts и security updates включены в настройках репозитория (включает администратор).
+  (`infra/docker-compose.yml`, `infra/stand/compose.yml`). Мажорные версии Postgres, Redis и SeaweedFS обновляются
+  вручную. Тесты API берут образы из `infra/docker-compose.yml` (`apps/api/tools/compose_images.py`), а правка
+  compose-файлов запускает их в CI, так что обновление образа проверяется тестами.
+- Dependabot alerts и security updates должны быть включены в настройках репозитория. Включает только
+  администратор (Settings → Code security), в коде это не настроить.
 - В CI: `pip-audit`, `npm audit` (high и critical, `scripts/npm-audit.mjs`), **Semgrep** (SAST), **gitleaks**.
-  Первые три живут в `.github/workflows/dependency-scans.yml`: его вызывает `ci.yml` на PR и `scheduled-scans.yml`
+  Первые три живут в `.github/workflows/security-scans.yml`: его вызывает `ci.yml` на PR и push в `main` и `scheduled-scans.yml`
   по понедельникам в 04:00 UTC по всему `main`, чтобы новая уязвимость в нетронутой зависимости не ждала следующего PR.
-  Упавший плановый скан открывает issue «Weekly dependency scan failed» с меткой `security` (или пишет в уже открытую),
-  следующий успешный — закрывает её. Вручную: Actions → scheduled-scans → Run workflow.
+  Упавший плановый скан открывает issue «Weekly security scan failed» с меткой `security` (или пишет в уже открытую),
+  следующий успешный — закрывает её. Вручную: Actions → scheduled-scans → Run workflow на ветке `main`; запуск на другой
+  ветке issue не трогает.
 - Исключение из `npm audit` — только когда исправленной версии нет: запись в `.github/npm-audit-allowlist.json`
   с идентификатором GHSA, причиной (почему не эксплуатируется у нас) и датой `reviewBy` (не дальше 3 месяцев).
   После этой даты CI снова падает. Запись, которую `npm audit` больше не сообщает, тоже роняет CI: её надо удалить.
