@@ -24,6 +24,11 @@ def guarded(pytester: pytest.Pytester) -> pytest.Pytester:
         path = pytester.path / target
         path.parent.mkdir(exist_ok=True)
         path.write_text(source.read_text(encoding="utf-8"), encoding="utf-8")
+    # The real module finds the compose file from its own location, which a copy does not have.
+    # No case here starts a container, so any tag will do.
+    pytester.path.joinpath("tools", "compose_images.py").write_text(
+        "def compose_image(service: str) -> str:\n    return f'{service}:test'\n", encoding="utf-8"
+    )
     pytester.makeini(
         "[pytest]\n"
         "addopts = --import-mode=importlib -p no:cacheprovider\n"

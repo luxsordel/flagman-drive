@@ -25,13 +25,14 @@ from flagman.core.db import create_engine
 from flagman.identity.api import get_sms_sender
 from flagman.identity.domain import generate_otp_code
 from flagman.kyc.domain import REQUIRED_DOCUMENTS, DocumentKind
+from tools.compose_images import compose_image
 from tools.container_guard import refuse_unmarked_test
 
 if TYPE_CHECKING:
     from types_aiobotocore_s3 import S3Client
 
-# Same image as infra/docker-compose.yml.
-SEAWEEDFS_IMAGE = "chrislusf/seaweedfs:4.48"
+# Read from infra/docker-compose.yml, so tests run against what developers run locally.
+SEAWEEDFS_IMAGE = compose_image("seaweedfs")
 S3_PORT = 8333
 BUCKET = "flagman-private-test"
 _STARTUP_TIMEOUT_SECONDS = 90
