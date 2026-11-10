@@ -24,6 +24,9 @@ services:
     environment:
       image: not-an-image
 
+  redis: &redis  # an anchor and a comment after the header
+    image: redis:7.4.11-alpine
+
 volumes:
   api:
     image: not-a-service
@@ -45,9 +48,14 @@ def test_a_service_whose_name_starts_like_another_gets_its_own_image(compose_fil
     assert compose_image("seaweedfs-init", compose_file) == "amazon/aws-cli:2.0.0"
 
 
+def test_a_header_with_an_anchor_or_a_comment_starts_a_service(compose_file: Path) -> None:
+    assert compose_image("redis", compose_file) == "redis:7.4.11-alpine"
+
+
 @pytest.mark.parametrize("service", ["api", "missing"])
 def test_a_service_without_its_own_image_fails_loudly(compose_file: Path, service: str) -> None:
-    # `api` has an `image` key only deeper in its block and under the top-level `volumes`.
+    # `api` has an `image` key only deeper in its block, and the next service's image must not
+    # be taken for its own.
     with pytest.raises(LookupError, match=service):
         compose_image(service, compose_file)
 

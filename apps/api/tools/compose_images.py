@@ -12,8 +12,10 @@ LOCAL_COMPOSE = REPO_ROOT / "infra" / "docker-compose.yml"
 STAND_COMPOSE = REPO_ROOT / "infra" / "stand" / "compose.yml"
 
 # The compose files are written by hand in one layout: services two spaces in, their keys four.
-# A full YAML parser would be a new dependency for one key.
-_SERVICE = re.compile(r"^  (?P<name>[\w.-]+):\s*$")
+# A YAML parser would be one more direct dependency for one key.
+# A service header may carry a comment or an anchor after the colon; missing one would hand the
+# next service's image to the previous service.
+_SERVICE = re.compile(r"^  (?P<name>[\w.-]+):(?:\s|$)")
 _IMAGE = re.compile(r"^    image:\s*(?P<image>\S+)\s*$")
 
 
