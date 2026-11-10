@@ -99,3 +99,23 @@ updates:
     ignore:
       - dependency-name: node
         update-types: [version-update:semver-major]
+  # Third-party images of the local and stand compose files; the stand's own images come from GHCR
+  # and are built from the Dockerfiles above. A new Postgres major needs a dump and restore of the
+  # volume, and the stand runs the same versions as a future production, so majors of the data stores
+  # are decisions made by hand.
+  - package-ecosystem: docker-compose
+    directories:
+      - /infra
+      - /infra/stand
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: postgis/postgis
+        update-types: [version-update:semver-major]
+      - dependency-name: redis
+        update-types: [version-update:semver-major]
