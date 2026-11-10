@@ -4,8 +4,9 @@ name: scheduled-scans
 # happens to change that part. Runs the same scans as ci.yml over every part of main, weekly.
 on:
   schedule:
-    # Mondays 04:00 UTC (07:00 in Minsk), so a failure is waiting at the start of the week.
-    - cron: "0 4 * * 1"
+    # Mondays about 07:00 in Minsk, so a failure is waiting at the start of the week. Off the full hour,
+    # which GitHub delays or drops under load.
+    - cron: "17 4 * * 1"
   workflow_dispatch:
 
 permissions:

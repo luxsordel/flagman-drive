@@ -16,7 +16,7 @@ Talk to the user in Russian (see «Язык» in CLAUDE.md), plain language, sho
      and, for every open PR: `gh pr view <n> --json reviewRequests,reviews,statusCheckRollup,mergeStateStatus,autoMergeRequest,files,updatedAt`.
    - board: `gh project item-list 1 --owner <repo owner> --format json`.
    - CI on main: `gh run list --branch main --limit 5`.
-   - the weekly security scan: `gh run list --workflow scheduled-scans.yml --limit 1`.
+   - the weekly security scan: `gh run list --workflow scheduled-scans.yml --branch main --limit 1`.
 2. Fix board drift with `bash scripts/board-status.sh <n> <Status>`:
    - closed issue not in **Done** → Done;
    - open issue with an open PR that closes it → **Review**;
