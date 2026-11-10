@@ -24,8 +24,9 @@ def test_migrations_have_a_single_head() -> None:
 
 
 @pytest.mark.integration
-async def test_migrations_enable_postgis(integration_settings: Settings) -> None:
-    engine = create_engine(integration_settings)
+async def test_migrations_enable_postgis(owner_settings: Settings) -> None:
+    # As the owner: alembic_version is closed to the app role.
+    engine = create_engine(owner_settings)
     try:
         async with engine.connect() as connection:
             version = await connection.scalar(text("SELECT postgis_version()"))

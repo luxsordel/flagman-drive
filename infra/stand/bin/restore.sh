@@ -37,7 +37,10 @@ stand_compose exec -T backup psql --dbname=postgres -v ON_ERROR_STOP=1 \
   -c "DROP DATABASE \"$db\" WITH (FORCE)" -c "CREATE DATABASE \"$db\""
 stand_compose exec -T backup pg_restore --no-owner --exit-on-error --dbname="$db" "/backups/$file"
 
+# --no-owner left every table to the superuser that restored it: back to the schema owner, and
+# CONNECT for the roles on the new database (docs/adr/0031).
+stand_compose exec -T postgres flagman-bootstrap-roles
 # The dump may be older than the deployed image's schema.
-stand_compose run --rm -T api alembic upgrade head
+stand_compose run --rm -T migrate alembic upgrade head
 stand_compose up -d
 echo "restore: $file restored, the stand is starting"

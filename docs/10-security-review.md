@@ -372,6 +372,8 @@ SMS, `.gitignore`, мета-тест, тесты на 429, проверка allo
 - **API и воркер ходят в БД суперпользователем (#167).** Оба берут `POSTGRES_USER` образа Postgres
   (`infra/docker-compose.yml:11`, `:122`, `:217`). `CREATE ROLE` и `GRANT` в `infra` и миграциях нет. Взлом API даёт
   полные права на БД. Тесно связано с ролями из ADR-0010.
+  **Закрыто в #167:** три роли (ADR-0031, `infra/postgres/bootstrap-roles.sh`), миграция
+  `20261110_af60e487a348_grant_app_role.py`, проверки в `apps/api/tests/test_db_roles.py`.
 - **Нет сканов по расписанию, Dependabot alerts выключены (#168).** Ни в одном workflow нет `schedule`. Новая уязвимость
   в зависимостях, которые никто не трогает, всплывёт только при следующем push. Dependabot alerts включает админ
   репозитория в настройках, в коде это не исправить.

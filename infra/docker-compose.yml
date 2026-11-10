@@ -8,14 +8,25 @@ services:
   postgres:
     image: postgis/postgis:16-3.6
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Three roles, docs/adr/0031: the image's superuser only bootstraps, backs up and restores;
+      # the owner runs the migrations; the API and the worker log in as POSTGRES_USER.
+      POSTGRES_USER: ${POSTGRES_SUPERUSER:?set POSTGRES_SUPERUSER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set POSTGRES_SUPERUSER_PASSWORD in .env}
       POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      # Read by postgres/bootstrap-roles.sh.
+      FLAGMAN_OWNER_USER: ${POSTGRES_OWNER_USER:?set POSTGRES_OWNER_USER in .env}
+      FLAGMAN_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?set POSTGRES_OWNER_PASSWORD in .env}
+      FLAGMAN_APP_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      FLAGMAN_APP_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     # Bound to localhost only: the database must not be reachable from the LAN.
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
+      # Runs by itself on an empty volume; on an existing one `exec postgres flagman-bootstrap-roles`
+      # (docs/06-onboarding.md). A command rather than a path: Git Bash rewrites /paths in arguments.
+      - ./postgres/bootstrap-roles.sh:/docker-entrypoint-initdb.d/20-flagman-roles.sh:ro
+      - ./postgres/bootstrap-roles.sh:/usr/local/bin/flagman-bootstrap-roles:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
@@ -91,7 +102,36 @@ services:
         fi
     restart: "no"
 
-  # Migrations are not run on start: `run --rm api alembic upgrade head`, see apps/api/README.md.
+  # Migrations, as the schema owner: `run --rm migrate alembic upgrade head`, see
+  # apps/api/README.md. Not started by `up`. The image of the API, but only the database settings:
+  # the owner's password never reaches the API or the worker, which would undo docs/adr/0031.
+  migrate:
+    image: flagman-api:local
+    build:
+      context: ../apps/api
+    profiles: ["tools"]
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      API_LOG_LEVEL: ${API_LOG_LEVEL:-INFO}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_OWNER_USER: ${POSTGRES_OWNER_USER:?set POSTGRES_OWNER_USER in .env}
+      POSTGRES_OWNER_PASSWORD: ${POSTGRES_OWNER_PASSWORD:?set POSTGRES_OWNER_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      disable: true
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+
   api:
     # One image for the API and the worker, so rebuilding it updates both.
     image: flagman-api:local

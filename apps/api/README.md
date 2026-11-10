@@ -31,6 +31,8 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d postgres redis
 
 Применить миграции и запустить API с автоперезагрузкой. Настройки читаются из `../../.env`;
 для запуска вне Docker `POSTGRES_HOST` и `REDIS_HOST` по умолчанию — `localhost`.
+Миграции подключаются владельцем схемы (`POSTGRES_OWNER_USER`), API — ролью приложения (`POSTGRES_USER`),
+см. [ADR-0031](../../docs/adr/0031-database-roles.md). Суперпользователем Alembic не запустится.
 
 ```bash
 uv run alembic upgrade head
@@ -53,11 +55,17 @@ docker compose --env-file .env -f infra/docker-compose.yml up -d --build api wor
 У API и `worker` один образ, поэтому пересобирать и перезапускать их нужно вместе: иначе worker останется
 на старом коде.
 
-Миграции — отдельной одноразовой командой:
+Миграции — отдельной одноразовой командой. Сервис `migrate` — тот же образ, но только с настройками БД
+владельца схемы: пароль владельца не попадает ни в API, ни в worker.
 
 ```bash
-docker compose --env-file .env -f infra/docker-compose.yml run --rm api alembic upgrade head
+docker compose --env-file .env -f infra/docker-compose.yml run --rm migrate
 ```
+
+Новая таблица получает права для роли приложения сама (default privileges владельца). Если таблица —
+неизменяемый журнал с триггером `<таблица>_no_update_delete`, её миграция должна сама отозвать
+`UPDATE, DELETE, TRUNCATE` у `flagman_app`, как `20261110_af60e487a348_grant_app_role.py`. Иначе упадёт
+`tests/test_db_roles.py`.
 
 ## Периодические задачи
 
