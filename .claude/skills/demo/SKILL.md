@@ -50,8 +50,14 @@ Argument: what to show — `admin`, `mobile`, `phone` (`phone go`, `phone androi
 4. `api` — backend + car emulator in Docker. Only if Docker is running (`docker info`) and an env file exists:
    `.env` in this checkout or, in a worktree, `.env` of the main checkout (the first path in
    `git worktree list`). Check existence only with `test -f`; never read, print or copy `.env`.
-   - `docker compose --env-file <env> -f infra/docker-compose.yml up -d --build`
-   - `docker compose --env-file <env> -f infra/docker-compose.yml run --rm api alembic upgrade head`
+   - `docker compose --env-file <env> -f infra/docker-compose.yml up -d --build`. If Compose stops on a
+     missing `POSTGRES_SUPERUSER` or `POSTGRES_OWNER_*`, the `.env` predates the database roles (#167):
+     do not edit it, point the user to the #167 step of docs/06-onboarding.md and show the rest.
+   - `docker compose --env-file <env> -f infra/docker-compose.yml run --rm migrate` (migrations run as the
+     schema owner, docs/adr/0031). If it fails because the roles are missing, the database volume predates
+     #167. Creating them changes the user's local database, so ask first, then run
+     `docker compose --env-file <env> -f infra/docker-compose.yml exec postgres flagman-bootstrap-roles`
+     and retry.
    - open Swagger http://127.0.0.1:8000/docs and the emulator health http://127.0.0.1:8100/health.
      The Compose project is shared by all checkouts: this replaces containers started from another branch —
      warn the user first if `docker compose -f infra/docker-compose.yml ps` shows them running.

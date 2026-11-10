@@ -58,6 +58,11 @@ services:
     build: !reset null
     logging: *logging
 
+  migrate:
+    image: ${STAND_REGISTRY}/flagman-api:${STAND_TAG}
+    build: !reset null
+    logging: *logging
+
   car-emulator:
     image: ${STAND_REGISTRY}/flagman-car-emulator:${STAND_TAG}
     build: !reset null
@@ -97,8 +102,9 @@ services:
     entrypoint: ["sh", "/stand/bin/backup.sh", "--loop"]
     environment:
       PGHOST: postgres
-      PGUSER: ${POSTGRES_USER}
-      PGPASSWORD: ${POSTGRES_PASSWORD}
+      # The superuser: a restore drops and creates the database (bin/restore.sh).
+      PGUSER: ${POSTGRES_SUPERUSER}
+      PGPASSWORD: ${POSTGRES_SUPERUSER_PASSWORD}
       PGDATABASE: ${POSTGRES_DB}
       BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-7}
     volumes:

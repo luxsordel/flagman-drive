@@ -39,7 +39,12 @@ def local_env(
         "SMS_BACKEND": "fixed",
         "SMS_FIXED_CODE": otp_code,
         "SMS_FIXED_PHONES": ",".join(phones),
-        "POSTGRES_USER": "flagman",
+        # The three roles of docs/adr/0031, so the run measures the API as it runs on the stand.
+        "POSTGRES_SUPERUSER": "flagman",
+        "POSTGRES_SUPERUSER_PASSWORD": secrets.token_hex(24),
+        "POSTGRES_OWNER_USER": "flagman_owner",
+        "POSTGRES_OWNER_PASSWORD": secrets.token_hex(24),
+        "POSTGRES_USER": "flagman_api",
         "POSTGRES_PASSWORD": secrets.token_hex(24),
         "POSTGRES_DB": "flagman",
         "POSTGRES_PORT": "15432",
@@ -88,7 +93,7 @@ class Stack:
         # A stack left by --keep or a closed terminal has a database with another run's password.
         self.down()
         self.compose("build", "api", "car-emulator")
-        self.compose("run", "--rm", "-T", "api", "alembic", "upgrade", "head")
+        self.compose("run", "--rm", "-T", "migrate", "alembic", "upgrade", "head")
         # In this order: tariffs go to the car models the fleet seed creates.
         for command in ("flagman-geo", "flagman-fleet", "flagman-pricing"):
             self.compose("run", "--rm", "-T", "api", command, "seed")

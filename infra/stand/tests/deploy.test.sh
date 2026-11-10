@@ -3,7 +3,8 @@
 # Usage: bash infra/stand/tests/deploy.test.sh
 # The fake reads its answers from files next to it: db-revision is what `alembic current` prints,
 # revs-<tag> are the migrations of an image, the last one its head, images is `docker image ls`,
-# bad-env makes `flagman-staff ensure --check` fail. Every call goes to calls as "<STAND_TAG> <args>".
+# bad-env makes `flagman-staff ensure --check` fail, current-fails-<tag> makes `alembic current`
+# with that image fail. Every call goes to calls as "<STAND_TAG> <args>".
 set -euo pipefail
 
 bin="$(cd "$(dirname "$0")/../bin" && pwd)"
@@ -30,7 +31,9 @@ case "$args" in
     cat >/dev/null
     [[ "$args" == *" --check "* && -f "$d/bad-env" ]] && { echo "error: weak password" >&2; exit 1; }
     exit 0 ;;
-  *" alembic current "*) [ -s "$d/db-revision" ] && echo "$(cat "$d/db-revision") (head)"; exit 0 ;;
+  *" alembic current "*)
+    [ -f "$d/current-fails-${STAND_TAG:-}" ] && { echo "ValidationError" >&2; exit 1; }
+    [ -s "$d/db-revision" ] && echo "$(cat "$d/db-revision") (head)"; exit 0 ;;
   *" --entrypoint alembic "*)
     revs="$d/revs-${5##*:}"
     case "$6" in
@@ -49,7 +52,7 @@ out=""
 
 # scenario <db revision> <deployed tags...>: a fresh fake with the stand at that state.
 scenario() {
-  rm -f "$shims/calls" "$shims/bad-env" "$root/deployed-tags.log"
+  rm -f "$shims/calls" "$shims/bad-env" "$shims"/current-fails-* "$root/deployed-tags.log"
   echo "$1" >"$shims/db-revision"
   shift
   : >"$shims/images"
@@ -79,6 +82,7 @@ expect() {
 # How many calls contain the text; the first line with it.
 calls() { grep -cF -- "$1" "$shims/calls" || true; }
 line_of() { grep -nF -- "$1" "$shims/calls" | head -n 1 | cut -d: -f1; }
+in_out() { grep -cF -- "$1" <<<"$out" || true; }
 last_tag() { tail -n 1 "$root/deployed-tags.log" | cut -d ' ' -f 2; }
 
 compose="compose --env-file $root/stand.env -f $root/infra/docker-compose.yml -f $root/infra/stand/compose.yml"
@@ -91,19 +95,33 @@ scenario ""
 deploy new
 expect "the first deploy succeeds" test "$code" -eq 0
 expect "the first deploy does not downgrade" test "$(calls "alembic downgrade")" -eq 0
-expect "the first deploy migrates with the new image"   test "$(calls "new $compose run --rm -T api alembic upgrade head")" -eq 1
+expect "the first deploy migrates with the new image"   test "$(calls "new $compose run --rm -T migrate alembic upgrade head")" -eq 1
 expect "the first deploy is logged" test "$(last_tag)" = new
+expect "the first deploy creates the database roles"   test "$(calls "new $compose exec -T postgres flagman-bootstrap-roles")" -eq 1
+expect "the roles come before the migrations"   test "$(line_of "flagman-bootstrap-roles")" -lt "$(line_of "alembic upgrade head")"
+expect "the migrations do not run as the API" test "$(calls "run --rm -T api alembic")" -eq 0
 
 scenario aaaa01 old
 deploy new
 expect "an upgrade succeeds" test "$code" -eq 0
 expect "an upgrade does not downgrade" test "$(calls "alembic downgrade")" -eq 0
 
+# The first deploy of #167 over an older image: its env.py cannot start in the migrate service.
+scenario aaaa01 old
+touch "$shims/current-fails-old"
+deploy new
+expect "a deploy over an image without the migrate service succeeds" test "$code" -eq 0
+expect "a deploy over an image without the migrate service does not downgrade"   test "$(calls "alembic downgrade")" -eq 0
+expect "a deploy over an image without the migrate service migrates"   test "$(calls "new $compose run --rm -T migrate alembic upgrade head")" -eq 1
+expect "a deploy over an image without the migrate service is logged" test "$(last_tag)" = new
+expect "a deploy over an image without the migrate service warns"   grep -qF "warning: cannot read the schema revision with old" <<<"$out"
+expect "the warning does not show the error itself" test "$(in_out ValidationError)" -eq 0
+
 scenario bbbb02 old new
 deploy old
 expect "a rollback succeeds" test "$code" -eq 0
-expect "a rollback downgrades with the newer image to the older head"   test "$(calls "new $compose run --rm -T api alembic downgrade aaaa01")" -eq 1
-expect "a rollback downgrades before it migrates"   test "$(line_of "alembic downgrade")" -lt "$(line_of "old $compose run --rm -T api alembic upgrade head")"
+expect "a rollback downgrades with the newer image to the older head"   test "$(calls "new $compose run --rm -T migrate alembic downgrade aaaa01")" -eq 1
+expect "a rollback downgrades before it migrates"   test "$(line_of "alembic downgrade")" -lt "$(line_of "old $compose run --rm -T migrate alembic upgrade head")"
 
 scenario bbbb02
 deploy old
@@ -116,6 +134,7 @@ touch "$shims/bad-env"
 deploy new
 expect "a broken stand.env stops the deploy" test "$code" -ne 0
 expect "a broken stand.env stops it before the migrations" test "$(calls "alembic upgrade")" -eq 0
+expect "a broken stand.env does not touch the roles" test "$(calls "flagman-bootstrap-roles")" -eq 0
 expect "a broken stand.env does not restart anything" test "$(calls " up -d")" -eq 0
 expect "a broken stand.env is not logged as a deploy" test "$(last_tag)" = old
 

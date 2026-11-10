@@ -123,7 +123,6 @@ from flagman.rentals.domain import (
     TripWarningRules,
     adjusted_total,
     apply_transition,
-    blocked_client_may_command,
     debt_key,
     ensure_adjustment_allowed,
     ensure_command_allowed,
@@ -144,6 +143,7 @@ from flagman.rentals.domain import (
     rental_key_prefix,
     reservation_deadlines,
     trip_warnings,
+    unadmitted_client_may_command,
 )
 from flagman.rentals.ports import Fines
 from flagman.rentals.repository import (
@@ -784,10 +784,10 @@ class RentalService:
             raise PaymentsUnavailableError
         return self.gateway
 
-    async def _ensure_admitted(self, user_id: UUID, *, even_if_blocked: bool = False) -> None:
+    async def _ensure_admitted(self, user_id: UUID) -> None:
         if await kyc.get_admission_status(self.db, user_id) is not KycStatus.APPROVED:
             raise KycNotApprovedError
-        if not even_if_blocked and await identity.is_client_blocked(self.db, user_id):
+        if await identity.is_client_blocked(self.db, user_id):
             raise ClientBlockedError
 
     async def _lock(self, user_id: UUID, rental_id: UUID, now: datetime) -> Rental:
@@ -1039,9 +1039,9 @@ class RentalService:
         async with self.db.begin():
             rental = await self._lock(user_id, rental_id, now)
             if not _was_expired(rental):
-                await self._ensure_admitted(
-                    user_id, even_if_blocked=blocked_client_may_command(rental, request.command)
-                )
+                # Locking the car left behind needs no admission (ADR-0026), whatever was lost.
+                if not unadmitted_client_may_command(rental, request.command):
+                    await self._ensure_admitted(user_id)
                 before = await repository.get_inspection(self.db, rental.id, InspectionStage.BEFORE)
                 ensure_command_allowed(
                     rental, before is not None and before.inspection.is_submitted, now
