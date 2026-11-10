@@ -49,6 +49,17 @@ async def db(integration_settings: Settings) -> AsyncIterator[AsyncSession]:
 
 
 @pytest.fixture
+async def owner_db(owner_settings: Settings) -> AsyncIterator[AsyncSession]:
+    """Past the app role's missing UPDATE and DELETE rights, down to the trigger."""
+    engine = create_engine(owner_settings)
+    try:
+        async with create_session_factory(engine)() as session:
+            yield session
+    finally:
+        await engine.dispose()
+
+
+@pytest.fixture
 def staff_id() -> uuid.UUID:
     # A new actor per test: events stay in the shared database between tests.
     return uuid.uuid4()
@@ -186,19 +197,20 @@ async def test_record_rejects_personal_data_in_details(
     ],
 )
 async def test_database_rejects_changing_events(
-    db: AsyncSession, staff_id: uuid.UUID, statement: str
+    owner_db: AsyncSession, staff_id: uuid.UUID, statement: str
 ) -> None:
-    async with db.begin():
+    async with owner_db.begin():
         await service.record(
-            db, AuditEntry(_staff(staff_id), AuditAction.STAFF_SIGNED_IN, RequestOrigin())
+            owner_db, AuditEntry(_staff(staff_id), AuditAction.STAFF_SIGNED_IN, RequestOrigin())
         )
 
-    # Raw SQL on purpose: the code has no way to change events, the database must refuse too.
+    # Raw SQL on purpose: the code has no way to change events, the database must refuse too,
+    # for the owner as well. The app role is refused before this (tests/test_db_roles.py).
     with pytest.raises(DBAPIError, match="append-only"):
-        async with db.begin():
-            await db.execute(text(statement), {"staff_id": staff_id})
+        async with owner_db.begin():
+            await owner_db.execute(text(statement), {"staff_id": staff_id})
 
-    assert await _count(db, staff_id) == 1
+    assert await _count(owner_db, staff_id) == 1
 
 
 async def test_system_events_have_no_actor(db: AsyncSession) -> None:

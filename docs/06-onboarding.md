@@ -69,7 +69,8 @@ Docker Desktop должен быть запущен. Все команды — �
    cp .env.example .env          # Git Bash
    ```
 
-2. Заполнить в `.env` пустые значения: `API_ENV` (локально `dev`), `POSTGRES_PASSWORD`, `REDIS_PASSWORD`,
+2. Заполнить в `.env` пустые значения: `API_ENV` (локально `dev`), три разных пароля Postgres
+   (`POSTGRES_SUPERUSER_PASSWORD`, `POSTGRES_OWNER_PASSWORD`, `POSTGRES_PASSWORD`), `REDIS_PASSWORD`,
    `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `API_JWT_SECRET`, `API_OTP_PEPPER`, `API_TOTP_ENCRYPTION_KEY`,
    `EMULATOR_COMMAND_SECRET`, `EMULATOR_TELEMETRY_SECRET`, `PAYMENTS_WEBHOOK_SECRET`,
    `PAYMENTS_TOKEN_ENCRYPTION_KEY`.
@@ -138,11 +139,29 @@ Docker Desktop должен быть запущен. Все команды — �
    заряжаются. Для демо ускорьте время — `EMULATOR_TIME_SCALE=60` в `.env` (час за минуту); чтобы
    машины стояли на месте, задайте `EMULATOR_SIMULATION_ENABLED=false`. После правки `.env`
    пересоздайте эмулятор: `docker compose --env-file .env -f infra/docker-compose.yml up -d car-emulator`.
+   Если `.env` и том базы у вас были до #167 (одна роль-суперпользователь), переименуйте `POSTGRES_USER` в
+   `POSTGRES_SUPERUSER`, а `POSTGRES_PASSWORD` в `POSTGRES_SUPERUSER_PASSWORD`. Затем добавьте из `.env.example`
+   строки владельца и приложения (`POSTGRES_OWNER_USER`, `POSTGRES_OWNER_PASSWORD`, `POSTGRES_USER`,
+   `POSTGRES_PASSWORD`) с новыми паролями и один раз создайте роли в существующем томе:
+
+   ```bash
+   docker compose --env-file .env -f infra/docker-compose.yml up -d postgres
+   ```
+
+   ```bash
+   docker compose --env-file .env -f infra/docker-compose.yml exec postgres flagman-bootstrap-roles
+   ```
+
+   ```bash
+   docker compose --env-file .env -f infra/docker-compose.yml run --rm migrate
+   ```
+
+   В новом томе роли создаются сами при первом запуске Postgres. Подробнее — [ADR-0031](adr/0031-database-roles.md).
    Остальные настройки — в [`services/car-emulator/README.md`](../services/car-emulator/README.md).
 
 | Сервис | Адрес | Доступ |
 |---|---|---|
-| PostgreSQL 16 + PostGIS | `127.0.0.1:5432` | `POSTGRES_USER` / `POSTGRES_PASSWORD`, база `POSTGRES_DB` |
+| PostgreSQL 16 + PostGIS | `127.0.0.1:5432` | приложение — `POSTGRES_USER` / `POSTGRES_PASSWORD`, миграции — `POSTGRES_OWNER_USER`, всё остальное — `POSTGRES_SUPERUSER`; база `POSTGRES_DB` |
 | Redis 7 | `127.0.0.1:6379` | пароль `REDIS_PASSWORD` |
 | SeaweedFS (S3 API) | `http://127.0.0.1:8333` | ключи `S3_ACCESS_KEY` / `S3_SECRET_KEY` |
 

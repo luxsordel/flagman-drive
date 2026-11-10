@@ -6,7 +6,7 @@ from pydantic import ValidationError
 from sqlalchemy.pool import QueuePool
 
 from conftest import SettingsFactory
-from flagman.core.config import WorkerSettings
+from flagman.core.config import MigrationSettings, WorkerSettings
 from flagman.core.db import create_engine
 
 
@@ -53,6 +53,32 @@ def test_database_url_escapes_the_password(make_settings: SettingsFactory) -> No
     assert url.render_as_string(hide_password=False).startswith(
         "postgresql+asyncpg://test:p%40ss%3Aw%2Frd@db:6543/"
     )
+
+
+def test_migrations_connect_as_the_owner_not_as_the_app(monkeypatch: pytest.MonkeyPatch) -> None:
+    # One .env holds both roles (docs/adr/0031): Alembic must take the owner's.
+    monkeypatch.setenv("POSTGRES_USER", "flagman_api")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "app-password")
+    monkeypatch.setenv("POSTGRES_OWNER_USER", "flagman_owner")
+    monkeypatch.setenv("POSTGRES_OWNER_PASSWORD", "owner-password")
+    monkeypatch.setenv("POSTGRES_DB", "flagman")
+
+    url = MigrationSettings(_env_file=None).database_url
+
+    assert url.username == "flagman_owner"
+    assert url.password == "owner-password"
+
+
+def test_migrations_need_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Never the app role as a fallback: its migrations would fail halfway on the first DDL.
+    monkeypatch.setenv("POSTGRES_USER", "flagman_api")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "app-password")
+    monkeypatch.setenv("POSTGRES_DB", "flagman")
+    monkeypatch.delenv("POSTGRES_OWNER_USER", raising=False)
+    monkeypatch.delenv("POSTGRES_OWNER_PASSWORD", raising=False)
+
+    with pytest.raises(ValidationError, match="POSTGRES_OWNER_USER"):
+        MigrationSettings(_env_file=None)
 
 
 def test_the_engine_pool_is_sized_by_the_settings(make_settings: SettingsFactory) -> None:

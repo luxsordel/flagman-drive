@@ -17,6 +17,7 @@ from alembic import command
 from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import SecretStr
 from redis.asyncio import Redis
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -37,6 +38,13 @@ POSTGRES_IMAGE = "postgis/postgis:16-3.6"
 REDIS_IMAGE = "redis:7.4.11-alpine"
 
 ALEMBIC_INI = Path(__file__).parent / "alembic.ini"
+# The same script and the same three roles as infra/docker-compose.yml (docs/adr/0031): the tests
+# run as the app role, so a query the API is not allowed to make fails here too.
+BOOTSTRAP_ROLES_SCRIPT = Path(__file__).parents[2] / "infra" / "postgres" / "bootstrap-roles.sh"
+BOOTSTRAP_ROLES_IN_CONTAINER = "/docker-entrypoint-initdb.d/20-flagman-roles.sh"
+POSTGRES_SUPERUSER = "flagman"
+POSTGRES_OWNER_USER = "flagman_owner"
+POSTGRES_APP_USER = "flagman_api"
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -73,12 +81,19 @@ def make_settings() -> SettingsFactory:
 @pytest.fixture(scope="session")
 def postgres_container(request: pytest.FixtureRequest) -> Iterator[PostgresContainer]:
     container_guard.refuse_unmarked_test(request)
-    container = PostgresContainer(
-        POSTGRES_IMAGE,
-        username="flagman",
-        password=secrets.token_hex(16),
-        dbname="flagman",
-        driver=None,
+    container = (
+        PostgresContainer(
+            POSTGRES_IMAGE,
+            username=POSTGRES_SUPERUSER,
+            password=secrets.token_hex(16),
+            dbname="flagman",
+            driver=None,
+        )
+        .with_env("FLAGMAN_OWNER_USER", POSTGRES_OWNER_USER)
+        .with_env("FLAGMAN_OWNER_PASSWORD", secrets.token_hex(16))
+        .with_env("FLAGMAN_APP_USER", POSTGRES_APP_USER)
+        .with_env("FLAGMAN_APP_PASSWORD", secrets.token_hex(16))
+        .with_volume_mapping(str(BOOTSTRAP_ROLES_SCRIPT), BOOTSTRAP_ROLES_IN_CONTAINER, "ro")
     )
     with container:
         yield container
@@ -100,8 +115,8 @@ def integration_env(
         "API_ENV": "test",
         "POSTGRES_HOST": postgres_container.get_container_host_ip(),
         "POSTGRES_PORT": str(postgres_container.get_exposed_port(5432)),
-        "POSTGRES_USER": postgres_container.username,
-        "POSTGRES_PASSWORD": postgres_container.password,
+        "POSTGRES_USER": POSTGRES_APP_USER,
+        "POSTGRES_PASSWORD": postgres_container.env["FLAGMAN_APP_PASSWORD"],
         "POSTGRES_DB": postgres_container.dbname,
         "REDIS_HOST": redis_container.get_container_host_ip(),
         "REDIS_PORT": str(redis_container.get_exposed_port(redis_container.port)),
@@ -114,11 +129,17 @@ def integration_env(
 
 
 @pytest.fixture(scope="session")
-def migrated_database(integration_env: dict[str, str]) -> None:
-    # migrations/env.py reads the same settings as the app, i.e. from the environment.
+def migrated_database(
+    integration_env: dict[str, str], postgres_container: PostgresContainer
+) -> None:
+    # migrations/env.py reads its settings from the environment, as the schema owner.
     with pytest.MonkeyPatch.context() as monkeypatch:
         for name, value in integration_env.items():
             monkeypatch.setenv(name, value)
+        monkeypatch.setenv("POSTGRES_OWNER_USER", POSTGRES_OWNER_USER)
+        monkeypatch.setenv(
+            "POSTGRES_OWNER_PASSWORD", postgres_container.env["FLAGMAN_OWNER_PASSWORD"]
+        )
         command.upgrade(Config(ALEMBIC_INI), "head")
 
 
@@ -127,6 +148,19 @@ def integration_settings(
     integration_env: dict[str, str], migrated_database: None, make_settings: SettingsFactory
 ) -> Settings:
     return make_settings(**{name.lower(): value for name, value in integration_env.items()})
+
+
+@pytest.fixture
+def owner_settings(
+    integration_settings: Settings, postgres_container: PostgresContainer
+) -> Settings:
+    """The schema owner's connection: past the app role's rights, for checks of the triggers."""
+    return integration_settings.model_copy(
+        update={
+            "postgres_user": POSTGRES_OWNER_USER,
+            "postgres_password": SecretStr(postgres_container.env["FLAGMAN_OWNER_PASSWORD"]),
+        }
+    )
 
 
 @pytest.fixture
