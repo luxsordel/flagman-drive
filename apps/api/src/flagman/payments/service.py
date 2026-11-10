@@ -289,15 +289,24 @@ async def receive_webhook(
 
 
 async def get_operation(db: AsyncSession, operation_id: UUID) -> PaymentOperation:
-    async with db.begin():
+    """Joins the caller's transaction if one is open: a rental reads its hold with the checks."""
+    if db.in_transaction():
         operation = await repository.get_operation(db, operation_id)
+    else:
+        async with db.begin():
+            operation = await repository.get_operation(db, operation_id)
     if operation is None:
         raise PaymentOperationNotFoundError
     return operation
 
 
 async def find_operation(db: AsyncSession, idempotency_key: str) -> PaymentOperation | None:
-    """The operation made with the key, if any: how a caller tells what it has paid already."""
+    """The operation made with the key, if any: how a caller tells what it has paid already.
+
+    Joins the caller's transaction if one is open.
+    """
+    if db.in_transaction():
+        return await repository.get_operation_by_key(db, idempotency_key)
     async with db.begin():
         return await repository.get_operation_by_key(db, idempotency_key)
 
