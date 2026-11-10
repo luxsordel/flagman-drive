@@ -39,14 +39,21 @@ jobs:
             changed="__all__"
           fi
           # Editing CI itself re-checks everything.
-          if echo "$changed" | grep -Eq '^(__all__|\.github/workflows/(ci|dependency-scans)\.yml)$'; then all=1; else all=0; fi
+          if echo "$changed" | grep -Eq '^(__all__|\.github/workflows/(ci|security-scans)\.yml)$'; then all=1; else all=0; fi
 
           has() { [ "$all" = 1 ] || echo "$changed" | grep -Eq "$1"; }
 
           # A part is checked only once it exists; missing apps are skipped, not failed.
           python='[]'
+          # The same list is the default of security-scans.yml, which the weekly run audits.
           for dir in apps/api services/car-emulator tests/load; do
-            if [ -f "$dir/pyproject.toml" ] && has "^$dir/"; then
+            pattern="^$dir/"
+            # The API tests start the images of the compose files (tools/compose_images.py), so a
+            # Dependabot bump of those images runs them.
+            if [ "$dir" = apps/api ]; then
+              pattern='^(apps/api/|infra/docker-compose\.yml$|infra/stand/compose\.yml$)'
+            fi
+            if [ -f "$dir/pyproject.toml" ] && has "$pattern"; then
               python=$(echo "$python" | jq -c --arg d "$dir" '. + [$d]')
             fi
           done
@@ -136,7 +143,7 @@ jobs:
   scans:
     name: Scans
     needs: changes
-    uses: ./.github/workflows/dependency-scans.yml
+    uses: ./.github/workflows/security-scans.yml
     with:
       python-dirs: ${{ needs.changes.outputs.python }}
       node: ${{ needs.changes.outputs.node == 'true' }}

@@ -18,14 +18,16 @@ concurrency:
 jobs:
   scans:
     name: Scans
-    uses: ./.github/workflows/dependency-scans.yml
+    uses: ./.github/workflows/security-scans.yml
 
-  # A scheduled run belongs to nobody's PR, so its result goes to an issue the team sees.
+  # A scheduled run belongs to nobody's PR, so its result goes to an issue the team sees. Only main
+  # counts: a manual run on a branch says nothing about main, so it must not open or close the issue.
   report:
     name: Report the result in an issue
     needs: scans
-    if: always()
+    if: always() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
       issues: write

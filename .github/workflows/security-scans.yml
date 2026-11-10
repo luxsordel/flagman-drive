@@ -1,10 +1,11 @@
-name: dependency-scans
+name: security-scans
 
 # Dependency audits and SAST in one place, so the weekly run (scheduled-scans.yml) checks exactly what
 # a pull request checks (ci.yml), with the same commands and tool versions.
 on:
   workflow_call:
     inputs:
+      # The same list as the loop of the `changes` job in ci.yml, which only narrows it down for a PR.
       python-dirs:
         description: JSON list of Python projects to audit; an empty list skips the audit.
         type: string
@@ -22,6 +23,7 @@ jobs:
     name: Python dependency audit (${{ matrix.dir }})
     if: inputs.python-dirs != '[]'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -41,6 +43,7 @@ jobs:
     name: npm dependency audit (high and above)
     if: inputs.node
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -54,6 +57,7 @@ jobs:
   semgrep:
     name: Semgrep (SAST)
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3

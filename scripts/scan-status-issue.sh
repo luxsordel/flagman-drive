@@ -6,7 +6,7 @@
 # Needs gh with GH_TOKEN (issues: write) and GH_REPO, as the workflow sets them.
 set -euo pipefail
 
-title="Weekly dependency scan failed"
+title="Weekly security scan failed"
 result=${1:?usage: scan-status-issue.sh <result> <run url>}
 run_url=${2:?usage: scan-status-issue.sh <result> <run url>}
 

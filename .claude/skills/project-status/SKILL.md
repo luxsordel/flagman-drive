@@ -16,6 +16,7 @@ Talk to the user in Russian (see «Язык» in CLAUDE.md), plain language, sho
      and, for every open PR: `gh pr view <n> --json reviewRequests,reviews,statusCheckRollup,mergeStateStatus,autoMergeRequest,files,updatedAt`.
    - board: `gh project item-list 1 --owner <repo owner> --format json`.
    - CI on main: `gh run list --branch main --limit 5`.
+   - the weekly security scan: `gh run list --workflow scheduled-scans.yml --limit 1`.
 2. Fix board drift with `bash scripts/board-status.sh <n> <Status>`:
    - closed issue not in **Done** → Done;
    - open issue with an open PR that closes it → **Review**;
@@ -28,7 +29,8 @@ Talk to the user in Russian (see «Язык» in CLAUDE.md), plain language, sho
      For Dependabot PRs, say whether each is safe (patch/minor of a tool) or needs a decision (major version,
      language/runtime version — the project is pinned to Python 3.12, ADR-0001);
    - problems worth attention: PRs without reviewers, PRs merged without approval, open PRs older than a day,
-     free issues nobody took, red CI on main;
+     free issues nobody took, red CI on main, a failed weekly security scan (its open issue
+     «Weekly security scan failed» with the `security` label: who takes it);
    - what each person should do next. Prefer tasks that do not touch the same files as work in progress,
      and tasks that unblock others.
 4. Do not merge, approve, close or comment on anything during a status report; offer it instead.
