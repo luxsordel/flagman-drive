@@ -359,8 +359,9 @@ class _SentRecord:
 
 async def _record_command(
     db: AsyncSession, record: _SentRecord, now: datetime, max_skew: timedelta
-) -> None:
-    """Stores what the car reported, the audit event and the notices of a sent command.
+) -> Car:
+    """Stores what the car reported, the audit event and the notices of a sent command; returns
+    the car after it, read in the same transaction so the caller needs no checkout of its own.
 
     The car has the command already and there is no two-phase commit with it, so a failed
     transaction must not take the event along (docs/adr/0030): the event is recorded once more
@@ -375,6 +376,7 @@ async def _record_command(
             await audit.record(db, record.entry)
             if record.notices:
                 await repository.notify(db, list(record.notices))
+            return await get_car(db, record.car.id)
     except Exception:
         await _record_command_alone(db, record)
         raise
@@ -498,13 +500,13 @@ class CarCommander:
         entry = self._entry(car, request, notice, during_rental)
         record = _SentRecord(car, sent, entry, [encode_command(notice)])
         try:
-            await _record_command(self.db, record, now, self.max_skew)
+            after = await _record_command(self.db, record, now, self.max_skew)
         finally:
             # The car has the command already: a failed record must not hide it from the warning.
             await self.alerts.count(STAFF_COMMANDS_ALERT)
         if sent.failure is not None:
             raise sent.failure
-        return CarCommandResult(command_id=sent.command_id, car=await get_car(self.db, car.id))
+        return CarCommandResult(command_id=sent.command_id, car=after)
 
     def _entry(
         self, car: Car, request: CarCommandRequest, notice: CommandNotice, during_rental: bool
@@ -558,14 +560,22 @@ class RentalCarCommander:
     origin: RequestOrigin
     max_skew: timedelta
 
-    async def send(self, request: RentalCommandRequest, now: datetime) -> Car:
+    async def send(
+        self, request: RentalCommandRequest, now: datetime, car: Car | None = None
+    ) -> Car:
         """Returns the car after the command. Raises CarNotFoundError without sending anything;
         after sending, the errors of TelematicsGateway.send, once the outcome is recorded.
+
+        `car` is the request's car as the caller has just read it in its own checks: reading it
+        again would only cost one more checkout.
         """
         command = request.command
         if command not in CLIENT_COMMANDS:
             raise ValueError(f"clients do not send {command}")
-        car = await get_car(self.db, request.car_id)
+        if car is None:
+            car = await get_car(self.db, request.car_id)
+        elif car.id != request.car_id:
+            raise ValueError("the car read is not the request's car")
         sent = await _send(self.gateway, car, command)
         entry = AuditEntry(
             Actor(ActorType.CLIENT, request.client_id),
@@ -582,13 +592,14 @@ class RentalCarCommander:
             },
         )
         try:
-            await _record_command(self.db, _SentRecord(car, sent, entry, []), now, self.max_skew)
+            record = _SentRecord(car, sent, entry, [])
+            after = await _record_command(self.db, record, now, self.max_skew)
         finally:
             # The car has the command already: a failed record must not hide it from the warning.
             await self.alerts.count(CLIENT_COMMANDS_ALERT)
         if sent.failure is not None:
             raise sent.failure
-        return await get_car(self.db, car.id)
+        return after
 
 
 @dataclass(frozen=True)
