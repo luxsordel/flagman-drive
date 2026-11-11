@@ -1,7 +1,9 @@
 import base64
+import contextlib
 import logging
 import secrets
 import threading
+from collections import Counter
 from collections.abc import Iterator, MutableMapping
 from concurrent.futures import Future
 from dataclasses import dataclass
@@ -13,8 +15,12 @@ import pytest
 import structlog
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
+from fastapi.testclient import TestClient
 from pydantic import SecretStr
 from redis.asyncio import Redis
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.testclient import WebSocketTestSession
 from structlog.testing import LogCapture
 from testcontainers.community.postgres import PostgresContainer
@@ -182,6 +188,40 @@ def capture_logs_of(
     )
     monkeypatch.setattr(module, "logger", logger)
     return capture.entries
+
+
+@contextlib.contextmanager
+def database_round_trips(client: TestClient) -> Iterator[Counter[str]]:
+    """Counts pool checkouts, transactions and statements of the app's engine while inside.
+
+    Each checkout costs the pre-ping too, so the counts pin how many round trips a request makes.
+    """
+    app = client.app
+    assert isinstance(app, FastAPI)
+    engine: AsyncEngine = app.state.resources.engine
+    counts: Counter[str] = Counter()
+
+    def checkout(*_: object) -> None:
+        counts["checkout"] += 1
+
+    def begin(*_: object) -> None:
+        counts["begin"] += 1
+
+    def statement(*_: object) -> None:
+        counts["statement"] += 1
+
+    listeners = [
+        (engine.sync_engine.pool, "checkout", checkout),
+        (engine.sync_engine, "begin", begin),
+        (engine.sync_engine, "before_cursor_execute", statement),
+    ]
+    for target, name, listener in listeners:
+        event.listen(target, name, listener)
+    try:
+        yield counts
+    finally:
+        for target, name, listener in listeners:
+            event.remove(target, name, listener)
 
 
 @pytest.fixture
