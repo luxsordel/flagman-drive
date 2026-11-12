@@ -1,3 +1,0 @@
-ERROR: 1 tests use Docker without the integration mark, e.g.:
-  kyc/test_collected.py::test_unmarked
-
