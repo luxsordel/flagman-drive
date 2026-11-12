@@ -1,0 +1,9 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.15, pytest-9.1.1, pluggy-1.7.0
+rootdir: C:\Users\SUPERSUSMINI\Documents\FLAGNUM\.claude\worktrees\task-selection-no-conflicts-8c92bc\apps\api\pytest-of-SUPERSUSMINI\pytest-0\test_collection_refuses_an_unmarked_test_of_any_container0
+configfile: tox.ini
+plugins: anyio-4.15.1, asyncio-1.4.0, cov-7.1.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+
+============================ no tests ran in 1.81s ============================
