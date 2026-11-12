@@ -101,6 +101,13 @@ expect "the first deploy creates the database roles"   test "$(calls "new $compo
 expect "the roles come before the migrations"   test "$(line_of "flagman-bootstrap-roles")" -lt "$(line_of "alembic upgrade head")"
 expect "the migrations do not run as the API" test "$(calls "run --rm -T api alembic")" -eq 0
 
+scenario ""
+deploy local --local
+expect "a local deploy succeeds without pulling" test "$code" -eq 0
+expect "a local deploy does not pull images" test "$(calls "local $compose pull --quiet")" -eq 0
+expect "a local deploy does not remove images" test "$(calls "local image rm")" -eq 0
+expect "a local deploy does not prune images" test "$(calls "local image prune")" -eq 0
+
 scenario aaaa01 old
 deploy new
 expect "an upgrade succeeds" test "$code" -eq 0
