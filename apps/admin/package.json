@@ -17,12 +17,12 @@
     "@flagman/design-tokens": "*",
     "@fontsource/open-sans": "^5.3.0",
     "@fontsource/oswald": "^5.3.0",
-    "i18next": "^26.6.0",
+    "i18next": "^26.7.2",
     "maplibre-gl": "6.16.0",
     "qrcode": "^1.5.4",
     "react": "19.3.0",
     "react-dom": "19.3.0",
-    "react-i18next": "^17.1.9",
+    "react-i18next": "^17.1.13",
     "react-router": "^8.5.1",
     "terra-draw": "1.39.0",
     "terra-draw-maplibre-gl-adapter": "1.5.0"
@@ -34,15 +34,15 @@
     "@types/qrcode": "^1.5.6",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^6.1.2",
+    "@vitejs/plugin-react": "^6.2.1",
     "eslint": "^10.14.0",
     "eslint-plugin-react-hooks": "^7.1.1",
-    "globals": "^17.13.0",
+    "globals": "^17.14.0",
     "jsdom": "^30.1.3",
     "prettier": "^3.9.10",
     "typescript": "~7.0.2",
     "typescript-eslint": "^8.72.1",
-    "vite": "^8.3.5",
-    "vitest": "^5.0.5"
+    "vite": "^8.3.6",
+    "vitest": "^5.1.0"
   }
 }
