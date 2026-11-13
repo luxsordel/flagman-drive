@@ -10,7 +10,8 @@ from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict
 from pydantic_core.core_schema import ErrorType
 from starlette.exceptions import HTTPException as StarletteHTTPException
-from starlette.responses import JSONResponse
+from starlette.requests import ClientDisconnect
+from starlette.responses import JSONResponse, Response
 from starlette.types import HTTPExceptionHandler
 
 PROBLEM_CONTENT_TYPE = "application/problem+json"
@@ -152,6 +153,11 @@ def problem_response(problem: Problem, headers: Mapping[str, str] | None = None)
     )
 
 
+# nginx's status for a request the client closed before the answer: nobody reads it, but the
+# access log tells such requests apart from the ones the server failed.
+CLIENT_CLOSED_REQUEST = 499
+
+
 def internal_error_problem(request_id: str | None) -> Problem:
     status = HTTPStatus.INTERNAL_SERVER_ERROR
     return Problem(title=status.phrase, status=status, request_id=request_id)
@@ -190,6 +196,13 @@ async def _validation_error_handler(request: Request, exc: RequestValidationErro
     return problem_response(problem)
 
 
+async def _client_disconnect_handler(request: Request, exc: ClientDisconnect) -> Response:
+    # The client left while sending the body, e.g. a phone left the screen mid-upload: nothing
+    # was stored and nothing is broken, so no traceback and no 500 that would raise an alert.
+    logger.info("client_disconnected")
+    return Response(status_code=CLIENT_CLOSED_REQUEST)
+
+
 async def _http_error_handler(request: Request, exc: StarletteHTTPException) -> JSONResponse:
     status = HTTPStatus(exc.status_code)
     detail = exc.detail if isinstance(exc.detail, str) and exc.detail != status.phrase else None
@@ -213,4 +226,9 @@ def register_error_handlers(app: FastAPI) -> None:
     )
     app.add_exception_handler(
         StarletteHTTPException, cast(HTTPExceptionHandler, _http_error_handler)
+    )
+    # Raised wherever the body is read (request.stream(), body(), form()), so it is one handler
+    # here rather than a try in each endpoint that reads a body.
+    app.add_exception_handler(
+        ClientDisconnect, cast(HTTPExceptionHandler, _client_disconnect_handler)
     )
