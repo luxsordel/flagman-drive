@@ -4,7 +4,7 @@ import logging
 import secrets
 import threading
 from collections import Counter
-from collections.abc import Iterator, MutableMapping
+from collections.abc import Iterator, Mapping, MutableMapping
 from concurrent.futures import Future
 from dataclasses import dataclass
 from pathlib import Path
@@ -22,6 +22,7 @@ from redis.asyncio import Redis
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 from starlette.testclient import WebSocketTestSession
+from starlette.types import Message
 from structlog.testing import LogCapture
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.community.redis import RedisContainer
@@ -188,6 +189,45 @@ def capture_logs_of(
     )
     monkeypatch.setattr(module, "logger", logger)
     return capture.entries
+
+
+def send_aborted_request(
+    client: TestClient, method: str, path: str, headers: Mapping[str, str], sent: bytes
+) -> list[Message]:
+    """Sends the start of a body and then disconnects, as a phone leaving the screen mid-upload.
+
+    Returns what the app sent back. TestClient always sends the whole body, so the request goes
+    to the ASGI app directly, on the client's event loop, where the app's engine and pools live.
+    """
+    incoming: list[Message] = [
+        {"type": "http.request", "body": sent, "more_body": True},
+        {"type": "http.disconnect"},
+    ]
+    outgoing: list[Message] = []
+
+    async def receive() -> Message:
+        return incoming.pop(0) if incoming else {"type": "http.disconnect"}
+
+    async def send(message: Message) -> None:
+        outgoing.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "https",
+        "server": ("testserver", 443),
+        "client": ("testclient", 50000),
+        "root_path": "",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "headers": [(name.lower().encode(), value.encode()) for name, value in headers.items()],
+    }
+    assert client.portal is not None, "the client has to be used as a context manager"
+    client.portal.call(client.app, scope, receive, send)
+    return outgoing
 
 
 @contextlib.contextmanager
