@@ -31,12 +31,13 @@ from flagman.core import alerts
 from flagman.core.alerts import SpikeMeter
 from flagman.core.config import Settings
 from tools import container_guard
+from tools.compose_images import compose_image
 
 pytest_plugins = ("pytester",)
 
-# Same images as infra/docker-compose.yml, so tests run against what developers run locally.
-POSTGRES_IMAGE = "postgis/postgis:16-3.6"
-REDIS_IMAGE = "redis:7.4.11-alpine"
+# Read from infra/docker-compose.yml, so tests run against what developers run locally.
+POSTGRES_IMAGE = compose_image("postgres")
+REDIS_IMAGE = compose_image("redis")
 
 ALEMBIC_INI = Path(__file__).parent / "alembic.ini"
 # The same script and the same three roles as infra/docker-compose.yml (docs/adr/0031): the tests
