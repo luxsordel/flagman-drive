@@ -114,6 +114,9 @@ updates:
     groups:
       minor-and-patch:
         update-types: [minor, patch]
+        # One PR per image across both directories: the stand's backup must run the same Postgres
+        # image as the database (tests/test_compose_images.py), so a bump of one file alone fails.
+        group-by: dependency-name
     ignore:
       - dependency-name: postgis/postgis
         update-types: [version-update:semver-major]

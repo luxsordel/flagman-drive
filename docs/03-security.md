@@ -94,6 +94,9 @@
   вручную. Тесты API стартуют контейнеры из образов `infra/docker-compose.yml` (`apps/api/tools/compose_images.py`),
   и правка этого файла запускает их в CI, так что обновление образа проверяется тестами. Из `infra/stand/compose.yml`
   тесты проверяют только, что образ `backup` совпадает с образом Postgres: `pg_dump` должен совпадать с сервером.
+  Обновление одного образа приходит одним PR на оба файла (`group-by: dependency-name`). Тег PostGIS вида `16-3.6`
+  Dependabot может прочитать как версию `16` с суффиксом и предлагать только мажоры, которые в ignore: после мержа
+  проверить лог Dependabot, и если PostGIS не обновляется, обновлять его вручную.
 - Dependabot alerts и security updates должны быть включены в настройках репозитория. Включает только
   администратор (Settings → Code security), в коде это не настроить.
 - В CI: `pip-audit`, `npm audit` (high и critical, `scripts/npm-audit.mjs`), **Semgrep** (SAST), **gitleaks**.

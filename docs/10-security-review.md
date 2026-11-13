@@ -208,7 +208,7 @@ docs/03 сам откладывает; **пробел** — не выполне�
 
 | Правило | Статус | Как проверено | Где |
 |---|---|---|---|
-| Dependabot для pip, npm и Actions | выполнено | Настройка: еженедельно, плюс docker. Образ стенда `infra/stand/web` (Node и Caddy) добавлен в `73af880`. Образы из docker-compose (Postgres, Redis, SeaweedFS) добавлены в #168. Dependabot alerts включает админ (#168) | `.github/dependabot.yml:93-123` |
+| Dependabot для pip, npm и Actions | выполнено | Настройка: еженедельно, плюс docker. Образ стенда `infra/stand/web` (Node и Caddy) добавлен в `73af880`. Образы из docker-compose (Postgres, Redis, SeaweedFS) добавлены в #168. Dependabot alerts включает админ (#168) | `.github/dependabot.yml:93-126` |
 | `pip-audit` в CI | выполнено | Ручной запуск той же командой во всех трёх Python-каталогах на итоговом коде ветки: уязвимостей нет. В CI ветки ещё не запускался | `.github/workflows/security-scans.yml:22-40` |
 | `npm audit` (high и critical) | выполнено | Ручной запуск `npm run audit` на итоговом коде ветки, уже с проверкой allowlist из `a97e5ff`: неодобренных high и critical нет, allowlist пуст. В CI ветки ещё не запускался | `scripts/npm-audit.mjs`, `.github/workflows/security-scans.yml:42-55` |
 | Исключения `npm audit` | исправлено в ветке | Тест скрипта. Две устаревшие записи удалены, устаревшая запись роняет CI (`b42257b`). `a97e5ff`: запись без id вида `GHSA-*`, пакета или причины, с неверной датой или со сроком `reviewBy` дальше 92 дней роняет CI, даже пока её уязвимость не выдаётся | `scripts/npm-audit.mjs:18-67`, `scripts/tests/npm-audit.test.sh`, `.github/npm-audit-allowlist.json` |
