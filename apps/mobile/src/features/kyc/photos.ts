@@ -97,9 +97,19 @@ export function canonicalPath(uri: string): string | null {
 
 function isInCache(uri: string): boolean {
   const file = canonicalPath(uri);
+  if (file === null) return false;
+  return cacheDirs().some((dir) => file.startsWith(dir));
+}
+
+function cacheDirs(): string[] {
   const cache = canonicalPath(Paths.cache.uri);
-  if (file === null || cache === null) return false;
-  return file.startsWith(cache.endsWith('/') ? cache : `${cache}/`);
+  if (cache === null) return [];
+  const dir = cache.endsWith('/') ? cache : `${cache}/`;
+  // Expo Go on iOS scopes `Paths.cache` to the project inside `Library/Caches/`, while the picker
+  // still writes its copy to the app-wide `Library/Caches/ImagePicker/` one level up.
+  const appCaches = dir.indexOf('/Library/Caches/');
+  if (appCaches === -1) return [dir];
+  return [dir, `${dir.slice(0, appCaches)}/Library/Caches/ImagePicker/`];
 }
 
 // HEIC from an iPhone is not accepted by the API (ADR-0012), and a full-size shot is far larger
