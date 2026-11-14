@@ -14,9 +14,10 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from sqlalchemy import text
 
-from conftest import SettingsFactory
+from conftest import SettingsFactory, send_aborted_request
 from flagman.core.config import Settings
 from flagman.core.db import create_engine, create_session_factory
+from flagman.core.errors import CLIENT_CLOSED_REQUEST
 from flagman.core.photos import MAX_UPLOAD_BYTES
 from flagman.core.ratelimit import Limit
 from flagman.core.storage import open_object_storage
@@ -421,6 +422,26 @@ def test_a_chunked_upload_is_cut_off_at_the_limit(person: Callable[[], Person]) 
     )
 
     assert response.status_code == HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+
+
+def test_an_upload_the_client_leaves_midway_stores_nothing_and_is_no_error(
+    person: Callable[[], Person], caplog: pytest.LogCaptureFixture
+) -> None:
+    client = person()
+    data = photo()
+
+    sent = send_aborted_request(
+        client.client,
+        "PUT",
+        f"/kyc/documents/{DocumentKind.PASSPORT}",
+        {**client.headers, "Content-Type": "image/jpeg", "Content-Length": str(len(data))},
+        data[: len(data) // 2],
+    )
+
+    assert sent[0]["status"] == CLIENT_CLOSED_REQUEST
+    assert "unhandled_error" not in caplog.text
+    assert "Traceback" not in caplog.text
+    assert client.application().json()["documents"] == []
 
 
 def test_an_unknown_document_kind_is_422(person: Callable[[], Person]) -> None:

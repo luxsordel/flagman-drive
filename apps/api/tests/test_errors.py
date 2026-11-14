@@ -2,12 +2,13 @@ from http import HTTPStatus
 from typing import Annotated, Literal
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic_core import PydanticCustomError
 
-from conftest import SettingsFactory
+from conftest import SettingsFactory, capture_logs_of, send_aborted_request
+from flagman.core import errors, middleware
 from flagman.core.app import create_app
 from flagman.core.errors import (
     CUSTOM_ERROR_MESSAGE,
@@ -92,6 +93,10 @@ def app(make_settings: SettingsFactory) -> FastAPI:
     @app.get("/test/crash")
     async def crash() -> None:
         raise RuntimeError("secret internals: postgres://user:password@db")
+
+    @app.post("/test/read-body")
+    async def read_body(request: Request) -> int:
+        return len(await request.body())
 
     @app.get("/test/validation")
     async def validate(phone: int) -> int:
@@ -224,6 +229,26 @@ def test_unhandled_exception_is_a_generic_500_with_request_id(client: TestClient
     assert "password" not in response.text
     # The 500 is produced inside the middleware stack, so it still gets the security headers.
     assert response.headers["x-content-type-options"] == "nosniff"
+
+
+def test_a_client_leaving_mid_body_is_not_an_unhandled_error(
+    app: FastAPI, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    unhandled = capture_logs_of(monkeypatch, middleware)
+    handled = capture_logs_of(monkeypatch, errors)
+
+    with TestClient(app) as client:
+        sent = send_aborted_request(
+            client, "POST", "/test/read-body", {"Content-Length": "100000"}, b"x" * 1000
+        )
+
+    assert sent[0]["type"] == "http.response.start"
+    assert sent[0]["status"] == errors.CLIENT_CLOSED_REQUEST
+    assert [entry["event"] for entry in unhandled] == ["request"]
+    assert unhandled[0]["status"] == errors.CLIENT_CLOSED_REQUEST
+    assert [(entry["event"], entry["log_level"]) for entry in handled] == [
+        ("client_disconnected", "info")
+    ]
 
 
 def test_openapi_documents_errors_as_problem_json(app: FastAPI) -> None:
