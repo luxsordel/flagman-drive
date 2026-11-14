@@ -79,7 +79,7 @@ set_if_empty API_JWT_SECRET "$(generate_hex 32)"
 set_if_empty API_OTP_PEPPER "$(generate_hex 32)"
 set_if_empty API_TOTP_ENCRYPTION_KEY "$(generate_base64 32)"
 set_if_empty SMS_FIXED_CODE "$(generate_code)"
-set_if_empty SMS_FIXED_PHONES '+375291111111,+375291111112'
+set_if_empty SMS_FIXED_PHONES "+375291111112,+375442222222"
 set_if_empty S3_ACCESS_KEY "$(generate_hex 16)"
 set_if_empty S3_SECRET_KEY "$(generate_hex 32)"
 set_if_empty PAYMENTS_WEBHOOK_SECRET "$(generate_hex 32)"

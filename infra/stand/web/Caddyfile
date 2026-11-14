@@ -108,8 +108,13 @@ admin.{$STAND_DOMAIN} {
 app.{$STAND_DOMAIN} {
 	import common
 	root * /srv/app
+	# The client and API share this origin, so browser auth requests are first-party.
+	@api path /auth/* /me/* /map/* /kyc/* /rentals/* /payment-cards/* /support/* /fleet/*
+	handle @api {
+		import api
+	}
 	# React Native Web inserts its styles at runtime, hence 'unsafe-inline' for styles only.
-	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://s3.{$STAND_DOMAIN} {$MAP_ORIGINS:https://tiles.openfreemap.org}; font-src 'self' data:; connect-src 'self' https://api.{$STAND_DOMAIN} https://s3.{$STAND_DOMAIN} {$MAP_ORIGINS:https://tiles.openfreemap.org}; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self' https://api.{$STAND_DOMAIN}; frame-ancestors 'none'"
+	header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://s3.{$STAND_DOMAIN} {$MAP_ORIGINS:https://tiles.openfreemap.org}; font-src 'self' data:; connect-src 'self' https://s3.{$STAND_DOMAIN} {$MAP_ORIGINS:https://tiles.openfreemap.org}; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 	import spa
 }
 

@@ -7,6 +7,11 @@ import { createTokenStore } from './tokenStore';
 
 const defaultApiUrl = 'http://localhost:8000';
 
+/** The deployed web stand serves the API on the same origin through Caddy. */
+export function webApiUrl(location: Pick<Location, 'origin'>): string {
+  return location.origin;
+}
+
 /** An empty value, as in a copied `.env.example`, means "not set" rather than the app's own origin. */
 export function resolveApiUrl(configured: string | undefined): string {
   const trimmed = configured?.trim() ?? '';
@@ -15,8 +20,12 @@ export function resolveApiUrl(configured: string | undefined): string {
 
 /** API origin of this build. */
 export function appApiUrl(): string {
-  // Public client setting, not a secret; inlined at build time, so read by its literal name.
-  return resolveApiUrl(process.env.EXPO_PUBLIC_API_URL);
+  const configured = process.env.EXPO_PUBLIC_API_URL;
+  // A configured URL is useful for local web development and native builds.
+  if (configured?.trim()) return resolveApiUrl(configured);
+  // The deployed web stand serves API paths on the same origin through Caddy.
+  if (Platform.OS === 'web' && typeof window !== 'undefined') return webApiUrl(window.location);
+  return resolveApiUrl(configured);
 }
 
 export function createAppAuthSession(): AuthSession {
