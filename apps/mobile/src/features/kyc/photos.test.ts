@@ -206,6 +206,34 @@ describe('discardPhoto', () => {
     expect(mockDeleted).toEqual([uri]);
   });
 
+  describe('in Expo Go on iOS', () => {
+    const container = 'file:///var/mobile/Containers/Data/Application/BA747F72';
+    const projectCache = `${container}/Library/Caches/ExponentExperienceData/@anonymous/flagman-drive-d1/`;
+
+    beforeEach(() => {
+      mockCache.uri = projectCache;
+    });
+
+    it('deletes the picker copy left in the app-wide cache above the project one', () => {
+      const pickerCopy = `${container}/Library/Caches/ImagePicker/A3339949.jpg`;
+
+      discardPhoto(pickerCopy);
+      discardPhoto(`${projectCache}ImageManipulator/923B2C26.jpg`);
+
+      expect(mockDeleted).toEqual([pickerCopy, `${projectCache}ImageManipulator/923B2C26.jpg`]);
+    });
+
+    it.each([
+      `${container}/Library/Caches/ExponentExperienceData/@anonymous/other-project/x.jpg`,
+      `${container}/Library/Caches/x.jpg`,
+      'file:///var/mobile/Containers/Data/Application/OTHER/Library/Caches/ImagePicker/x.jpg',
+    ])('leaves %s alone', (uri) => {
+      discardPhoto(uri);
+
+      expect(mockDeleted).toEqual([]);
+    });
+  });
+
   it.each([
     'file:///cache/../storage/DCIM/original.jpg',
     'file:///cache-other/x.jpg',
