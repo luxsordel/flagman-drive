@@ -28,6 +28,8 @@ echo 'FROM scratch' >"$repo/infra/stand/web/Dockerfile"
 
 # A real (empty) git repo so git status/rev-parse work.
 git -C "$repo_for_git" init -q
+git -C "$repo_for_git" config user.email test@example.test
+git -C "$repo_for_git" config user.name "Test"
 git -C "$repo_for_git" commit --allow-empty -q -m "initial"
 
 # Pre-populate stand.env so init-env.sh does not need to generate secrets.

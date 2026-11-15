@@ -249,7 +249,7 @@ jobs:
       - name: Only Caddy is published to the host
         run: |
           # Provide stub values for required secrets so `docker compose config` can parse the file.
-          STAND_TAG=x STAND_REGISTRY=x ACME_EMAIL=x@x.x \
+          STAND_TAG=x STAND_REGISTRY=x ACME_EMAIL=x@x.x STAND_DOMAIN=example.test \
           POSTGRES_SUPERUSER_PASSWORD=x POSTGRES_OWNER_PASSWORD=x POSTGRES_PASSWORD=x \
           REDIS_PASSWORD=x API_JWT_SECRET=x API_OTP_PEPPER=x API_TOTP_ENCRYPTION_KEY=x \
           S3_ACCESS_KEY=x S3_SECRET_KEY=x EMULATOR_COMMAND_SECRET=x EMULATOR_TELEMETRY_SECRET=x \
