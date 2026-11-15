@@ -22,7 +22,8 @@ archive_volume() {
     -v "$volume:/source:ro" \
     -v "$backup_dir:/backup" \
     "$helper_image" \
-    tar -czf "/backup/$(basename "$tmp")" -C /source .
+    sh -c 'umask 077 && tar -czf "$1" -C /source . && chown "$2" "$1"' \
+    _ "/backup/$(basename "$tmp")" "$(id -u):$(id -g)"
   mv "$tmp" "$archive"
   chmod 600 "$archive"
   echo "backup-volumes: $volume archived"

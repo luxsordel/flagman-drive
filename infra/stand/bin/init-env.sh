@@ -34,9 +34,10 @@ PY
 generate_code() {
   python3 - <<'PY'
 import secrets
+runs = "0123456789"
 while True:
     value = f"{secrets.randbelow(1_000_000):06d}"
-    if len(set(value)) > 3 and value not in ("0123456789", "9876543210"):
+    if len(set(value)) >= 4 and value not in runs and value not in runs[::-1]:
         print(value)
         break
 PY
@@ -49,10 +50,10 @@ set_if_empty() {
     return 0
   fi
   tmp="$(mktemp "$stand_root/.stand.env.XXXXXX")"
-  awk -v key="$key" -v value="$value" '
-    $0 ~ ("^" key "=") { print key "=" value; found=1; next }
+  VALUE="$value" awk -v key="$key" '
+    $0 ~ ("^" key "=") { print key "=" ENVIRON["VALUE"]; found=1; next }
     { print }
-    END { if (!found) print key "=" value }
+    END { if (!found) print key "=" ENVIRON["VALUE"] }
   ' "$env_file" >"$tmp"
   chmod 600 "$tmp"
   mv "$tmp" "$env_file"

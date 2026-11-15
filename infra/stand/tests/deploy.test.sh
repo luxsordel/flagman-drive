@@ -105,8 +105,18 @@ scenario ""
 deploy local --local
 expect "a local deploy succeeds without pulling" test "$code" -eq 0
 expect "a local deploy does not pull images" test "$(calls "local $compose pull --quiet")" -eq 0
-expect "a local deploy does not remove images" test "$(calls "local image rm")" -eq 0
-expect "a local deploy does not prune images" test "$(calls "local image prune")" -eq 0
+expect "a local deploy does not remove images" test "$(calls "image rm")" -eq 0
+expect "a local deploy does not prune images" test "$(calls "image prune")" -eq 0
+
+scenario "" t1 t2 t3 t4 t5
+for tag in t1 t2 t3 t4 t5 t6; do
+  echo "local/flagman-api:$tag" >>"$shims/images"
+  echo "local/flagman-web:$tag" >>"$shims/images"
+done
+printf '%s\n' aaaa01 >"$shims/revs-local"
+deploy local --local
+expect "a local deploy with many old local images does not remove any" test "$(calls "image rm")" -eq 0
+expect "a local deploy with many old local images does not prune" test "$(calls "image prune")" -eq 0
 
 scenario aaaa01 old
 deploy new

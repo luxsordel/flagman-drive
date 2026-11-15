@@ -233,6 +233,7 @@ jobs:
           tail -n 100 tests/load/reports/*/stack.log || true
 
   # The stand's Caddyfile in its pinned image: paths reach the logs, query strings and IPs do not.
+  # Also verifies that only Caddy is published to the host network (criterion #176).
   caddy:
     name: Stand edge config
     needs: changes
@@ -245,6 +246,12 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/check-caddy.mjs
+      - name: Only Caddy is published to the host
+        run: |
+          STAND_TAG=x STAND_REGISTRY=x ACME_EMAIL=x@x.x \
+            docker compose --env-file infra/stand/stand.env.example \
+            -f infra/docker-compose.yml -f infra/stand/compose.yml config --format json \
+            | jq -e '[.services | to_entries[] | select((.value.ports // []) | length > 0) | .key] == ["caddy"]'
 
   semgrep:
     name: Semgrep (SAST)
