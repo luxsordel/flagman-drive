@@ -23,10 +23,15 @@ run() {
   test "$(grep -c '^STAND_ADMIN_TOTP_SECRET=' "$root/stand.env")" = 1
   test "$(grep '^SMS_FIXED_CODE=' "$root/stand.env" | cut -d= -f2 | awk '{ print length($0) }')" = 6
   # The generated SMS code must pass Settings._validate_fixed_sms (at least 4 distinct digits,
-  # not a sequential digit run). Mirror the Python check: len(set(code)) >= 4.
-  local code
+  # not a sequential digit run). Mirror the Python check: len(set(code)) >= 4 and not a substring
+  # of "0123456789" or its reverse.
+  local code runs
   code="$(grep '^SMS_FIXED_CODE=' "$root/stand.env" | cut -d= -f2 | tr -d '\r')"
   test "$(printf '%s\n' "$code" | grep -o . | sort -u | wc -l)" -ge 4
+  runs="0123456789"
+  case "$runs" in *"$code"*) echo "SMS code is an ascending run: $code" >&2; exit 1;; esac
+  runs_rev="9876543210"
+  case "$runs_rev" in *"$code"*) echo "SMS code is a descending run: $code" >&2; exit 1;; esac
 }
 
 run

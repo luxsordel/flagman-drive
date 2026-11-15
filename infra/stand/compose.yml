@@ -68,14 +68,9 @@ services:
     build: !reset null
     ports: !reset []
     environment:
-      EMULATOR_TELEMETRY_URL: http://api:8000/fleet/telemetry
-      EMULATOR_CAR_COUNT: ${EMULATOR_CAR_COUNT:-30}
-      EMULATOR_SEED: ${EMULATOR_SEED:-42}
-      EMULATOR_TIME_SCALE: ${EMULATOR_TIME_SCALE:-10}
+      # Only stand-specific overrides; everything else comes from infra/docker-compose.yml.
       EMULATOR_TELEMETRY_INTERVAL_S: ${EMULATOR_TELEMETRY_INTERVAL_S:-5}
       EMULATOR_SIMULATION_ENABLED: ${EMULATOR_SIMULATION_ENABLED:-true}
-      EMULATOR_COMMAND_SECRET: ${EMULATOR_COMMAND_SECRET:?set EMULATOR_COMMAND_SECRET}
-      EMULATOR_TELEMETRY_SECRET: ${EMULATOR_TELEMETRY_SECRET:?set EMULATOR_TELEMETRY_SECRET}
     logging: *logging
 
   # Caddy with the admin panel and the web app baked in (infra/stand/web/Dockerfile).

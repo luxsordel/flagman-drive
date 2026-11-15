@@ -111,7 +111,7 @@ app.{$STAND_DOMAIN} {
 	import common
 	root * /srv/app
 	# The client and API share this origin, so browser auth requests are first-party.
-	@api path /auth/* /me/* /map/* /kyc/* /rentals/* /payment-cards/* /support/* /fleet/*
+	@api path /auth/* /me/* /map/* /kyc/* /rentals/* /payment-cards/* /support/*
 	handle @api {
 		import api
 	}
