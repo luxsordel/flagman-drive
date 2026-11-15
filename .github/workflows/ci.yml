@@ -255,7 +255,7 @@ jobs:
           S3_ACCESS_KEY=x S3_SECRET_KEY=x EMULATOR_COMMAND_SECRET=x EMULATOR_TELEMETRY_SECRET=x \
             docker compose --env-file infra/stand/stand.env.example \
             -f infra/docker-compose.yml -f infra/stand/compose.yml config --format json \
-            | jq -e '[.services | to_entries[] | select((.value.ports // []) | length > 0) | .key] == ["caddy"]'
+            | jq -e '[.services | to_entries[] | select((.value.ports // []) | length > 0) | .key] == ["web"]'
 
   semgrep:
     name: Semgrep (SAST)
