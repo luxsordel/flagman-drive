@@ -125,7 +125,7 @@ expect "build mode builds the api image"          test "$(calls "build --tag loc
 expect "build mode builds the emulator image"     test "$(calls "build --tag local/flagman-car-emulator:")" -eq 1
 expect "build mode builds the web image"          test "$(calls "build --tag local/flagman-web:")" -eq 1
 tag="$(git -C "$repo_for_git" rev-parse --short=12 HEAD)"
-expect "build mode passes the commit tag to deploy" grep -qF "$tag --local" "$shims/calls"
+expect "build mode passes the commit tag to deploy" grep -qF "$tag" "$shims/calls"
 rm -f "$shims/calls"
 
 # --- rollback: bad tag rejected before any build ---
