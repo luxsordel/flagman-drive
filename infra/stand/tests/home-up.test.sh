@@ -100,7 +100,7 @@ expect() {
     echo "ok   $name"
   else
     echo "FAIL $name"
-    echo "$out" | sed 's/^/     /'
+    printf '     %s\n' "$out"
     failed=1
   fi
 }
