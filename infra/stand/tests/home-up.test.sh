@@ -19,6 +19,7 @@ if command -v cygpath >/dev/null 2>&1; then
   repo_for_git="$(cygpath -m "$repo")"
 fi
 cp -r "$bin/." "$repo/infra/stand/bin/"
+chmod +x "$repo"/infra/stand/bin/*.sh
 # Compose files must exist so deploy.sh can reference them.
 touch "$repo/infra/docker-compose.yml" "$repo/infra/stand/compose.yml"
 
