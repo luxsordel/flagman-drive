@@ -108,7 +108,7 @@ expect() {
     failed=1
   fi
 }
-calls() { grep -cF -- "$1" "$shims/calls" 2>/dev/null || echo 0; }
+calls() { local n; n=$(grep -cF -- "$1" "$shims/calls" 2>/dev/null); echo "${n:-0}"; }
 
 # --- dirty checkout stops the script ---
 echo "dirty-file" >"$repo/untracked.txt"
