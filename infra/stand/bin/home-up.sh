@@ -9,6 +9,7 @@ repo_host_root="$repo_root"
 if command -v cygpath >/dev/null 2>&1; then
   repo_host_root="$(cygpath -m "$repo_root")"
 fi
+repo_git_root="$repo_host_root"
 stand_root="${STAND_ROOT:-$HOME/flagman-stand}"
 domain="${1:?usage: home-up.sh <domain> [--rollback <tag>]}"
 mode="build"
@@ -33,7 +34,7 @@ esac
 # The tag identifies the commit, so a dirty tree would make the deployed image
 # different from the version that the tag appears to describe. A rollback also
 # uses the checkout's Compose files and must not use an ambiguous configuration.
-if [[ -n "$(git -C "$repo_root" status --porcelain --untracked-files=all)" ]]; then
+if [[ -n "$(git -C "$repo_git_root" status --porcelain --untracked-files=all)" ]]; then
   echo "error: the checkout is dirty; commit or stash changes before using the stand" >&2
   exit 1
 fi
@@ -43,7 +44,7 @@ export STAND_REPO_ROOT="$repo_host_root"
 "$repo_root/infra/stand/bin/init-env.sh" "$domain"
 
 if [[ "$mode" == build ]]; then
-  tag="$(git -C "$repo_root" rev-parse --short=12 HEAD)"
+  tag="$(git -C "$repo_git_root" rev-parse --short=12 HEAD)"
   [[ "$tag" =~ ^[0-9a-f]{12}$ ]] || {
     echo "error: cannot derive a 12-character commit tag" >&2
     exit 1

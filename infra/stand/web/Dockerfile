@@ -23,7 +23,7 @@ COPY apps/mobile apps/mobile
 
 # The stand's edge uses the same origin for the app API. The build does not need STAND_DOMAIN.
 RUN npm run build --workspace @flagman/admin
-RUN npm run build:web --workspace @flagman/mobile
+RUN EXPO_PUBLIC_API_SAME_ORIGIN=true npm run build:web --workspace @flagman/mobile
 
 
 FROM caddy:2.10.2-alpine

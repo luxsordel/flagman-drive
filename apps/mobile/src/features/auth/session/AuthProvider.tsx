@@ -23,9 +23,29 @@ export function appApiUrl(): string {
   const configured = process.env.EXPO_PUBLIC_API_URL;
   // A configured URL is useful for local web development and native builds.
   if (configured?.trim()) return resolveApiUrl(configured);
-  // The deployed web stand serves API paths on the same origin through Caddy.
-  if (Platform.OS === 'web' && typeof window !== 'undefined') return webApiUrl(window.location);
+  // The deployed stand web bundle opts in explicitly; a plain `npm run web` must not fall through to same-origin.
+  if (
+    process.env.EXPO_PUBLIC_API_SAME_ORIGIN === 'true' &&
+    Platform.OS === 'web' &&
+    typeof window !== 'undefined'
+  )
+    return webApiUrl(window.location);
   return resolveApiUrl(configured);
+}
+
+/**
+ * Pure helper for tests: resolves the API URL from explicit arguments, matching the logic of appApiUrl().
+ * @internal
+ */
+export function resolveAppApiUrl(
+  configuredUrl: string | undefined,
+  sameOrigin: boolean,
+  platform: string,
+  windowOrigin?: string,
+): string {
+  if (configuredUrl?.trim()) return resolveApiUrl(configuredUrl);
+  if (sameOrigin && platform === 'web' && windowOrigin != null) return windowOrigin;
+  return resolveApiUrl(configuredUrl);
 }
 
 export function createAppAuthSession(): AuthSession {

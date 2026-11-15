@@ -19,6 +19,8 @@ if command -v cygpath >/dev/null 2>&1; then
   repo_for_git="$(cygpath -m "$repo")"
 fi
 cp -r "$bin/." "$repo/infra/stand/bin/"
+# chmod +x is needed for the test runner (cp does not preserve the executable bit on Windows/MSYS).
+# The committed mode 100755 matters on Linux/WSL (direct ./home-up.sh), which the CI and docs/08 target.
 chmod +x "$repo"/infra/stand/bin/*.sh
 # Compose files must exist so deploy.sh can reference them.
 touch "$repo/infra/docker-compose.yml" "$repo/infra/stand/compose.yml"
@@ -71,13 +73,14 @@ MAP_ORIGINS=https://tiles.openfreemap.org
 EOF
 
 # Fake docker: records every call, returns success; docker build outputs a fake image ID.
+# cat </dev/null drains stdin so printf ... | docker run does not get SIGPIPE.
 cat >"$shims/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >>"$(dirname "$0")/calls"
 args=" $* "
 case "$args" in
   *" build "*) echo "sha256:aaaa" ;;
-  *" run "*) ;;
+  *" run "*) cat >/dev/null ;;
   *" compose "*) ;;
   *) ;;
 esac
@@ -95,7 +98,7 @@ code=0
 run_home_up() {
   code=0
   out=$(STAND_ROOT="$stand_root" PATH="$shims:$PATH" \
-    bash "$repo/infra/stand/bin/home-up.sh" "$@" 2>&1) || code=$?
+    "$repo/infra/stand/bin/home-up.sh" "$@" 2>&1) || code=$?
 }
 
 expect() {
