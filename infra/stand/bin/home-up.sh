@@ -11,6 +11,9 @@ if command -v cygpath >/dev/null 2>&1; then
 fi
 repo_git_root="$repo_host_root"
 stand_root="${STAND_ROOT:-$HOME/flagman-stand}"
+if command -v cygpath >/dev/null 2>&1; then
+  stand_root="$(cygpath -m "$stand_root")"
+fi
 domain="${1:?usage: home-up.sh <domain> [--rollback <tag>]}"
 mode="build"
 rollback_tag=""
