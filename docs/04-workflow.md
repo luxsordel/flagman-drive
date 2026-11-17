@@ -44,7 +44,7 @@ Workflow `.github/workflows/ci.yml` запускается на каждый PR 
 | Часть | Проверки |
 |---|---|
 | `apps/api`, `services/car-emulator`, `tests/load` | `ruff check`, `ruff format --check`, `mypy`, `lint-imports` (только api), `pytest` (Postgres/Redis через testcontainers), `pip-audit` |
-| npm workspaces: `apps/mobile`, `apps/admin`, `packages/*` | из корня: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `check:deps` (падает при расхождении с SDK по минорной версии, патчи — предупреждение, ADR-0008) и `check:bundle` (мобилка), `npm run audit` |
+| npm workspaces: `apps/mobile`, `apps/admin`, `packages/*` | из корня: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `check:deps` (падает при расхождении с SDK по major.minor и на нечитаемом отчёте, патчи — предупреждение, ADR-0008) и `check:bundle` (мобилка), `npm run audit` |
 | `packages/api-client` | сгенерированный клиент актуален: `npm run gen:api` не меняет файлы |
 | `apps/api`, `services/car-emulator`, `infra/docker-compose.yml`, `tests/load` | дымовой нагрузочный прогон `load-smoke`: все сценарии на настоящем стеке ([docs/09-load-test.md](09-load-test.md)) |
 | весь репозиторий | Semgrep (SAST), gitleaks и проверка заголовка PR (`repo-checks.yml`) |
