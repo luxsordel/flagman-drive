@@ -1,12 +1,17 @@
 #!/usr/bin/env bash
 # Deploys the stand to the images tagged <tag>, or rolls it back to an earlier tag the same way.
 #   infra/stand/bin/deploy.sh <tag>
-# Run by .github/workflows/stand.yml over SSH after it has logged in to GHCR (docs/adr/0021).
+# Local mode is used by home-up.sh: images were built in this checkout and must not be pulled.
 set -euo pipefail
 # shellcheck source=infra/stand/bin/common.sh
 source "$(dirname "$0")/common.sh"
 
-new_tag="${1:?usage: deploy.sh <tag>}"
+new_tag="${1:?usage: deploy.sh <tag> [--local]}"
+local_mode="${2:-}"
+if [[ "$local_mode" != "" && "$local_mode" != "--local" ]]; then
+  echo "error: expected --local as the second argument" >&2
+  exit 1
+fi
 old_tag="$(last_deployed_tag)"
 registry="$(stand_env STAND_REGISTRY)"
 api_image="$registry/flagman-api"
@@ -23,9 +28,13 @@ revision_ids() {
 }
 
 # Images of the stand whose tags are not among the last keep_tags deploys. One still in use by a
-# container is refused by docker and stays.
+# container is refused by docker and stays. Local images are retained: the home stand must be able
+# to roll back to any tag recorded in its deployment log.
 remove_old_images() {
   local kept image
+  if [[ "$local_mode" == "--local" ]]; then
+    return 0
+  fi
   kept="$(tail -n "$keep_tags" "$STAND_TAGS_LOG" | cut -d ' ' -f 2)"
   docker image ls --format '{{.Repository}}:{{.Tag}}' | { grep "^$registry/flagman-" || true; } \
     | while read -r image; do
@@ -37,7 +46,11 @@ remove_old_images() {
 }
 
 echo "deploy: $old_tag -> $new_tag"
-STAND_TAG="$new_tag" stand_compose pull --quiet
+if [[ "$local_mode" == "--local" ]]; then
+  echo "deploy: using locally built images"
+else
+  STAND_TAG="$new_tag" stand_compose pull --quiet
+fi
 # Before anything changes: a broken stand.env must stop the deploy while the old version runs.
 "$(dirname "$0")/seed.sh" "$new_tag" --check
 

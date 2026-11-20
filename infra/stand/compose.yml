@@ -67,6 +67,10 @@ services:
     image: ${STAND_REGISTRY}/flagman-car-emulator:${STAND_TAG}
     build: !reset null
     ports: !reset []
+    environment:
+      # Only stand-specific overrides; everything else comes from infra/docker-compose.yml.
+      EMULATOR_TELEMETRY_INTERVAL_S: ${EMULATOR_TELEMETRY_INTERVAL_S:-5}
+      EMULATOR_SIMULATION_ENABLED: ${EMULATOR_SIMULATION_ENABLED:-true}
     logging: *logging
 
   # Caddy with the admin panel and the web app baked in (infra/stand/web/Dockerfile).
