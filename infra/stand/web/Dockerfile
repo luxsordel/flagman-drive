@@ -28,7 +28,7 @@ RUN npm run build --workspace @flagman/admin
 RUN EXPO_PUBLIC_API_URL="https://api.${STAND_DOMAIN}" npm run build:web --workspace @flagman/mobile
 
 
-FROM caddy:2.10.2-alpine
+FROM caddy:2.11.9-alpine
 
 # The image's binary carries the bind capability as a file attribute; with every capability dropped
 # (infra/stand/compose.yml) such a binary does not start at all. A plain copy has no attribute.
