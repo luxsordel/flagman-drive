@@ -25,9 +25,12 @@ describe('command errors', () => {
     // A proxy that stopped waiting: the command may still have reached the car.
     [new ApiError(504), 'timeout'],
     [new ApiError(500), 'failed'],
-    [new NetworkError(new TypeError('offline')), 'failed'],
   ])('maps %o to %s', (error, key) => {
     expect(commandError(error)).toEqual({ key });
+  });
+
+  it('maps a network failure to failed', () => {
+    expect(commandError(new NetworkError(new TypeError('offline')))).toEqual({ key: 'failed' });
   });
 
   it('says how long to wait after too many commands', () => {

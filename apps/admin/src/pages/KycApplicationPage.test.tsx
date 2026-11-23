@@ -281,7 +281,6 @@ describe('KYC application page', () => {
     [new ApiError(422, 'license-issue-date-invalid'), ru.kyc.errors.licenseDateInvalid],
     [new ApiError(422, 'validation-error'), ru.kyc.errors.invalid],
     [new ApiError(403, 'forbidden'), ru.kyc.errors.forbidden],
-    [new NetworkError(new TypeError('offline')), ru.kyc.errors.failed],
   ])('explains a refused approval: %s', async (error, message) => {
     const user = userEvent.setup();
     const { kycReview } = openApplication();
@@ -294,6 +293,25 @@ describe('KYC application page', () => {
     await user.click(within(approveForm()).getByRole('button', { name: ru.kyc.approve.submit }));
 
     expect((await within(approveForm()).findByRole('alert')).textContent).toBe(message);
+    expect(
+      within(approveForm()).getByRole('button', { name: ru.kyc.approve.submit }),
+    ).toHaveProperty('disabled', false);
+  });
+
+  it('explains a network failure of an approval', async () => {
+    const user = userEvent.setup();
+    const { kycReview } = openApplication();
+    kycReview.approve.mockRejectedValueOnce(new NetworkError(new TypeError('offline')));
+    await screen.findByRole('heading', { level: 1 });
+
+    fireEvent.change(within(approveForm()).getByLabelText(ru.kyc.approve.licenseIssuedOn), {
+      target: { value: '2015-06-01' },
+    });
+    await user.click(within(approveForm()).getByRole('button', { name: ru.kyc.approve.submit }));
+
+    expect((await within(approveForm()).findByRole('alert')).textContent).toBe(
+      ru.kyc.errors.failed,
+    );
     expect(
       within(approveForm()).getByRole('button', { name: ru.kyc.approve.submit }),
     ).toHaveProperty('disabled', false);
@@ -318,7 +336,6 @@ describe('KYC application page', () => {
   it.each([
     [new ApiError(422, 'validation-error'), ru.kyc.errors.invalid],
     [new ApiError(403, 'forbidden'), ru.kyc.errors.forbidden],
-    [new NetworkError(new TypeError('offline')), ru.kyc.errors.failed],
   ])('explains a refused rejection: %s', async (error, message) => {
     const user = userEvent.setup();
     const { kycReview } = openApplication();
@@ -329,6 +346,22 @@ describe('KYC application page', () => {
     await user.click(within(rejectForm()).getByRole('button', { name: ru.kyc.reject.submit }));
 
     expect((await within(rejectForm()).findByRole('alert')).textContent).toBe(message);
+    expect(within(rejectForm()).getByRole('button', { name: ru.kyc.reject.submit })).toHaveProperty(
+      'disabled',
+      false,
+    );
+  });
+
+  it('explains a network failure of a rejection', async () => {
+    const user = userEvent.setup();
+    const { kycReview } = openApplication();
+    kycReview.reject.mockRejectedValueOnce(new NetworkError(new TypeError('offline')));
+    await screen.findByRole('heading', { level: 1 });
+
+    await user.type(within(rejectForm()).getByLabelText(ru.kyc.reject.reason), 'Blurry');
+    await user.click(within(rejectForm()).getByRole('button', { name: ru.kyc.reject.submit }));
+
+    expect((await within(rejectForm()).findByRole('alert')).textContent).toBe(ru.kyc.errors.failed);
     expect(within(rejectForm()).getByRole('button', { name: ru.kyc.reject.submit })).toHaveProperty(
       'disabled',
       false,
