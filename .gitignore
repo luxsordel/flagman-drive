@@ -45,3 +45,4 @@ infra/data/
 
 # Load test runs (the stand's logins in tests/load/stand.env are covered by *.env above).
 tests/load/reports/
+IDEA.md

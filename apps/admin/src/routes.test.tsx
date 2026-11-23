@@ -15,6 +15,12 @@ describe('routes', () => {
     expect(screen.queryByRole('navigation')).toBeNull();
   });
 
+  it('accepts the public sign-in alias', async () => {
+    renderAt('/sign-in', null);
+
+    expect(await screen.findByRole('heading', { name: ru.login.title })).toBeDefined();
+    expect(screen.queryByRole('navigation')).toBeNull();
+  });
   it('does not return to the page the staff member left by signing out', async () => {
     const user = userEvent.setup();
     const { api } = renderAt('/fleet', testStaff());

@@ -9,6 +9,7 @@ import { SectionPage } from './pages/SectionPage';
 
 export const routes: RouteObject[] = [
   { path: '/login', element: <LoginPage /> },
+  { path: '/sign-in', element: <LoginPage /> },
   {
     path: '/',
     element: (
