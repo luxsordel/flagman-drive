@@ -75,6 +75,10 @@
 ### Транспорт и заголовки
 - Только HTTPS (HSTS). CORS — явный список доменов. Заголовки безопасности: CSP для админки,
   `X-Content-Type-Options`, `Referrer-Policy`, `frame-ancestors 'none'`.
+- Кэш: ответы API по умолчанию идут с `Cache-Control: no-store` (общий middleware, маршрут может
+  поставить своё значение). На стенде Caddy отдаёт `index.html` и файлы в корне SPA с `no-cache`,
+  хешированную статику (`/assets/*`, `/_expo/*`) — с `public, max-age=31536000, immutable`, свои ошибки —
+  с `no-store`. Проверки: `tests/test_middleware.py`, матрица доступа, `scripts/check-caddy.mjs`.
 - Rate limiting на чувствительных эндпоинтах: вход, OTP, команды машине, платежи, сообщения в
   поддержку, загрузка фото и сообщения об инцидентах.
 - Вебхуки телематики и платёжки — подпись HMAC + метка времени (защита от повтора).
