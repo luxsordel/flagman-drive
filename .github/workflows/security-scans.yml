@@ -1,0 +1,75 @@
+name: security-scans
+
+# Dependency audits and SAST in one place, so the weekly run (scheduled-scans.yml) checks exactly what
+# a pull request checks (ci.yml), with the same commands and tool versions.
+on:
+  workflow_call:
+    inputs:
+      # The same list as the loop of the `changes` job in ci.yml, which only narrows it down for a PR.
+      python-dirs:
+        description: JSON list of Python projects to audit; an empty list skips the audit.
+        type: string
+        default: '["apps/api", "services/car-emulator", "tests/load"]'
+      node:
+        description: Audit the npm workspaces.
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  python-audit:
+    name: Python dependency audit (${{ matrix.dir }})
+    if: inputs.python-dirs != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        dir: ${{ fromJSON(inputs.python-dirs) }}
+    defaults:
+      run:
+        working-directory: ${{ matrix.dir }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Audit locked dependencies
+        run: |
+          uv export --frozen --no-emit-project -o "$RUNNER_TEMP/requirements.txt" > /dev/null
+          uvx pip-audit==2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
+
+  npm-audit:
+    name: npm dependency audit (high and above)
+    if: inputs.node
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+      # npm audit reads the tree from package-lock.json, so there is no `npm ci`. Same threshold as
+      # `npm audit --audit-level=high`, minus advisories with no fix yet that are listed with a reason
+      # and an expiry date in .github/npm-audit-allowlist.json.
+      - run: npm run audit
+
+  semgrep:
+    name: Semgrep (SAST)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Run Semgrep
+        run: |
+          uvx semgrep==1.182.1 scan --error --metrics=off \
+            --config p/default --config p/python --config p/typescript --config p/security-audit
+      - name: Run Semgrep on the load test
+        # Semgrep skips every tests/ folder of a git repository, wherever inside it the scan starts,
+        # and reports success for 0 files. So these sources are scanned from outside the repository.
+        run: |
+          cp -r tests/load/src "$RUNNER_TEMP/load-test"
+          cd "$RUNNER_TEMP/load-test"
+          uvx semgrep==1.182.1 scan --error --metrics=off \
+            --config p/default --config p/python --config p/security-audit
