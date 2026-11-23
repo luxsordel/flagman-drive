@@ -3,7 +3,7 @@
 # Built from the repository root, where the npm workspaces are:
 #   docker build -f infra/stand/web/Dockerfile --build-arg STAND_DOMAIN=example.com .
 
-FROM node:22.23.3-bookworm-slim AS build
+FROM node:22.23.4-bookworm-slim AS build
 
 WORKDIR /src
 
@@ -28,7 +28,7 @@ RUN npm run build --workspace @flagman/admin
 RUN EXPO_PUBLIC_API_URL="https://api.${STAND_DOMAIN}" npm run build:web --workspace @flagman/mobile
 
 
-FROM caddy:2.10.2-alpine
+FROM caddy:2.11.9-alpine
 
 # The image's binary carries the bind capability as a file attribute; with every capability dropped
 # (infra/stand/compose.yml) such a binary does not start at all. A plain copy has no attribute.
