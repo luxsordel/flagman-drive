@@ -15,6 +15,7 @@ shims="$tmp/shims"
 mkdir -p "$root/infra/stand" "$shims"
 cp -r "$bin" "$root/infra/stand/bin"
 cat >"$root/stand.env" <<'EOF'
+STAND_DOMAIN=stand.example
 STAND_REGISTRY=ghcr.io/flagman
 STAND_OPERATOR_EMAIL=operator@stand.test
 STAND_OPERATOR_PASSWORD=correct horse battery staple
@@ -41,6 +42,12 @@ case "$args" in
       heads) echo "$(tail -n 1 "$revs") (head)" ;;
     esac ;;
   " image ls "*) cat "$d/images" ;;
+  *" printenv API_CORS_ORIGINS"*)
+    printf '%s\n' "${STAND_DOMAIN-unset}" >"$d/seen-stand-domain"
+    # An unset API_CORS_ORIGINS: printenv exits 1 and prints nothing.
+    [[ -f "$d/cors-missing" ]] && exit 1
+    cat "$d/cors-origins"
+    exit 0 ;;
   *) exit 0 ;;
 esac
 EOF
@@ -52,7 +59,9 @@ out=""
 
 # scenario <db revision> <deployed tags...>: a fresh fake with the stand at that state.
 scenario() {
-  rm -f "$shims/calls" "$shims/bad-env" "$shims"/current-fails-* "$root/deployed-tags.log"
+  rm -f "$shims/calls" "$shims/bad-env" "$shims/seen-stand-domain" \
+    "$shims/cors-missing" "$shims"/current-fails-* "$root/deployed-tags.log"
+  printf '%s\n' "https://app.stand.example,https://admin.stand.example" >"$shims/cors-origins"
   echo "$1" >"$shims/db-revision"
   shift
   : >"$shims/images"
@@ -168,5 +177,31 @@ expect "images of an older deploy go" test "$(calls "image rm ghcr.io/flagman/fl
 expect "the API image of the older deploy goes" test "$(calls "image rm ghcr.io/flagman/flagman-api:t1")" -eq 1
 expect "the web image of the older deploy goes" test "$(calls "image rm ghcr.io/flagman/flagman-web:t1")" -eq 1
 expect "images of other projects stay" test "$(calls "image rm postgis")" -eq 0
+
+scenario ""
+STAND_DOMAIN=example.test deploy new
+expect "a shell STAND_DOMAIN does not reach compose" test "$(cat "$shims/seen-stand-domain")" = unset
+expect "a shell STAND_DOMAIN still deploys" test "$code" -eq 0
+
+scenario "" old
+printf '%s\n' "https://app.example.test,https://admin.example.test" >"$shims/cors-origins"
+deploy new
+expect "wrong fleet origins stop the deploy" test "$code" -ne 0
+expect "wrong fleet origins are not logged as a deploy" test "$(last_tag)" = old
+expect "wrong fleet origins name the stand domain" grep -qF "https://admin.stand.example" <<<"$out"
+
+scenario "" old
+printf '%s\n' " https://app.stand.example , https://admin.stand.example " >"$shims/cors-origins"
+deploy new
+expect "spaces around fleet origins still deploy" test "$code" -eq 0
+expect "spaces around fleet origins are logged" test "$(last_tag)" = new
+
+scenario "" old
+touch "$shims/cors-missing"
+deploy new
+expect "missing fleet origins stop the deploy" test "$code" -ne 0
+expect "missing fleet origins are not logged as a deploy" test "$(last_tag)" = old
+expect "missing fleet origins name the stand domain" grep -qF "https://admin.stand.example" <<<"$out"
+expect "missing fleet origins say the list is empty" grep -qF "<empty>" <<<"$out"
 
 exit "$failed"

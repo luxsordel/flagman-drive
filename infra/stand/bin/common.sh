@@ -23,7 +23,13 @@ stand_env() {
 
 # compose for the images of STAND_TAG (set by the caller).
 stand_compose() {
-  STAND_TAG="${STAND_TAG:?STAND_TAG is not set}" docker compose \
+  # Compose prefers a variable of the shell over --env-file. Callers set STAND_TAG
+  # on purpose, and home-up.sh also exports STAND_REGISTRY=local. STAND_DOMAIN is
+  # the exception: a leftover value in the shell would bake the wrong
+  # API_CORS_ORIGINS, and the fleet page would refuse every socket (#216).
+  env -u STAND_DOMAIN \
+    STAND_TAG="${STAND_TAG:?STAND_TAG is not set}" \
+    docker compose \
     --env-file "$STAND_ENV" \
     -f "$STAND_REPO_ROOT/infra/docker-compose.yml" \
     -f "$STAND_REPO_ROOT/infra/stand/compose.yml" \

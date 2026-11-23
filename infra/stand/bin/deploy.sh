@@ -93,6 +93,34 @@ for _ in $(seq 1 60); do
   if STAND_TAG="$new_tag" stand_compose exec -T api python -c \
     "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=2)" \
     >/dev/null 2>&1; then
+    # The fleet stream allows only API_CORS_ORIGINS. Compose fills that list from
+    # STAND_DOMAIN when the API container is created; a restart keeps the previous
+    # domain, and every socket then closes with 1008 (#216).
+    expected_origin="https://admin.$(stand_env STAND_DOMAIN)"
+    # printenv exits 1 when the variable is unset and prints nothing. The message
+    # below is what the operator needs, so a missing list is an empty string.
+    origins="$(STAND_TAG="$new_tag" stand_compose exec -T api printenv API_CORS_ORIGINS || true)"
+    # Settings strips each origin (core/config.py). A space after a comma is valid
+    # for the API and must not fail the deploy.
+    normalized=","
+    IFS=',' read -ra origin_parts <<< "$origins"
+    for origin in "${origin_parts[@]}"; do
+      trimmed="${origin#"${origin%%[![:space:]]*}"}"
+      trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+      if [[ -n "$trimmed" ]]; then
+        normalized="${normalized}${trimmed},"
+      fi
+    done
+    case "$normalized" in
+      *",${expected_origin},"*) ;;
+      *)
+        echo "error: API_CORS_ORIGINS does not include ${expected_origin}." >&2
+        echo "error: the API container still has: ${origins:-<empty>}" >&2
+        echo "error: recreate it so compose fills the list from stand.env:" >&2
+        echo "error: STAND_TAG=${new_tag} stand_compose up -d --force-recreate --no-deps api" >&2
+        exit 1
+        ;;
+    esac
     printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$new_tag" >>"$STAND_TAGS_LOG"
     remove_old_images
     if [[ -n "$old_tag" && "$old_tag" != "$new_tag" ]]; then
