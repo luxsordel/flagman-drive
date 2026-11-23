@@ -5,9 +5,14 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, Response
+from starlette.routing import Route
 
 from conftest import SettingsFactory
 from flagman.core.app import create_app
+from flagman.core.middleware import SecurityHeadersMiddleware
 
 ADMIN_ORIGIN = "http://localhost:5173"
 
@@ -45,6 +50,25 @@ def test_security_headers_are_set(client: TestClient) -> None:
     assert headers["x-frame-options"] == "DENY"
     assert headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
     assert "strict-transport-security" not in headers
+    assert headers["cache-control"] == "no-store"
+
+
+def test_a_route_with_its_own_cache_control_keeps_it() -> None:
+    async def endpoint(_: Request) -> Response:
+        return PlainTextResponse("ok", headers={"Cache-Control": "public, max-age=60"})
+
+    app = SecurityHeadersMiddleware(Starlette(routes=[Route("/", endpoint)]), hsts=False)
+
+    response = TestClient(app).get("/")
+
+    assert response.headers["cache-control"] == "public, max-age=60"
+
+
+def test_an_error_answer_is_not_cached_either(client: TestClient) -> None:
+    response = client.get("/no-such-route")
+
+    assert response.status_code == HTTPStatus.NOT_FOUND
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_swagger_ui_is_exempt_from_the_strict_csp(client: TestClient) -> None:

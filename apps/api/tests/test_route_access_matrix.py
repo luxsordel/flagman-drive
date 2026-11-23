@@ -531,6 +531,8 @@ def test_a_staff_route_lets_a_listed_role_through(
     response = live_client.request(method, _url(path), headers=staff_by_role[role].headers)
 
     _assert_past_the_guard(response)
+    # Staff answers carry personal data, so none may stay in a browser or proxy cache (#220).
+    assert response.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.integration
@@ -541,6 +543,7 @@ def test_a_client_route_lets_a_client_through(
     response = live_client.request(method, _url(path), headers=signed_in_client)
 
     _assert_past_the_guard(response)
+    assert response.headers["cache-control"] == "no-store"
 
 
 def _receive(socket: WebSocketTestSession, timeout: float = TIMEOUT_S) -> dict[str, Any]:
