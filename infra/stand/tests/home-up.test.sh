@@ -19,8 +19,7 @@ if command -v cygpath >/dev/null 2>&1; then
   repo_for_git="$(cygpath -m "$repo")"
 fi
 cp -r "$bin/." "$repo/infra/stand/bin/"
-# chmod +x is needed for the test runner (cp does not preserve the executable bit on Windows/MSYS).
-# The committed mode 100755 matters on Linux/WSL (direct ./home-up.sh), which the CI and docs/08 target.
+# cp does not preserve the executable bit on Windows/MSYS; the committed mode is checked by modes.test.sh.
 chmod +x "$repo"/infra/stand/bin/*.sh
 # Compose files must exist so deploy.sh can reference them.
 touch "$repo/infra/docker-compose.yml" "$repo/infra/stand/compose.yml"
