@@ -43,14 +43,19 @@ Workflow `.github/workflows/ci.yml` запускается на каждый PR 
 
 | Часть | Проверки |
 |---|---|
-| `apps/api`, `services/car-emulator`, `tests/load` | `ruff check`, `ruff format --check`, `mypy`, `lint-imports` (только api), `pytest` (Postgres/Redis через testcontainers), `pip-audit` |
-| npm workspaces: `apps/mobile`, `apps/admin`, `packages/*` | из корня: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `check:deps` и `check:bundle` (мобилка), `npm run audit` |
+| `apps/api`, `services/car-emulator`, `tests/load` | `ruff check`, `ruff format --check`, `mypy`, `lint-imports` (только api), `pytest` (Postgres/Redis через testcontainers); `pip-audit` — в `Scans / …` |
+| npm workspaces: `apps/mobile`, `apps/admin`, `packages/*` | из корня: `npm ci`, `npm run lint`, `npm run typecheck`, `npm test`, `check:deps` и `check:bundle` (мобилка); `npm run audit` — в `Scans / …` |
 | `packages/api-client` | сгенерированный клиент актуален: `npm run gen:api` не меняет файлы |
 | `apps/api`, `services/car-emulator`, `infra/docker-compose.yml`, `tests/load` | дымовой нагрузочный прогон `load-smoke`: все сценарии на настоящем стеке ([docs/09-load-test.md](09-load-test.md)) |
-| весь репозиторий | Semgrep (SAST), gitleaks и проверка заголовка PR (`repo-checks.yml`) |
+| весь репозиторий | Semgrep (SAST, `security-scans.yml`), gitleaks и проверка заголовка PR (`repo-checks.yml`) |
 
 - Проверяются только изменённые части; части, которых ещё нет в репозитории, пропускаются.
-  Правка самого `ci.yml` запускает все проверки.
+  Правка самого `ci.yml` или `security-scans.yml` запускает все проверки. Правка `infra/docker-compose.yml`
+  или `infra/stand/compose.yml` запускает проверки `apps/api`: его тесты стартуют образы первого файла и сверяют
+  с ним образ `backup` второго.
+- `pip-audit`, `npm run audit` и Semgrep вынесены в `security-scans.yml`, в списке проверок PR они называются
+  `Scans / …`. Тот же workflow раз в неделю гоняет `scheduled-scans.yml` по всему `main` и сообщает о падении в issue
+  с меткой `security` ([docs/03-security.md](03-security.md), «Зависимости и CI»).
 - В `package.json` каждой JS-части обязательны скрипты `lint`, `typecheck`, `test`.
 - Обязательный для `main` статус — `CI gate`: он есть всегда и зелёный, если все запущенные проверки прошли.
   Список обязательных проверок задаётся в `scripts/setup-github.ps1`.
