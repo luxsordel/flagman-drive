@@ -181,10 +181,12 @@ describe('staff sign-in', () => {
     );
   });
 
+  // `as const` keeps each row's own class. A widened ApiError | NetworkError
+  // is rejected by @typescript-eslint/no-unsafe-class-instance-assignment.
   it.each([
     ['the network', new NetworkError(new TypeError('Failed to fetch'))],
     ['a proxy in front of a stopped API', new ApiError(502)],
-  ])('tells an unreachable server apart from a refusal: %s', async (_, failure) => {
+  ] as const)('tells an unreachable server apart from a refusal: %s', async (_, failure) => {
     const staffSignIn = fakeStaffSignInApi();
     staffSignIn.checkPassword.mockRejectedValue(failure);
     const { user } = await openSignIn('/login', staffSignIn);

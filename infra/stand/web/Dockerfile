@@ -3,7 +3,7 @@
 # Built from the repository root, where the npm workspaces are:
 #   docker build -f infra/stand/web/Dockerfile --build-arg STAND_DOMAIN=example.com .
 
-FROM node:22.23.4-bookworm-slim AS build
+FROM node:22.23.5-bookworm-slim AS build
 
 WORKDIR /src
 
@@ -21,11 +21,9 @@ COPY packages packages
 COPY apps/admin apps/admin
 COPY apps/mobile apps/mobile
 
-# The web app calls the API cross-origin, so its address is part of the bundle. Public, not a secret.
-ARG STAND_DOMAIN
-RUN test -n "$STAND_DOMAIN" || { echo "STAND_DOMAIN build arg is required" >&2; exit 1; }
+# The stand's edge uses the same origin for the app API. The build does not need STAND_DOMAIN.
 RUN npm run build --workspace @flagman/admin
-RUN EXPO_PUBLIC_API_URL="https://api.${STAND_DOMAIN}" npm run build:web --workspace @flagman/mobile
+RUN EXPO_PUBLIC_API_SAME_ORIGIN=true npm run build:web --workspace @flagman/mobile
 
 
 FROM caddy:2.11.9-alpine

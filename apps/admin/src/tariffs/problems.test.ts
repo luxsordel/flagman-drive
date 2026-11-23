@@ -13,8 +13,11 @@ describe('tariff errors', () => {
     [new ApiError(403, 'forbidden'), 'forbidden'],
     [new ApiError(401, 'access-token-invalid'), 'signOut'],
     [new ApiError(500), 'failed'],
-    [new NetworkError(new TypeError('offline')), 'failed'],
   ])('maps %o to %s', (error, outcome) => {
     expect(tariffError(error)).toBe(outcome);
+  });
+
+  it('maps a network failure to failed', () => {
+    expect(tariffError(new NetworkError(new TypeError('offline')))).toBe('failed');
   });
 });
