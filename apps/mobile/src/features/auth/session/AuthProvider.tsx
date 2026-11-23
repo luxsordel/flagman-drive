@@ -20,30 +20,24 @@ export function resolveApiUrl(configured: string | undefined): string {
 
 /** API origin of this build. */
 export function appApiUrl(): string {
-  const configured = process.env.EXPO_PUBLIC_API_URL;
-  // A configured URL is useful for local web development and native builds.
-  if (configured?.trim()) return resolveApiUrl(configured);
-  // The deployed stand web bundle opts in explicitly; a plain `npm run web` must not fall through to same-origin.
-  if (
-    process.env.EXPO_PUBLIC_API_SAME_ORIGIN === 'true' &&
-    Platform.OS === 'web' &&
-    typeof window !== 'undefined'
-  )
-    return webApiUrl(window.location);
-  return resolveApiUrl(configured);
+  // Expo inlines EXPO_PUBLIC_* only for direct `process.env.NAME` reads, so they are read here, not in the helper.
+  return resolveAppApiUrl(
+    process.env.EXPO_PUBLIC_API_URL,
+    process.env.EXPO_PUBLIC_API_SAME_ORIGIN === 'true',
+    Platform.OS,
+    typeof window !== 'undefined' ? webApiUrl(window.location) : undefined,
+  );
 }
 
-/**
- * Pure helper for tests: resolves the API URL from explicit arguments, matching the logic of appApiUrl().
- * @internal
- */
 export function resolveAppApiUrl(
   configuredUrl: string | undefined,
   sameOrigin: boolean,
   platform: string,
   windowOrigin?: string,
 ): string {
+  // A configured URL is useful for local web development and native builds.
   if (configuredUrl?.trim()) return resolveApiUrl(configuredUrl);
+  // The deployed stand web bundle opts in explicitly; a plain `npm run web` must not fall through to same-origin.
   if (sameOrigin && platform === 'web' && windowOrigin != null) return windowOrigin;
   return resolveApiUrl(configuredUrl);
 }
