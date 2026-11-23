@@ -80,6 +80,9 @@ args=" $* "
 case "$args" in
   *" build "*) echo "sha256:aaaa" ;;
   *" run "*) cat >/dev/null ;;
+  *" printenv API_CORS_ORIGINS"*)
+    # deploy.sh refuses a container whose list misses https://admin.$STAND_DOMAIN.
+    echo "https://app.example.test,https://admin.example.test" ;;
   *" compose "*) ;;
   *) ;;
 esac
