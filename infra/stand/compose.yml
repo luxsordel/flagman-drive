@@ -1,7 +1,10 @@
 # The public demo stand (#123, docs/08-demo-stand.md, docs/adr/0021): layered over the local stack,
 # so a new service or setting in infra/docker-compose.yml reaches the stand without a second copy.
-# On the server, from the checkout of infra/ in /opt/flagman:
-#   docker compose --env-file stand.env -f infra/docker-compose.yml -f infra/stand/compose.yml up -d
+# On the server, from /opt/flagman, prefer deploy.sh. A one-off compose goes through
+# stand_compose, which drops a shell STAND_DOMAIN: that variable would override
+# stand.env and bake the wrong API_CORS_ORIGINS (#216).
+#   source infra/stand/bin/common.sh
+#   STAND_TAG="$(tail -n 1 deployed-tags.log | cut -d ' ' -f 2)" stand_compose up -d
 # bin/deploy.sh does exactly that; run it rather than compose by hand.
 #
 # Only Caddy publishes ports. Everything else is reachable on the internal network alone.
@@ -67,6 +70,10 @@ services:
     image: ${STAND_REGISTRY}/flagman-car-emulator:${STAND_TAG}
     build: !reset null
     ports: !reset []
+    environment:
+      # Only stand-specific overrides; everything else comes from infra/docker-compose.yml.
+      EMULATOR_TELEMETRY_INTERVAL_S: ${EMULATOR_TELEMETRY_INTERVAL_S:-5}
+      EMULATOR_SIMULATION_ENABLED: ${EMULATOR_SIMULATION_ENABLED:-true}
     logging: *logging
 
   # Caddy with the admin panel and the web app baked in (infra/stand/web/Dockerfile).

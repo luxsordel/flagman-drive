@@ -36,7 +36,7 @@ services:
     restart: unless-stopped
 
   redis:
-    image: redis:7.4.11-alpine
+    image: redis:7.4.12-alpine
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in .env}
     # Password comes from the environment so it does not appear in the compose file.
@@ -54,7 +54,7 @@ services:
 
   # S3-compatible object storage, see docs/adr/0005-object-storage-seaweedfs.md.
   seaweedfs:
-    image: chrislusf/seaweedfs:4.48
+    image: chrislusf/seaweedfs:4.54
     # Without these credentials SeaweedFS serves S3 anonymously, so they are mandatory.
     environment:
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
@@ -82,7 +82,7 @@ services:
 
   # One-shot job: creates the private bucket if it does not exist yet.
   seaweedfs-init:
-    image: chrislusf/seaweedfs:4.48
+    image: chrislusf/seaweedfs:4.54
     depends_on:
       seaweedfs:
         condition: service_healthy

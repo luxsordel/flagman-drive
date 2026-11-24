@@ -39,14 +39,21 @@ jobs:
             changed="__all__"
           fi
           # Editing CI itself re-checks everything.
-          if echo "$changed" | grep -Eq '^(__all__|\.github/workflows/ci\.yml)$'; then all=1; else all=0; fi
+          if echo "$changed" | grep -Eq '^(__all__|\.github/workflows/(ci|security-scans)\.yml)$'; then all=1; else all=0; fi
 
           has() { [ "$all" = 1 ] || echo "$changed" | grep -Eq "$1"; }
 
           # A part is checked only once it exists; missing apps are skipped, not failed.
           python='[]'
+          # The same list is the default of security-scans.yml, which the weekly run audits.
           for dir in apps/api services/car-emulator tests/load; do
-            if [ -f "$dir/pyproject.toml" ] && has "^$dir/"; then
+            pattern="^$dir/"
+            # The API tests start the images of the compose files (tools/compose_images.py), so a
+            # Dependabot bump of those images runs them.
+            if [ "$dir" = apps/api ]; then
+              pattern='^(apps/api/|infra/docker-compose\.yml$|infra/stand/compose\.yml$)'
+            fi
+            if [ -f "$dir/pyproject.toml" ] && has "$pattern"; then
               python=$(echo "$python" | jq -c --arg d "$dir" '. + [$d]')
             fi
           done
@@ -132,25 +139,14 @@ jobs:
         # run. Fails below fail_under in pyproject.toml.
         run: uv run pytest -q -m "not integration" --cov --cov-report=term
 
-  python-audit:
-    name: Python dependency audit (${{ matrix.dir }})
+  # Dependency audits and SAST live in their own workflow, which also runs weekly (scheduled-scans.yml).
+  scans:
+    name: Scans
     needs: changes
-    if: needs.changes.outputs.python != '[]'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        dir: ${{ fromJSON(needs.changes.outputs.python) }}
-    defaults:
-      run:
-        working-directory: ${{ matrix.dir }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      - name: Audit locked dependencies
-        run: |
-          uv export --frozen --no-emit-project -o "$RUNNER_TEMP/requirements.txt" > /dev/null
-          uvx pip-audit==2.10.1 -r "$RUNNER_TEMP/requirements.txt" --no-deps --disable-pip
+    uses: ./.github/workflows/security-scans.yml
+    with:
+      python-dirs: ${{ needs.changes.outputs.python }}
+      node: ${{ needs.changes.outputs.node == 'true' }}
 
   node-quality:
     name: Node quality (workspaces)
@@ -177,10 +173,6 @@ jobs:
         run: npm run check:deps --workspaces --if-present
       - name: Bundle for every platform
         run: npm run check:bundle --workspaces --if-present
-      # Same threshold as `npm audit --audit-level=high`, minus advisories with no fix yet that are
-      # listed with a reason and an expiry date in .github/npm-audit-allowlist.json.
-      - name: Dependency audit (high and above)
-        run: npm run audit
 
   api-client-fresh:
     name: Generated API client is up to date
@@ -235,6 +227,7 @@ jobs:
           tail -n 100 tests/load/reports/*/stack.log || true
 
   # The stand's Caddyfile in its pinned image: paths reach the logs, query strings and IPs do not.
+  # Also verifies that only Caddy is published to the host network (criterion #176).
   caddy:
     name: Stand edge config
     needs: changes
@@ -247,32 +240,23 @@ jobs:
         with:
           node-version: 22
       - run: node scripts/check-caddy.mjs
-
-  semgrep:
-    name: Semgrep (SAST)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
-      - name: Run Semgrep
+      - name: Only Caddy is published to the host
         run: |
-          uvx semgrep==1.182.1 scan --error --metrics=off \
-            --config p/default --config p/python --config p/typescript --config p/security-audit
-      - name: Run Semgrep on the load test
-        # Semgrep skips every tests/ folder of a git repository, wherever inside it the scan starts,
-        # and reports success for 0 files. So these sources are scanned from outside the repository.
-        run: |
-          cp -r tests/load/src "$RUNNER_TEMP/load-test"
-          cd "$RUNNER_TEMP/load-test"
-          uvx semgrep==1.182.1 scan --error --metrics=off \
-            --config p/default --config p/python --config p/security-audit
+          # Provide stub values for required secrets so `docker compose config` can parse the file.
+          STAND_TAG=x STAND_REGISTRY=x ACME_EMAIL=x@x.x STAND_DOMAIN=example.test \
+          POSTGRES_SUPERUSER_PASSWORD=x POSTGRES_OWNER_PASSWORD=x POSTGRES_PASSWORD=x \
+          REDIS_PASSWORD=x API_JWT_SECRET=x API_OTP_PEPPER=x API_TOTP_ENCRYPTION_KEY=x \
+          S3_ACCESS_KEY=x S3_SECRET_KEY=x EMULATOR_COMMAND_SECRET=x EMULATOR_TELEMETRY_SECRET=x \
+            docker compose --env-file infra/stand/stand.env.example \
+            -f infra/docker-compose.yml -f infra/stand/compose.yml config --format json \
+            | jq -e '[.services | to_entries[] | select((.value.ports // []) | length > 0) | .key] == ["web"]'
 
   # The only check added to branch protection (besides repo-checks): it always reports,
   # and passes when every job succeeded or was skipped by change detection.
   gate:
     name: CI gate
     if: always()
-    needs: [changes, python-quality, domain-coverage, python-audit, node-quality, api-client-fresh, load-smoke, caddy, semgrep]
+    needs: [changes, python-quality, domain-coverage, scans, node-quality, api-client-fresh, load-smoke, caddy]
     runs-on: ubuntu-latest
     steps:
       - name: Require no failed or cancelled jobs

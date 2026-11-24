@@ -2,9 +2,10 @@
 # Shared by the stand scripts: where the stand lives and how to call compose there.
 # Sourced, not run.
 
-# /opt/flagman on the server: infra/ is copied there by the deploy workflow, stand.env is made by
-# hand once (docs/08-demo-stand.md) and never leaves the server.
-STAND_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+# /opt/flagman on the server, or STAND_ROOT on a home PC: infra/ is copied there by the deploy workflow
+# on a server; stand.env, the deploy log and volume archives stay in STAND_ROOT and never leave the machine.
+STAND_ROOT="${STAND_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)}"
+STAND_REPO_ROOT="${STAND_REPO_ROOT:-$STAND_ROOT}"
 STAND_ENV="$STAND_ROOT/stand.env"
 # One line per deploy: "<UTC time> <tag>". The line before the last is what a rollback goes to.
 STAND_TAGS_LOG="$STAND_ROOT/deployed-tags.log"
@@ -22,10 +23,16 @@ stand_env() {
 
 # compose for the images of STAND_TAG (set by the caller).
 stand_compose() {
-  STAND_TAG="${STAND_TAG:?STAND_TAG is not set}" docker compose \
+  # Compose prefers a variable of the shell over --env-file. Callers set STAND_TAG
+  # on purpose, and home-up.sh also exports STAND_REGISTRY=local. STAND_DOMAIN is
+  # the exception: a leftover value in the shell would bake the wrong
+  # API_CORS_ORIGINS, and the fleet page would refuse every socket (#216).
+  env -u STAND_DOMAIN \
+    STAND_TAG="${STAND_TAG:?STAND_TAG is not set}" \
+    docker compose \
     --env-file "$STAND_ENV" \
-    -f "$STAND_ROOT/infra/docker-compose.yml" \
-    -f "$STAND_ROOT/infra/stand/compose.yml" \
+    -f "$STAND_REPO_ROOT/infra/docker-compose.yml" \
+    -f "$STAND_REPO_ROOT/infra/stand/compose.yml" \
     "$@"
 }
 
