@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Tests for scripts/check-expo-deps.mjs on canned `expo install --check --json` reports, so no
-# network and no Expo CLI. Usage: bash scripts/tests/check-expo-deps.test.sh
+# Tests for the Expo report parser and npm entry points, with a CLI stub so no network is needed.
+# Usage: bash scripts/tests/check-expo-deps.test.sh
 set -euo pipefail
 
 script="$(cd "$(dirname "$0")/.." && pwd)/check-expo-deps.mjs"
@@ -10,7 +10,7 @@ failed=0
 check() {
   local name=$1 want_code=$2 want_text=$3 out code=0
   shift 3
-  out=$(node "$script" "$@" 2>&1) || code=$?
+  out=$(node "$script" --stdin "$@" 2>&1) || code=$?
   if [ "$code" -ne "$want_code" ] || [[ "$out" != *"$want_text"* ]]; then
     echo "FAIL $name: exit $code (want $want_code), output:"
     echo "$out"
@@ -54,11 +54,75 @@ report "expo-router 58.0.30 ~58.1.0" | check "the strict run fails on a minor" 1
 report "expo-foo 1.2.3 *" | check "an unreadable expected range fails" 1 "FAIL  expo-foo@1.2.3"
 report "expo-foo 1.2.4 ^1.2.5||^2.0.0" | check "an expected list fails" 1 "FAIL  expo-foo@1.2.4"
 report "expo-foo latest ~1.2.3" | check "an unreadable actual version fails" 1 "FAIL  expo-foo@latest"
+report "expo 58.0.26 ~58.0.26-.." | check "a malformed prerelease range fails" 1 "FAIL  expo@58.0.26"
+report "expo 58.0.26-rc.1 ~58.0.26" | check "a prerelease is not a patch" 1 "FAIL  expo@58.0.26-rc.1"
+report "expo 58.0.25+local ~58.0.26" | check "valid build metadata is accepted" 0 "WARN  expo@58.0.25+local"
+report "expo 058.0.25 ~58.0.26" | check "a version with leading zeroes fails" 1 "FAIL  expo@058.0.25"
 printf '' | check "an empty pipe fails" 1 "gave no report"
 printf 'Some log line\n%s\n' "$(report "expo 58.0.24 ~58.0.25")" |
   check "text before the report fails" 1 "gave no report"
 echo 'Error: something broke' | check "non-JSON output fails" 1 "gave no report"
 echo '{"upToDate":true}' | check "a report without dependencies fails" 1 "gave no report"
 echo '{"dependencies":[],"upToDate":false}' | check "a self-contradicting report fails" 1 "gave no report"
+echo '{"dependencies":[null],"upToDate":false}' | check "a malformed dependency fails" 1 "gave no report"
+echo '{"dependencies":[{"actualVersion":"1.2.3","expectedVersionOrRange":"~1.2.4"}],"upToDate":false}' |
+  check "a report without a package name fails" 1 "gave no report"
+
+fixture=$(mktemp -d)
+trap 'rm -rf "$fixture"' EXIT
+repo=$(dirname "$(dirname "$script")")
+mkdir -p "$fixture/scripts" "$fixture/apps/mobile/node_modules/expo/bin"
+cp "$script" "$fixture/scripts/"
+cp "$repo/apps/mobile/package.json" "$fixture/apps/mobile/"
+echo 'EXPO_PUBLIC_API_URL=http://localhost:8000' >"$fixture/apps/mobile/.env.local"
+cat >"$fixture/apps/mobile/node_modules/expo/bin/cli" <<'EOF'
+const { existsSync } = require('node:fs');
+const assert = require('node:assert/strict');
+assert.deepEqual(process.argv.slice(2), ['install', '--check', '--json']);
+assert.ok(existsSync('.env.local'));
+if (process.env.EXPO_NO_DOTENV !== '1') console.log('env: load .env.local');
+if (process.env.CHECK_FIXTURE_OFFLINE) {
+  if (process.env.CHECK_FIXTURE_OFFLINE.startsWith('Unable to reach')) {
+    console.log('Networking has been disabled');
+  }
+  console.error(process.env.CHECK_FIXTURE_OFFLINE);
+  if (process.env.CHECK_FIXTURE_BROKEN === '1') process.exit(1);
+  console.log(JSON.stringify({ upToDate: true, dependencies: [] }));
+  process.exit(0);
+}
+console.log(JSON.stringify({
+  upToDate: false,
+  dependencies: [{ packageName: 'expo', actualVersion: '58.0.25', expectedVersionOrRange: '~58.0.26' }],
+}));
+process.exitCode = 1;
+EOF
+
+check_npm() {
+  local command=$1 want_code=$2 want_text=$3 offline=${4-} broken=${5-0} out code=0
+  out=$(cd "$fixture/apps/mobile" &&
+    EXPO_NO_DOTENV=0 CHECK_FIXTURE_OFFLINE="$offline" CHECK_FIXTURE_BROKEN="$broken" npm run "$command" 2>&1) || code=$?
+  if [ "$code" -ne "$want_code" ] || [[ "$out" != *"$want_text"* ]]; then
+    echo "FAIL npm $command (expected $want_text): exit $code (want $want_code), output:"
+    echo "$out"
+    failed=1
+  else
+    echo "ok   npm $command (expected $want_text)"
+  fi
+}
+
+check_npm check:deps 0 "WARN  expo@58.0.25"
+check_npm check:deps:strict 1 "FAIL  expo@58.0.25"
+check_npm check:deps 0 "Expo packages match the SDK" \
+  "Dependency validation is unreliable in offline-mode"
+check_npm check:deps:strict 2 "INCONCLUSIVE" \
+  "Dependency validation is unreliable in offline-mode"
+check_npm check:deps:strict 2 "INCONCLUSIVE" \
+  "Unable to reach well-known versions endpoint. Using local dependency map expo/bundledNativeModules.json"
+check_npm check:deps 0 "Expo packages match the SDK" \
+  "Unable to reach well-known versions endpoint. Using local dependency map expo/bundledNativeModules.json"
+check_npm check:deps:strict 2 "INCONCLUSIVE" \
+  "Dependency validation might be unreliable when using canary SDK versions"
+check_npm check:deps:strict 1 "gave no report it could read" \
+  "Dependency validation is unreliable in offline-mode" 1
 
 exit "$failed"

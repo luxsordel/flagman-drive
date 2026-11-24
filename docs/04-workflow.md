@@ -56,6 +56,10 @@ Workflow `.github/workflows/ci.yml` запускается на каждый PR 
 - `pip-audit`, `npm run audit` и Semgrep вынесены в `security-scans.yml`, в списке проверок PR они называются
   `Scans / …`. Тот же workflow раз в неделю гоняет `scheduled-scans.yml` по всему `main` и сообщает о падении в issue
   с меткой `security` ([docs/03-security.md](03-security.md), «Зависимости и CI»).
+- `scheduled-scans.yml` также запускает `check:deps:strict`. При расхождении даже на уровне патча проверка
+  падает и открывает отдельную задачу «Weekly Expo SDK check failed» с меткой `area:mobile`. Следующий успешный
+  запуск Expo на `main` закрывает её. При переходе на локальную карту проверка считается неполной, а задача
+  остаётся открытой ([ADR-0008](adr/0008-expo-sdk-dependency-policy.md)).
 - В `package.json` каждой JS-части обязательны скрипты `lint`, `typecheck`, `test`.
 - Обязательный для `main` статус — `CI gate`: он есть всегда и зелёный, если все запущенные проверки прошли.
   Список обязательных проверок задаётся в `scripts/setup-github.ps1`.

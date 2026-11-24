@@ -72,6 +72,23 @@ check "success without an open issue does nothing" 0 "" "" success "$url"
 check "a cancelled run neither opens nor closes" 0 "12\t$title" "" cancelled "$url"
 check "a failed issue lookup fails the step" 1 "FAIL" "" failure "$url"
 check "a missing run url is a usage error" 1 "" "" failure
+check "an unknown check is a usage error" 1 "" "" failure "$url" unknown
+
+expo_title="Weekly Expo SDK check failed"
+check "Expo failure opens a mobile issue even when a security issue exists" 0 "12\t$title" \
+  "^gh issue create --title $expo_title --label area:mobile --body .*$url" failure "$url" expo
+check "Expo failure comments on the existing Expo issue" 0 "12\t$title\n23\t$expo_title" \
+  "^gh issue comment 23 --body .*$url\$" failure "$url" expo
+check "Expo success only closes the Expo issue" 0 "12\t$title\n23\t$expo_title" \
+  "^gh issue close 23 --comment .*$url\$" success "$url" expo
+check "Expo success leaves the security issue open" 0 "12\t$title" "" success "$url" expo
+check "a cancelled Expo run leaves its issue open" 0 "23\t$expo_title" "" cancelled "$url" expo
+if grep -Eq -- '--state open( |$)' "$shims/list-args" && grep -Eq -- '--label area:mobile( |$)' "$shims/list-args"; then
+  echo "ok   the Expo lookup asks only for open issues labelled area:mobile"
+else
+  echo "FAIL the Expo lookup asks only for open issues labelled area:mobile: $(cat "$shims/list-args")"
+  failed=1
+fi
 
 # A closed issue or one without the label is not the scan's issue, whatever its title.
 : >"$shims/listed"
