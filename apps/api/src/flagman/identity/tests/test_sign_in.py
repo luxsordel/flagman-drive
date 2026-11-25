@@ -161,7 +161,10 @@ def test_sign_in_issues_tokens_that_open_protected_routes(
     assert response.status_code == HTTPStatus.ACCEPTED
     assert response.json() == {"expires_in": 300, "resend_after": 60}
 
-    tokens = _sign_in_with_sent_code(client, sms, phone)
+    verified = _verify(client, phone, sms.code_for(phone))
+    assert verified.status_code == HTTPStatus.OK
+    assert verified.headers["cache-control"] == "no-store"
+    tokens = verified.json()
 
     assert tokens["token_type"] == "Bearer"
     assert tokens["expires_in"] == 900
@@ -407,6 +410,7 @@ def test_refresh_rotates_the_token(client: TestClient, sms: FakeSms, phone: str)
     response = _refresh(client, tokens["refresh_token"])
 
     assert response.status_code == HTTPStatus.OK
+    assert response.headers["cache-control"] == "no-store"
     rotated = response.json()
     assert rotated["refresh_token"] != tokens["refresh_token"]
     assert _me(client, rotated["access_token"]).status_code == HTTPStatus.OK

@@ -229,6 +229,7 @@ def test_unhandled_exception_is_a_generic_500_with_request_id(client: TestClient
     assert "password" not in response.text
     # The 500 is produced inside the middleware stack, so it still gets the security headers.
     assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.headers["cache-control"] == "no-store"
 
 
 def test_a_client_leaving_mid_body_is_not_an_unhandled_error(

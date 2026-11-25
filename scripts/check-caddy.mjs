@@ -102,10 +102,11 @@ function fail(message) {
   throw new Error(message);
 }
 
-function req(port, ca, host, path, { method = 'GET', body } = {}) {
+function req(port, ca, host, path, { method = 'GET', body, etag } = {}) {
   return new Promise((resolve, reject) => {
     const headers = { host };
     if (body !== undefined) headers['content-length'] = String(body.byteLength);
+    if (etag !== undefined) headers['if-none-match'] = etag;
     const r = request(
       { method, host: '127.0.0.1', port, path, servername: host, headers, ca, timeout: 10000 },
       (res) => {
@@ -230,6 +231,19 @@ async function run() {
     if (cache !== undefined && res.headers['cache-control'] !== cache) {
       problems.push(`${where}: cache-control is ${res.headers['cache-control']}`);
     }
+    if (cache === page) {
+      const { etag } = res.headers;
+      if (etag === undefined) {
+        problems.push(`${where}: no ETag for revalidation`);
+      } else {
+        const revalidated = await req(port, ca, host, `${path}?${query}`, { etag });
+        if (revalidated.statusCode !== 304 || revalidated.headers['cache-control'] !== page) {
+          problems.push(
+            `${where}: revalidation returned ${revalidated.statusCode} with ${revalidated.headers['cache-control']}`,
+          );
+        }
+      }
+    }
   }
 
   // handle_errors catches every error these requests cause, so none of them reaches the default
@@ -296,6 +310,9 @@ async function run() {
     const res = await req(port, ca, 'api.localhost', '/rentals/current', { method: 'POST', body });
     if (res.statusCode !== status) {
       problems.push(`body ${size} bytes: status ${res.statusCode}, expected ${status}`);
+    }
+    if (res.headers['cache-control'] !== noStore) {
+      problems.push(`body ${size} bytes: cache-control is ${res.headers['cache-control']}`);
     }
   }
 
