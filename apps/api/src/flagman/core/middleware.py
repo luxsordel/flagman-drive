@@ -98,6 +98,10 @@ class SecurityHeadersMiddleware:
                     headers["Content-Security-Policy"] = (
                         "default-src 'none'; frame-ancestors 'none'"
                     )
+                # API answers carry tokens and personal data, so none may stay in a browser or proxy
+                # cache unless the route itself says otherwise (#220).
+                if "Cache-Control" not in headers:
+                    headers["Cache-Control"] = "no-store"
                 if self.hsts:
                     headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
             await send(message)

@@ -8,8 +8,10 @@
 // and Git Bash, and Git Bash cannot rewrite the container paths.
 import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { request } from 'node:https';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 
@@ -30,13 +32,22 @@ const query = ['search', 'session', 'X-Amz-Signature', 'code', 'token', 'cursor'
   .join('&');
 
 // The api host and the admin API reach the stub; s3 has no upstream at all, so its 502 covers the
-// error path, and admin and app have no built files, so their 404s cover the file server. Caddy
-// writes those error responses itself, and they must carry the same headers as any other answer.
+// error path, and a hashed asset missing from the build covers the file server's 404. Caddy writes
+// those error responses itself, and they must carry the same headers as any other answer.
 const pageCsp = "frame-ancestors 'none'";
+// The API's answers carry personal data; the edge must pass its no-store on untouched, and its own
+// error answers are not cached either (#220).
+const noStore = 'no-store';
+// index.html and the root files keep their names across releases, so the browser asks every time.
+const page = 'no-cache';
+const asset = 'public, max-age=31536000, immutable';
 const cases = [
-  { host: 'api.localhost', path: '/rentals/current', status: 200 },
-  { host: 'admin.localhost', path: '/admin/clients', status: 200 },
-  { host: 'admin.localhost', path: '/clients', status: 404, csp: pageCsp },
+  { host: 'api.localhost', path: '/rentals/current', status: 200, cache: noStore },
+  { host: 'admin.localhost', path: '/admin/clients', status: 200, cache: noStore },
+  { host: 'admin.localhost', path: '/clients', status: 200, csp: pageCsp, cache: page },
+  { host: 'admin.localhost', path: '/assets/index-abc123.js', status: 200, cache: asset },
+  // Not index.html, and not with the asset's cache: either would stay a year under its name.
+  { host: 'admin.localhost', path: '/assets/index-gone.js', status: 404, cache: noStore },
   // s3 serves only re-encoded photos, which need nothing from a CSP: it denies everything.
   {
     host: 's3.localhost',
@@ -44,9 +55,29 @@ const cases = [
     status: 502,
     csp: "default-src 'none'; frame-ancestors 'none'",
     exactCsp: true,
+    cache: noStore,
   },
-  { host: 'app.localhost', path: '/cards/bind', status: 404, csp: pageCsp },
+  { host: 'app.localhost', path: '/cards/bind', status: 200, csp: pageCsp, cache: page },
+  { host: 'app.localhost', path: '/rentals/current', status: 200, cache: noStore },
+  { host: 'app.localhost', path: '/maplibre-gl-worker.mjs', status: 200, cache: page },
+  {
+    host: 'app.localhost',
+    path: '/_expo/static/js/web/entry-abc123.js',
+    status: 200,
+    cache: asset,
+  },
 ];
+
+// Stand-ins for the admin and app builds (infra/stand/web/Dockerfile): an index.html, a hashed
+// asset where each bundler puts it, and the map worker the app copies to its root.
+const builds = mkdtempSync(join(tmpdir(), 'check-caddy-'));
+const buildFiles = {
+  'admin/index.html': '<!doctype html>',
+  'admin/assets/index-abc123.js': '',
+  'app/index.html': '<!doctype html>',
+  'app/maplibre-gl-worker.mjs': '',
+  'app/_expo/static/js/web/entry-abc123.js': '',
+};
 
 // Body-size checks: the API's photo limit is 10 MiB (core/photos.py), so a 10 MiB POST must reach
 // the upstream (status 200 from the stub). One byte over the Caddy ceiling (12 MiB + 1) must be
@@ -71,10 +102,11 @@ function fail(message) {
   throw new Error(message);
 }
 
-function req(port, ca, host, path, { method = 'GET', body } = {}) {
+function req(port, ca, host, path, { method = 'GET', body, etag } = {}) {
   return new Promise((resolve, reject) => {
     const headers = { host };
     if (body !== undefined) headers['content-length'] = String(body.byteLength);
+    if (etag !== undefined) headers['if-none-match'] = etag;
     const r = request(
       { method, host: '127.0.0.1', port, path, servername: host, headers, ca, timeout: 10000 },
       (res) => {
@@ -94,6 +126,11 @@ function get(port, ca, host, path) {
 }
 
 async function run() {
+  for (const [path, content] of Object.entries(buildFiles)) {
+    const file = join(builds, path);
+    mkdirSync(join(file, '..'), { recursive: true });
+    writeFileSync(file, content);
+  }
   docker(['network', 'create', name]);
   // Use a Node.js stub rather than `caddy respond` so the server actually reads (drains) the request
   // body. Caddy's request_body max_size limit is only enforced when the upstream consumes the body;
@@ -108,7 +145,8 @@ async function run() {
     // The API sets these itself (core/middleware.py): the edge must replace them, not add a copy.
     "'Strict-Transport-Security':'max-age=63072000; includeSubDomains'," +
     "'X-Content-Type-Options':'nosniff'," +
-    "'Referrer-Policy':'no-referrer'" +
+    "'Referrer-Policy':'no-referrer'," +
+    "'Cache-Control':'no-store'" +
     "});" +
     "res.end('ok')" +
     "});" +
@@ -142,6 +180,10 @@ async function run() {
     'ACME_EMAIL=check@example.invalid',
     '--mount',
     `type=bind,source=${caddyfile},target=/etc/caddy/Caddyfile,readonly`,
+    '--mount',
+    `type=bind,source=${join(builds, 'admin')},target=/srv/admin,readonly`,
+    '--mount',
+    `type=bind,source=${join(builds, 'app')},target=/srv/app,readonly`,
     image,
   ]);
   const port = Number(docker(['port', edge, '443/tcp']).stdout.trim().split(':').pop());
@@ -169,7 +211,7 @@ async function run() {
     'x-content-type-options': 'nosniff',
     'referrer-policy': 'no-referrer',
   };
-  for (const { host, path, status, csp, exactCsp } of cases) {
+  for (const { host, path, status, csp, exactCsp, cache } of cases) {
     const res = await get(port, ca, host, `${path}?${query}`);
     const where = `${host}${path}`;
     if (res.statusCode !== status) problems.push(`${where}: status ${res.statusCode}`);
@@ -185,6 +227,22 @@ async function run() {
       const actual = res.headers['content-security-policy'];
       const matches = exactCsp ? actual === csp : actual?.includes(csp) === true;
       if (!matches) problems.push(`${where}: content-security-policy is ${actual}`);
+    }
+    if (cache !== undefined && res.headers['cache-control'] !== cache) {
+      problems.push(`${where}: cache-control is ${res.headers['cache-control']}`);
+    }
+    if (cache === page) {
+      const { etag } = res.headers;
+      if (etag === undefined) {
+        problems.push(`${where}: no ETag for revalidation`);
+      } else {
+        const revalidated = await req(port, ca, host, `${path}?${query}`, { etag });
+        if (revalidated.statusCode !== 304 || revalidated.headers['cache-control'] !== page) {
+          problems.push(
+            `${where}: revalidation returned ${revalidated.statusCode} with ${revalidated.headers['cache-control']}`,
+          );
+        }
+      }
     }
   }
 
@@ -253,11 +311,14 @@ async function run() {
     if (res.statusCode !== status) {
       problems.push(`body ${size} bytes: status ${res.statusCode}, expected ${status}`);
     }
+    if (res.headers['cache-control'] !== noStore) {
+      problems.push(`body ${size} bytes: cache-control is ${res.headers['cache-control']}`);
+    }
   }
 
   if (problems.length > 0) fail(`${problems.join('\n      ')}`);
   console.log(
-    `ok    ${image}: ${cases.length} requests, headers on errors too, paths logged, query strings dropped, every log filtered, ${bodyCases.length} body-size checks`,
+    `ok    ${image}: ${cases.length} requests, headers on errors too, cache rules, paths logged, query strings dropped, every log filtered, ${bodyCases.length} body-size checks`,
   );
 }
 
@@ -271,4 +332,5 @@ try {
 } finally {
   docker(['rm', '--force', edge, upstream], { check: false });
   docker(['network', 'rm', name], { check: false });
+  rmSync(builds, { recursive: true, force: true });
 }

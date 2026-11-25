@@ -44,6 +44,8 @@
 	# Caddy logs a handled error at debug level only, so its cause goes to the access line instead.
 	handle_errors {
 		header -Server
+		# Replaces what the route set before it failed, such as a hashed asset's year-long cache.
+		header Cache-Control "no-store"
 		log_append error {err.message}
 		respond "" {err.status_code}
 	}
@@ -83,9 +85,17 @@
 
 # A single-page app: unknown paths get index.html; hashed assets are cached for a long time.
 (spa) {
+	@assets path /assets/* /_expo/*
+	# Every build gives these files new names, so a year is safe. A missing one is a 404, not
+	# index.html, which would otherwise be cached for a year under an asset's name.
+	handle @assets {
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+	# index.html and the files at the root keep their names across releases: the browser asks again
+	# every time, or it keeps running the previous build.
 	handle {
-		@assets path /assets/* /_expo/*
-		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header Cache-Control "no-cache"
 		try_files {path} /index.html
 		file_server
 	}
