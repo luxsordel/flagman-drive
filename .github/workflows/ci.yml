@@ -60,7 +60,7 @@ jobs:
 
           # JS/TS parts are npm workspaces with one root lockfile, so they are checked together.
           node=false
-          if [ -f package.json ] && has '^(package\.json|package-lock\.json|packages/|apps/(mobile|admin)/)'; then
+          if [ -f package.json ] && has '^(package\.json|package-lock\.json|packages/|apps/(mobile|admin)/|scripts/check-expo-deps\.mjs$)'; then
             node=true
           fi
 
@@ -167,6 +167,8 @@ jobs:
       - run: npm test
       # Expo pins native module versions per SDK; a mismatch passes the checks above but crashes
       # on a device. Bundling catches what Jest cannot: Metro resolution, platform files, assets.
+      # A package a patch behind only warns here: each Expo patch release would otherwise turn every
+      # PR red. The weekly run reports patches (check:deps:strict, ADR-0008).
       - name: Expo SDK compatibility
         run: npm run check:deps --workspaces --if-present
       - name: Bundle for every platform

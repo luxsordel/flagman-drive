@@ -95,10 +95,16 @@ npm run typecheck --workspace @flagman/mobile
 npm test --workspace @flagman/mobile
 ```
 
-Перед PR, если менялись зависимости, — то же, что делает CI:
+Перед PR, если менялись зависимости, — то же, что делает CI (отставание на патч только предупреждает):
 
 ```bash
 npm run check:deps --workspace @flagman/mobile
+```
+
+При подъёме SDK или пакетов Expo — строгая проверка, она падает и на патчах:
+
+```bash
+npm run check:deps:strict --workspace @flagman/mobile
 ```
 
 ```bash

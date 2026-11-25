@@ -14,7 +14,8 @@
     "lint": "eslint . && prettier --check .",
     "typecheck": "tsc --noEmit",
     "test": "jest",
-    "check:deps": "expo install --check",
+    "check:deps": "node ../../scripts/check-expo-deps.mjs",
+    "check:deps:strict": "node ../../scripts/check-expo-deps.mjs --strict",
     "check:bundle": "node scripts/copy-map-worker.mjs && expo export --platform all --output-dir dist",
     "postinstall": "node scripts/copy-map-worker.mjs"
   },

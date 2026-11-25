@@ -21,11 +21,34 @@ jobs:
     name: Scans
     uses: ./.github/workflows/security-scans.yml
 
+  expo-sdk:
+    name: Expo SDK compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      inconclusive: ${{ steps.check.outputs.inconclusive }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - id: check
+        run: |
+          status=0
+          npm run check:deps:strict --workspace=apps/mobile || status=$?
+          # An offline fallback cannot establish whether an existing alert is still current.
+          if [ "$status" -eq 2 ]; then
+            echo "inconclusive=true" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$status"
+
   # A scheduled run belongs to nobody's PR, so its result goes to an issue the team sees. Only main
   # counts: a manual run on a branch says nothing about main, so it must not open or close the issue.
   report:
     name: Report the result in an issue
-    needs: scans
+    needs: [scans, expo-sdk]
     if: always() && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -34,6 +57,7 @@ jobs:
       issues: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        id: checkout
       - name: Open, update or close the scan issue
         env:
           GH_TOKEN: ${{ github.token }}
@@ -41,3 +65,11 @@ jobs:
           RESULT: ${{ needs.scans.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: bash scripts/scan-status-issue.sh "$RESULT" "$RUN_URL"
+      - name: Open, update or close the Expo SDK issue
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' && needs.expo-sdk.outputs.inconclusive != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RESULT: ${{ needs.expo-sdk.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash scripts/scan-status-issue.sh "$RESULT" "$RUN_URL" expo
